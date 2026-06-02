@@ -13,7 +13,7 @@ authors = [
     { name = "OceanBase", email = "open_oceanbase@oceanbase.com" },
 ]
 maintainers = [
-    { name = "cao1629" },
+    { name = "OceanBase", email = "open_oceanbase@oceanbase.com" },
 ]
 keywords = ["seekdb", "vector", "database", "search", "AI", "embeddings", "hybrid-search"]
 classifiers = [
