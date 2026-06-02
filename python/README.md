@@ -145,7 +145,7 @@ LIMIT 10;
 
 | Method | Description |
 |---|---|
-| `execute(sql)` | Execute *sql*; returns the number of rows affected / result rows. |
+| `execute(sql)` | Execute *sql*; returns the number of rows in the result set (0 for statements without a result set). |
 | `fetchone()` | Return the next row as a `tuple`, or `None`. |
 | `fetchall()` | Return all remaining rows as a list of `tuple`. |
 | `close()` | Free the result set. |
