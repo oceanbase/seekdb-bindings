@@ -10,9 +10,9 @@ Low-level Python bindings for the [seekdb](https://github.com/oceanbase/seekdb) 
 
 ## 🔥 Why OceanBase seekdb?
 
-| Feature | seekdb | Chroma | Milvus | MySQL 9.0 | PostgreSQL+pgvector | Elasticsearch |
+| Feature | seekdb | Chroma | Milvus | MySQL 8.0+ | PostgreSQL+pgvector | Elasticsearch |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Embedded** | ✅ | ✅ | ✅ | ❌¹ | ❌ | ❌ |
+| **Embedded** | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Single-Node** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **MySQL Compatible** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **Vector Search** | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
@@ -21,7 +21,7 @@ Low-level Python bindings for the [seekdb](https://github.com/oceanbase/seekdb) 
 | **OLTP** | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ |
 | **License** | Apache 2.0 | Apache 2.0 | Apache 2.0 | GPL 2.0 | PostgreSQL | AGPLv3 |
 
-> ¹ Embedded capability removed in MySQL 8.0 · ✅ Supported · ❌ Not Supported · ⚠️ Limited
+> ✅ Supported · ❌ Not Supported · ⚠️ Limited
 
 ## Installation
 
@@ -39,11 +39,12 @@ pip install pylibseekdb
 ## 🎬 Quick Start
 
 `pylibseekdb` exposes a lightweight DB-API 2-style interface directly over the seekdb C driver.
+It currently starts a local seekdb runtime via `open()`. Native embedded-mode support will be released soon.
 
 ```python
 import pylibseekdb as seekdb
 
-# Open an embedded seekdb instance (directory is created if absent)
+# Start a local seekdb runtime (embedded-mode support will be released soon)
 seekdb.open(db_dir="./seekdb.db")
 
 # Get a connection and a cursor
@@ -128,7 +129,7 @@ LIMIT 10;
 
 | Function | Description |
 |---|---|
-| `open(db_dir="./seekdb.db")` | Open (or create) an embedded seekdb instance. Must be called before `connect()`. |
+| `open(db_dir="./seekdb.db")` | Start a local seekdb runtime for the given database directory. Embedded-mode support will be released soon. Must be called before `connect()`. |
 | `connect(database="test", autocommit=False)` | Return a `Connection` to the given database. |
 
 ### `Connection`
@@ -160,7 +161,7 @@ Exception raised on driver errors.  Subclass of `RuntimeError`.
 - **📖 RAG & Knowledge Retrieval** — hybrid search across enterprise knowledge bases
 - **🔍 Semantic Search** — embedding-based search for text, images, and other modalities
 - **💻 AI-Assisted Coding** — semantic code search with multi-project isolation
-- **📱 On-Device & Edge AI** — embedded / micro-server mode for resource-constrained devices
+- **📱 On-Device & Edge AI** — lightweight local deployments today, with embedded-mode support coming soon
 
 ## 🌐 Resources
 
