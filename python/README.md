@@ -1,6 +1,6 @@
 # pylibseekdb
 
-Low-level Python bindings (pybind11) for the [seekdb](https://github.com/oceanbase/seekdb) C client library.
+Low-level Python bindings for the [seekdb](https://github.com/oceanbase/seekdb) C client library.
 
 ## 🚀 What is OceanBase seekdb?
 
