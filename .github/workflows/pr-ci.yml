@@ -1,0 +1,68 @@
+name: PR CI
+
+on:
+  pull_request:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout seekdb-bindings
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python build dependencies
+        run: python -m pip install --upgrade pip pybind11
+
+      - name: Resolve seekdb master commit
+        id: seekdb_ref
+        run: |
+          echo "sha=$(git ls-remote https://github.com/oceanbase/seekdb.git refs/heads/master | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached seekdb build
+        id: seekdb_cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/seekdb-master
+          key: seekdb-master-${{ runner.os }}-${{ steps.seekdb_ref.outputs.sha }}
+
+      - name: Build seekdb from master
+        if: steps.seekdb_cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
+          rm -rf "$SEEKDB_DIR"
+          git clone --depth 1 --branch master https://github.com/oceanbase/seekdb.git "$SEEKDB_DIR"
+          cd "$SEEKDB_DIR"
+          ./build.sh release --init --make -j"$(nproc)"
+
+      - name: Locate seekdb binary
+        run: |
+          set -euo pipefail
+          SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
+          SEEKDB_BIN=$(find "$SEEKDB_DIR/build_release" -type f -name seekdb -perm -u+x | head -n1)
+          if [ -z "$SEEKDB_BIN" ]; then
+            echo "seekdb binary not found" >&2
+            exit 1
+          fi
+          echo "SEEKDB_BIN=$SEEKDB_BIN" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build tests
+        run: cmake --build build --target seekdb_driver_tests --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
