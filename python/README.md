@@ -8,19 +8,25 @@ Low-level Python bindings for the [seekdb](https://github.com/oceanbase/seekdb) 
 
 > 📖 [Read the launch blog →](https://github.com/oceanbase/seekdb/blob/develop/docs/blog/launch_blog_en.md) · 📚 [Docs →](https://docs.seekdb.ai/)
 
-## 🔥 Why OceanBase seekdb?
+## ✨ Why seekdb for Agents?
 
-| Feature | seekdb | Chroma | Milvus | MySQL 8.0+ | PostgreSQL+pgvector | Elasticsearch |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Single-Node** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **MySQL Compatible** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| **Vector Search** | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
-| **Full-Text Search** | ✅ | ✅ | ⚠️ | ✅ | ✅ | ✅ |
-| **Hybrid Search** | ✅ | ✅ | ✅ | ❌ | ⚠️ | ✅ |
-| **OLTP** | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ |
-| **License** | Apache 2.0 | Apache 2.0 | Apache 2.0 | GPL 2.0 | PostgreSQL | AGPLv3 |
+### 🔥 Streaming Write + Concurrent Search, Without the P99 Spike
 
-> ✅ Supported · ❌ Not Supported · ⚠️ Limited
+Agent workloads are continuous write + millisecond-later read. seekdb's **async index pipeline (Change Stream)** decouples DML from index build, and its **two-level HNSW** (incremental + snapshot) makes newly-written vectors immediately searchable.
+
+The write path commits and returns _without waiting_ on index construction. The Change Stream pipeline consumes the redo log asynchronously and updates the delta HNSW. Queries hit both delta and snapshot indexes with fine-grained read locks — **this is why P99 stays flat under concurrency.**
+
+### 🌿 Copy-on-Write Sandboxes for Agent Exploration
+
+`FORK DATABASE` snapshots an entire database in seconds — no data copy. Agents experiment freely (write, query, even break tables); then `MERGE TABLE` commits the work back, or `DROP DATABASE` discards it.
+
+### 🔍 Hybrid Search in a Single SQL
+
+Vector + full-text + scalar filter pushed into one execution plan. No N+1 client-side merging, no glue code to combine results.
+
+### 🐬 MySQL-Compatible, ACID, Embeddable
+
+Built on the proven OceanBase SQL engine. Works as an embedded library, a single-node server, or in the OceanBase distributed cluster. Full ACID, real-time writes, and the entire MySQL ecosystem out of the box.
 
 ## Installation
 
@@ -33,6 +39,7 @@ pip install pylibseekdb
 - CPython >= 3.11
 - Linux x86_64 with glibc >= 2.28 (Alpine / musl not supported yet)
 - macOS arm64 >= 15.5
+- Windows AMD64
 
 ## 🎬 Quick Start
 
