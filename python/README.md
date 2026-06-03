@@ -90,7 +90,7 @@ try:
     conn.begin()
     cursor.execute("INSERT INTO articles VALUES (2, 'Second', '[0.5,0.6,0.7,0.8]')")
     conn.commit()
-except seekdb.SeekdbError as exc:
+except seekdb.SeekdbError:
     conn.rollback()
     raise
 finally:
