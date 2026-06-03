@@ -22,6 +22,9 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: C++",
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -41,7 +44,7 @@ wheel.packages   = ["pylibseekdb"]
 build-dir        = "../build/python/{wheel_tag}"
 
 [tool.cibuildwheel]
-build  = "cp311-*"
+build  = "cp311-* cp312-* cp313-* cp314-*"
 skip   = "*-musllinux_*"
 
 environment = { PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/" }
