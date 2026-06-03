@@ -5,11 +5,14 @@ on:
 
 env:
   BUILD_TYPE: Release
+  TEST_TARGET: seekdb_driver_tests
 
 jobs:
   test:
     name: Build and test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout seekdb-bindings
@@ -25,44 +28,75 @@ jobs:
       - name: Install Python build dependencies
         run: python -m pip install --upgrade pip pybind11
 
+      - name: Normalize build type
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEEKDB_BUILD_TYPE="${BUILD_TYPE,,}"
+          case "$SEEKDB_BUILD_TYPE" in
+            release|debug) ;;
+            *) echo "unsupported BUILD_TYPE: $BUILD_TYPE" >&2; exit 1 ;;
+          esac
+          echo "SEEKDB_BUILD_TYPE=$SEEKDB_BUILD_TYPE" >> "$GITHUB_ENV"
+
       - name: Resolve seekdb master commit
         id: seekdb_ref
+        shell: bash
         run: |
-          echo "sha=$(git ls-remote https://github.com/oceanbase/seekdb.git refs/heads/master | cut -f1)" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          sha=$(git ls-remote https://github.com/oceanbase/seekdb.git refs/heads/master | cut -f1)
+          if [ -z "$sha" ]; then
+            echo "failed to resolve oceanbase/seekdb master SHA" >&2
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Restore cached seekdb build
         id: seekdb_cache
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/seekdb-master
-          key: seekdb-master-${{ runner.os }}-${{ steps.seekdb_ref.outputs.sha }}
+          key: seekdb-master-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}-${{ steps.seekdb_ref.outputs.sha }}
 
       - name: Build seekdb from master
         if: steps.seekdb_cache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
           set -euo pipefail
           SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
           rm -rf "$SEEKDB_DIR"
           git clone --depth 1 --branch master https://github.com/oceanbase/seekdb.git "$SEEKDB_DIR"
           cd "$SEEKDB_DIR"
-          ./build.sh release --init --make -j"$(nproc)"
+          ./build.sh "$SEEKDB_BUILD_TYPE" --init --make -j"$(nproc)"
 
       - name: Locate seekdb binary
+        shell: bash
         run: |
           set -euo pipefail
           SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
-          SEEKDB_BIN=$(find "$SEEKDB_DIR/build_release" -type f -name seekdb -perm -u+x | head -n1)
-          if [ -z "$SEEKDB_BIN" ]; then
+          SEEKDB_BUILD_DIR="$SEEKDB_DIR/build_$SEEKDB_BUILD_TYPE"
+          if [ ! -d "$SEEKDB_BUILD_DIR" ]; then
+            echo "seekdb build directory not found: $SEEKDB_BUILD_DIR" >&2
+            exit 1
+          fi
+          mapfile -t SEEKDB_BINS < <(find "$SEEKDB_BUILD_DIR" -type f -name seekdb -executable)
+          if [ "${#SEEKDB_BINS[@]}" -eq 0 ]; then
             echo "seekdb binary not found" >&2
             exit 1
           fi
+          if [ "${#SEEKDB_BINS[@]}" -gt 1 ]; then
+            echo "multiple seekdb binaries found in $SEEKDB_BUILD_DIR" >&2
+            printf '%s\n' "${SEEKDB_BINS[@]}" >&2
+            exit 1
+          fi
+          SEEKDB_BIN="${SEEKDB_BINS[0]}"
           echo "SEEKDB_BIN=$SEEKDB_BIN" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DSEEKDB_BIN=${{ env.SEEKDB_BIN }}
 
       - name: Build tests
-        run: cmake --build build --target seekdb_driver_tests --parallel
+        run: cmake --build build --target "${{ env.TEST_TARGET }}" --parallel
 
       - name: Run tests
         run: ctest --test-dir build --output-on-failure
