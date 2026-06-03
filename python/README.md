@@ -15,7 +15,7 @@ Low-level Python bindings for the [seekdb](https://github.com/oceanbase/seekdb) 
 Agent workloads are continuous write + millisecond-later read. seekdb's **async index pipeline (Change Stream)** decouples DML from index build, and its **two-level HNSW** (incremental + snapshot) makes newly-written vectors immediately searchable.
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/oceanbase/seekdb/main/images/architecture.svg" alt="seekdb async index pipeline architecture" width="720" />
+  <img src="https://raw.githubusercontent.com/oceanbase/seekdb/refs/heads/develop/images/architecture.svg" alt="seekdb async index pipeline architecture" width="720" />
 </div>
 
 The write path commits and returns _without waiting_ on index construction. The Change Stream pipeline consumes the redo log asynchronously and updates the delta HNSW. Queries hit both delta and snapshot indexes with fine-grained read locks — **this is why P99 stays flat under concurrency.**
