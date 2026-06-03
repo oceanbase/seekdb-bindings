@@ -7,7 +7,7 @@ name = "pylibseekdb"
 version = "0.1.0"
 description = "Python bindings for the seekdb C client"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "OceanBase", email = "open_oceanbase@oceanbase.com" },
