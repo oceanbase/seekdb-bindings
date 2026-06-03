@@ -12,7 +12,6 @@ Low-level Python bindings for the [seekdb](https://github.com/oceanbase/seekdb) 
 
 | Feature | seekdb | Chroma | Milvus | MySQL 8.0+ | PostgreSQL+pgvector | Elasticsearch |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Embedded** | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Single-Node** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **MySQL Compatible** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **Vector Search** | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
