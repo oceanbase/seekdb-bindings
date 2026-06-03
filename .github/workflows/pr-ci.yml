@@ -1,7 +1,16 @@
-name: PR CI
+name: Pull Request Build and Test
 
 on:
   pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - 'README.md'
+      - 'README_CN.md'
+      - 'CONTRIBUTING.md'
 
 env:
   BUILD_TYPE: Release
@@ -23,7 +32,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
       - name: Install Python build dependencies
         run: python -m pip install --upgrade pip pybind11
@@ -39,24 +48,31 @@ jobs:
           esac
           echo "SEEKDB_BUILD_TYPE=$SEEKDB_BUILD_TYPE" >> "$GITHUB_ENV"
 
-      - name: Resolve seekdb master commit
-        id: seekdb_ref
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha=$(git ls-remote https://github.com/oceanbase/seekdb.git refs/heads/master | cut -f1)
-          if [ -z "$sha" ]; then
-            echo "failed to resolve oceanbase/seekdb master SHA" >&2
-            exit 1
-          fi
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Free Disk Space
+        uses: insightsengineering/disk-space-reclaimer@v1
+        with:
+          tools-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+          docker-images: true
 
       - name: Restore cached seekdb build
         id: seekdb_cache
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/seekdb-master
-          key: seekdb-master-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}-${{ steps.seekdb_ref.outputs.sha }}
+          key: seekdb-master-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
+
+      - name: Prepare seekdb build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y git wget rpm rpm2cpio cpio make build-essential binutils m4 libtool-bin libncurses5 python3
 
       - name: Build seekdb from master
         if: steps.seekdb_cache.outputs.cache-hit != 'true'
@@ -67,7 +83,11 @@ jobs:
           rm -rf "$SEEKDB_DIR"
           git clone --depth 1 --branch master https://github.com/oceanbase/seekdb.git "$SEEKDB_DIR"
           cd "$SEEKDB_DIR"
-          ./build.sh "$SEEKDB_BUILD_TYPE" --init --make -j"$(nproc)"
+          build_jobs=$(nproc)
+          if [ "$build_jobs" -gt 3 ]; then
+            build_jobs=3
+          fi
+          ./build.sh "$SEEKDB_BUILD_TYPE" --init -DBUILD_EMBED_MODE=ON --make -j"$build_jobs"
 
       - name: Locate seekdb binary
         shell: bash
@@ -90,6 +110,7 @@ jobs:
             exit 1
           fi
           SEEKDB_BIN="${SEEKDB_BINS[0]}"
+          strip "$SEEKDB_BIN"
           echo "SEEKDB_BIN=$SEEKDB_BIN" >> "$GITHUB_ENV"
 
       - name: Configure
