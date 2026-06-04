@@ -28,6 +28,10 @@
 #include <thread>
 #include <vector>
 
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
+
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
 
@@ -126,6 +130,11 @@ TEST_F(TwoClientsOpen, TwoConcurrentClients)
     for (int64_t pid : spawned_pids) {
         if (pid > 0 && !is_server_reaped(pid)) {
             terminate_process(pid, /*graceful=*/0);
+#ifndef _WIN32
+            // SIGKILL leaves a zombie until the parent reaps it; without this
+            // is_server_reaped (kill(pid, 0)) sees the zombie as alive forever.
+            waitpid((pid_t)pid, nullptr, 0);
+#endif
         }
     }
     while (true) {
@@ -227,6 +236,11 @@ TEST_F(TwoClientsOpen, BArrivesAfterAStartup)
     for (int64_t pid : spawned_pids) {
         if (pid > 0 && !is_server_reaped(pid)) {
             terminate_process(pid, /*graceful=*/0);
+#ifndef _WIN32
+            // SIGKILL leaves a zombie until the parent reaps it; without this
+            // is_server_reaped (kill(pid, 0)) sees the zombie as alive forever.
+            waitpid((pid_t)pid, nullptr, 0);
+#endif
         }
     }
     while (true) {
@@ -362,6 +376,11 @@ TEST_F(TwoClientsOpen, ClientBSeesClientAWrite)
     for (int64_t pid : spawned_pids) {
         if (pid > 0 && !is_server_reaped(pid)) {
             terminate_process(pid, /*graceful=*/0);
+#ifndef _WIN32
+            // SIGKILL leaves a zombie until the parent reaps it; without this
+            // is_server_reaped (kill(pid, 0)) sees the zombie as alive forever.
+            waitpid((pid_t)pid, nullptr, 0);
+#endif
         }
     }
     while (true) {
