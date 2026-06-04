@@ -35,13 +35,11 @@ add_library(seekdb_driver        SHARED $<TARGET_OBJECTS:seekdb_driver_objs>)
 
 set_target_properties(seekdb_driver PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
-foreach(_t seekdb_driver)
-    target_include_directories(${_t}
-        PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-                $<INSTALL_INTERFACE:include>
-        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(${_t} PRIVATE mariadb_client Threads::Threads)
-endforeach()
+target_include_directories(seekdb_driver
+    PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(seekdb_driver PRIVATE mariadb_client Threads::Threads)
 
 if (SEEKDB_BIN)
     if (NOT EXISTS "${SEEKDB_BIN}")
