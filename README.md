@@ -39,7 +39,6 @@ After configuration (per-platform commands below), choose a `make` target from i
 | target | output |
 |---|---|
 | `make seekdb_driver` | `libseekdb_driver.so` (shared) |
-| `make seekdb_driver_static` | `libseekdb_driver.a` (static) |
 | `make seekdb_cli` | `seekdb_cli` (interactive SQL client) |
 | `make pylibseekdb` | `pylibseekdb.cpython-*.so` (Python extension) |
 | `make seekdb_driver_tests` | `test_one_client_process`, `test_two_clients_threads` |

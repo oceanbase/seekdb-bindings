@@ -32,15 +32,10 @@ if (SEEKDB_DRIVER_ENABLE_LOG)
 endif()
 
 add_library(seekdb_driver        SHARED $<TARGET_OBJECTS:seekdb_driver_objs>)
-add_library(seekdb_driver_static STATIC $<TARGET_OBJECTS:seekdb_driver_objs>)
-
-if (NOT WIN32)
-    set_target_properties(seekdb_driver_static PROPERTIES OUTPUT_NAME seekdb_driver)
-endif()
 
 set_target_properties(seekdb_driver PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
-foreach(_t seekdb_driver seekdb_driver_static)
+foreach(_t seekdb_driver)
     target_include_directories(${_t}
         PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 $<INSTALL_INTERFACE:include>
