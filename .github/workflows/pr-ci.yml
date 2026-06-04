@@ -61,7 +61,7 @@ jobs:
 
       - name: Restore cached seekdb build
         id: seekdb_cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/seekdb-master
           key: seekdb-master-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
@@ -112,6 +112,13 @@ jobs:
           SEEKDB_BIN="${SEEKDB_BINS[0]}"
           strip "$SEEKDB_BIN"
           echo "SEEKDB_BIN=$SEEKDB_BIN" >> "$GITHUB_ENV"
+
+      - name: Save seekdb build cache
+        if: steps.seekdb_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/seekdb-master
+          key: seekdb-master-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DSEEKDB_BIN=${{ env.SEEKDB_BIN }}
