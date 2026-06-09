@@ -115,6 +115,17 @@ cmake -S . -B build -DSEEKDB_DRIVER_ENABLE_LOG=ON
 cmake --build build
 ```
 
+## Format source code
+
+Install `clang-format`, configure the project as usual, then run:
+
+```sh
+cmake --build build --target format
+```
+
+The `format` target rewrites the repository's C, C++, and pybind11 source files using the
+root `.clang-format` style.
+
 ## Use seekdb_cli
 
 Interactive SQL shell, same shape as `mysql` / `mariadb`:

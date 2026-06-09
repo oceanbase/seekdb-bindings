@@ -16,6 +16,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "")
 
 include(CTest)
 
+find_program(CLANG_FORMAT_EXE NAMES clang-format)
+
 if (WIN32)
     add_compile_definitions(WIN32_LEAN_AND_MEAN)
 endif()
@@ -54,3 +56,21 @@ include(GoogleTest)
 
 add_subdirectory(driver)
 add_subdirectory(python)
+
+if (CLANG_FORMAT_EXE)
+    set(SEEKDB_CLANG_FORMAT_FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/include/seekdb.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/port.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/port.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/seekdb_internal.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/seekdb.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/seekdb_cli.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/tlog.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/test_utils.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/test_one_client_process.cc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/test_two_clients_threads.cc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/bindings.cpp")
+    add_custom_target(format
+        COMMAND "${CLANG_FORMAT_EXE}" -i ${SEEKDB_CLANG_FORMAT_FILES}
+        COMMENT "Running clang-format on project sources")
+endif()
