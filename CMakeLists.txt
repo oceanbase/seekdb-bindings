@@ -58,7 +58,7 @@ add_subdirectory(driver)
 add_subdirectory(python)
 
 if (CLANG_FORMAT_EXE)
-    file(GLOB_RECURSE SEEKDB_CLANG_FORMAT_FILES CONFIGURE_DEPENDS
+    file(GLOB SEEKDB_CLANG_FORMAT_FILES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/driver/include/*.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/*.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/*.h"
