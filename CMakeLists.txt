@@ -58,18 +58,15 @@ add_subdirectory(driver)
 add_subdirectory(python)
 
 if (CLANG_FORMAT_EXE)
-    set(SEEKDB_CLANG_FORMAT_FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/include/seekdb.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/port.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/port.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/seekdb_internal.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/seekdb.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/seekdb_cli.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/tlog.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/test_utils.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/test_one_client_process.cc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/test_two_clients_threads.cc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/bindings.cpp")
+    file(GLOB_RECURSE SEEKDB_CLANG_FORMAT_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/include/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/*.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/*.cc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.h")
     add_custom_target(format
         COMMAND "${CLANG_FORMAT_EXE}" -i ${SEEKDB_CLANG_FORMAT_FILES}
         COMMENT "Running clang-format on project sources")
