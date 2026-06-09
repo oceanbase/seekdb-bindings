@@ -17,6 +17,48 @@ env:
   TEST_TARGET: seekdb_driver_tests
 
 jobs:
+  format-check:
+    name: Format check
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout seekdb-bindings
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+
+      - name: Run clang-format check
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(
+            git diff --name-only --diff-filter=ACMR \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}" -- \
+              'driver/include/*.h' \
+              'driver/src/*.c' \
+              'driver/src/*.h' \
+              'driver/tests/*.cc' \
+              'driver/tests/*.h' \
+              'python/src/*.cc' \
+              'python/src/*.cpp' \
+              'python/src/*.h'
+          )
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No clang-format-managed files changed."
+            exit 0
+          fi
+          clang-format --dry-run --Werror "${files[@]}"
+
   test:
     name: Build and test
     runs-on: ubuntu-22.04
@@ -122,6 +164,131 @@ jobs:
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DSEEKDB_BIN=${{ env.SEEKDB_BIN }}
+
+      - name: Build tests
+        run: cmake --build build --target "${{ env.TEST_TARGET }}" --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+  asan-ubsan-test:
+    name: ASan/UBSan build and test
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    env:
+      BUILD_TYPE: Debug
+      TEST_TARGET: seekdb_driver_tests
+      SEEKDB_SANITIZER_FLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer
+      ASAN_OPTIONS: detect_leaks=1
+      UBSAN_OPTIONS: print_stacktrace=1
+
+    steps:
+      - name: Checkout seekdb-bindings
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python build dependencies
+        run: python -m pip install --upgrade pip pybind11
+
+      - name: Normalize build type
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEEKDB_BUILD_TYPE="${BUILD_TYPE,,}"
+          case "$SEEKDB_BUILD_TYPE" in
+            release|debug) ;;
+            *) echo "unsupported BUILD_TYPE: $BUILD_TYPE" >&2; exit 1 ;;
+          esac
+          echo "SEEKDB_BUILD_TYPE=$SEEKDB_BUILD_TYPE" >> "$GITHUB_ENV"
+
+      - name: Free Disk Space
+        uses: insightsengineering/disk-space-reclaimer@v1
+        with:
+          tools-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+          docker-images: true
+
+      - name: Restore cached seekdb build
+        id: seekdb_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/seekdb-master
+          key: seekdb-master-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
+
+      - name: Prepare seekdb build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo apt-get install -y git wget rpm rpm2cpio cpio make build-essential binutils m4 libtool-bin libncurses5 python3
+
+      - name: Build seekdb from master
+        if: steps.seekdb_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
+          rm -rf "$SEEKDB_DIR"
+          git clone --depth 1 --branch master https://github.com/oceanbase/seekdb.git "$SEEKDB_DIR"
+          cd "$SEEKDB_DIR"
+          build_jobs=$(nproc)
+          if [ "$build_jobs" -gt 3 ]; then
+            build_jobs=3
+          fi
+          ./build.sh "$SEEKDB_BUILD_TYPE" --init -DBUILD_EMBED_MODE=ON --make -j"$build_jobs"
+
+      - name: Locate seekdb binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
+          SEEKDB_BUILD_DIR="$SEEKDB_DIR/build_$SEEKDB_BUILD_TYPE"
+          if [ ! -d "$SEEKDB_BUILD_DIR" ]; then
+            echo "seekdb build directory not found: $SEEKDB_BUILD_DIR" >&2
+            exit 1
+          fi
+          mapfile -t SEEKDB_BINS < <(find "$SEEKDB_BUILD_DIR" -type f -name seekdb -executable)
+          if [ "${#SEEKDB_BINS[@]}" -eq 0 ]; then
+            echo "seekdb binary not found" >&2
+            exit 1
+          fi
+          if [ "${#SEEKDB_BINS[@]}" -gt 1 ]; then
+            echo "multiple seekdb binaries found in $SEEKDB_BUILD_DIR" >&2
+            printf '%s\n' "${SEEKDB_BINS[@]}" >&2
+            exit 1
+          fi
+          SEEKDB_BIN="${SEEKDB_BINS[0]}"
+          strip "$SEEKDB_BIN"
+          echo "SEEKDB_BIN=$SEEKDB_BIN" >> "$GITHUB_ENV"
+
+      - name: Save seekdb build cache
+        if: steps.seekdb_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/seekdb-master
+          key: seekdb-master-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DSEEKDB_BIN=${{ env.SEEKDB_BIN }} \
+            "-DCMAKE_C_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}" \
+            "-DCMAKE_CXX_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}" \
+            "-DCMAKE_EXE_LINKER_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}" \
+            "-DCMAKE_SHARED_LINKER_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}"
 
       - name: Build tests
         run: cmake --build build --target "${{ env.TEST_TARGET }}" --parallel
