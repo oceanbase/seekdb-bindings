@@ -69,5 +69,6 @@ if (CLANG_FORMAT_EXE)
         "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.h")
     add_custom_target(format
         COMMAND "${CLANG_FORMAT_EXE}" -i ${SEEKDB_CLANG_FORMAT_FILES}
-        COMMENT "Running clang-format on project sources")
+        COMMENT "Running clang-format on project sources"
+        VERBATIM)
 endif()
