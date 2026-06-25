@@ -237,11 +237,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SEEKDB_BIN="${{ runner.temp }}/seekdb-binary-cache/seekdb"
-          if [ ! -x "$SEEKDB_BIN" ]; then
-            echo "seekdb binary not found: $SEEKDB_BIN" >&2
+          CACHE_DIR="${{ runner.temp }}/seekdb-binary-cache"
+          mapfile -t SEEKDB_BINS < <(find "$CACHE_DIR" -type f -name seekdb)
+          if [ "${#SEEKDB_BINS[@]}" -ne 1 ]; then
+            echo "expected exactly one seekdb binary under $CACHE_DIR, found ${#SEEKDB_BINS[@]}" >&2
+            find "$CACHE_DIR" -ls >&2 || true
             exit 1
           fi
+          SEEKDB_BIN="${SEEKDB_BINS[0]}"
+          # upload-artifact strips the executable bit; restore it before tests spawn seekdb.
+          chmod +x "$SEEKDB_BIN"
           echo "SEEKDB_BIN=$SEEKDB_BIN" >> "$GITHUB_ENV"
 
       - name: Configure
