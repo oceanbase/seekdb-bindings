@@ -404,21 +404,35 @@ int seekdb_open(const char *db_dir, int port, SeekdbHandle *out_handle)
      * whereas the etc/ layout (e.g. seekdb.config.bin) has changed between
      * releases. */
     char sstable_dir[512];
-    snprintf(sstable_dir, sizeof(sstable_dir), "%s/store/sstable", db_dir);
-    const bool first_init = !dir_has_entries(sstable_dir);
+    int sstable_n = snprintf(sstable_dir, sizeof(sstable_dir), "%s/store/sstable", db_dir);
+    bool first_init;
+    if (sstable_n < 0 || (size_t)sstable_n >= sizeof(sstable_dir)) {
+        /* Path truncated — we can't reliably probe store/sstable. Fall back to
+         * the pre-#26 behavior (always seed defaults) so a genuine first init
+         * can still bootstrap; unreachable in practice since the handle's other
+         * path buffers (sock_path, 256 bytes) would have failed first. */
+        tlog("seekdb_open: sstable path truncated for db_dir=%s — seeding defaults\n", db_dir);
+        first_init = true;
+    }
+    else {
+        first_init = !dir_has_entries(sstable_dir);
+    }
     tlog("seekdb_open: %s (sstable_dir=%s)\n",
          first_init ? "first init — seeding default parameters"
                     : "restart — keeping persisted parameters",
          sstable_dir);
 
-    char *first_init_argv[] = {(char *)bin_path, base_dir_arg,
-                               (char *)"--embedded", (char *)"--nodaemon",
-                               (char *)"--parameter", (char *)"memory_limit=1G",
-                               (char *)"--parameter", (char *)"log_disk_size=2G",
+    char *first_init_argv[] = {(char *)bin_path,
+                               base_dir_arg,
+                               (char *)"--embedded",
+                               (char *)"--nodaemon",
+                               (char *)"--parameter",
+                               (char *)"memory_limit=1G",
+                               (char *)"--parameter",
+                               (char *)"log_disk_size=2G",
                                NULL};
-    char *restart_argv[] = {(char *)bin_path, base_dir_arg,
-                            (char *)"--embedded", (char *)"--nodaemon",
-                            NULL};
+    char *restart_argv[] = {(char *)bin_path, base_dir_arg, (char *)"--embedded",
+                            (char *)"--nodaemon", NULL};
     char *const *argv = first_init ? first_init_argv : restart_argv;
 
     if (spawn_process(bin_path, argv, &spawned) != OK) {

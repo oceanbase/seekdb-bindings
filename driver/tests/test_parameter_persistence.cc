@@ -50,7 +50,8 @@ std::string read_parameter(SeekdbConnection c, const std::string &name)
     const std::string sql = "SHOW PARAMETERS LIKE '" + name + "'";
     SeekdbResult r = nullptr;
     if (seekdb_query(c, sql.c_str(), (int64_t)sql.size(), &r) != SEEKDB_SUCCESS) {
-        if (r) seekdb_result_free(r);
+        if (r)
+            seekdb_result_free(r);
         return "";
     }
 
@@ -60,8 +61,10 @@ std::string read_parameter(SeekdbConnection c, const std::string &name)
     for (int64_t i = 0; i < ncol; ++i) {
         const char *cn = nullptr;
         if (seekdb_result_column_name(r, i, &cn) == SEEKDB_SUCCESS && cn) {
-            if (std::strcmp(cn, "name") == 0)  name_idx  = i;
-            if (std::strcmp(cn, "value") == 0) value_idx = i;
+            if (std::strcmp(cn, "name") == 0)
+                name_idx = i;
+            if (std::strcmp(cn, "value") == 0)
+                value_idx = i;
         }
     }
 
@@ -71,13 +74,17 @@ std::string read_parameter(SeekdbConnection c, const std::string &name)
             // SHOW PARAMETERS LIKE may match more than the exact name; keep
             // only the row whose `name` column equals the requested parameter.
             if (name_idx >= 0) {
-                const char *nd = nullptr; size_t nl = 0; int nn = 0;
-                if (seekdb_result_get_str(r, name_idx, &nd, &nl, &nn) == SEEKDB_SUCCESS
-                    && nd && std::string(nd, nl) != name) {
+                const char *nd = nullptr;
+                size_t nl = 0;
+                int nn = 0;
+                if (seekdb_result_get_str(r, name_idx, &nd, &nl, &nn) == SEEKDB_SUCCESS && nd &&
+                    std::string(nd, nl) != name) {
                     continue;
                 }
             }
-            const char *vd = nullptr; size_t vl = 0; int vn = 0;
+            const char *vd = nullptr;
+            size_t vl = 0;
+            int vn = 0;
             if (seekdb_result_get_str(r, value_idx, &vd, &vl, &vn) == SEEKDB_SUCCESS && vd) {
                 out.assign(vd, vl);
                 break;
@@ -99,20 +106,26 @@ void shutdown_server(SeekdbHandle h, int64_t pid)
     seekdb_close(h);
     terminate_process(pid, /*graceful=*/0);
 
+    bool reaped = false;
     const auto ddl = std::chrono::steady_clock::now() + 30s;
     while (std::chrono::steady_clock::now() < ddl) {
         int status = 0;
         pid_t r = waitpid((pid_t)pid, &status, WNOHANG);
-        if (r == (pid_t)pid || (r == -1 && errno == ECHILD)) break;
+        if (r == (pid_t)pid || (r == -1 && errno == ECHILD)) {
+            reaped = true;
+            break;
+        }
         std::this_thread::sleep_for(100ms);
     }
+    ASSERT_TRUE(reaped) << "spawned server (pid " << pid << ") did not exit within 30s of SIGKILL";
 }
 
 class ParameterPersistence : public ::testing::Test {
-protected:
+  protected:
     std::string db_dir_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         const char *bin = std::getenv("SEEKDB_BIN");
         ASSERT_NE(bin, nullptr) << "set SEEKDB_BIN to the seekdb binary";
         ASSERT_TRUE(fs::exists(bin));
@@ -150,14 +163,15 @@ TEST_F(ParameterPersistence, ChangedMemoryLimitSurvivesRestart)
     SeekdbResult r = nullptr;
     ASSERT_EQ(seekdb_query(c1, alter, (int64_t)std::strlen(alter), &r), SEEKDB_SUCCESS)
         << "ALTER SYSTEM SET memory_limit failed";
-    if (r) seekdb_result_free(r);
+    if (r)
+        seekdb_result_free(r);
 
     // Let the server apply + persist the change before we shut it down.
     std::this_thread::sleep_for(5s);
     const std::string changed = read_parameter(c1, "memory_limit");
     ASSERT_FALSE(changed.empty()) << "could not read memory_limit after ALTER";
-    ASSERT_NE(changed, seeded)
-        << "ALTER SYSTEM SET did not change memory_limit (still '" << seeded << "')";
+    ASSERT_NE(changed, seeded) << "ALTER SYSTEM SET did not change memory_limit (still '" << seeded
+                               << "')";
 
     seekdb_disconnect(c1);
 
@@ -177,8 +191,8 @@ TEST_F(ParameterPersistence, ChangedMemoryLimitSurvivesRestart)
 
     const std::string after_restart = read_parameter(c2, "memory_limit");
     EXPECT_EQ(after_restart, changed)
-        << "memory_limit changed across restart: persisted '" << changed
-        << "' but read '" << after_restart << "' after restart";
+        << "memory_limit changed across restart: persisted '" << changed << "' but read '"
+        << after_restart << "' after restart";
     EXPECT_NE(after_restart, seeded)
         << "memory_limit was reset to the seeded default '" << seeded
         << "' on restart — driver clobbered the persisted value (issue #26)";
@@ -187,4 +201,4 @@ TEST_F(ParameterPersistence, ChangedMemoryLimitSurvivesRestart)
     shutdown_server(h2, pid2);
 }
 
-}  // namespace
+} // namespace

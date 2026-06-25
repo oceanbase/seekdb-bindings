@@ -273,15 +273,18 @@ int ensure_dir(const char *path)
 
 int dir_has_entries(const char *path)
 {
-    if (!path) return 0;
+    if (!path)
+        return 0;
 
     char pattern[MAX_PATH];
     int n = snprintf(pattern, sizeof(pattern), "%s\\*", path);
-    if (n < 0 || (size_t)n >= sizeof(pattern)) return 0;
+    if (n < 0 || (size_t)n >= sizeof(pattern))
+        return 0;
 
     WIN32_FIND_DATAA fd;
     HANDLE h = FindFirstFileA(pattern, &fd);
-    if (h == INVALID_HANDLE_VALUE) return 0;
+    if (h == INVALID_HANDLE_VALUE)
+        return 0;
 
     int found = 0;
     do {
@@ -455,10 +458,12 @@ int ensure_dir(const char *path)
 
 int dir_has_entries(const char *path)
 {
-    if (!path) return 0;
+    if (!path)
+        return 0;
 
     DIR *d = opendir(path);
-    if (!d) return 0;
+    if (!d)
+        return 0;
 
     int found = 0;
     struct dirent *e;
