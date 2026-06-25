@@ -391,11 +391,36 @@ int seekdb_open(const char *db_dir, int port, SeekdbHandle *out_handle)
     Process *spawned = NULL;
     char base_dir_arg[512];
     snprintf(base_dir_arg, sizeof(base_dir_arg), "--base-dir=%s", db_dir);
-    char *argv[] = {(char *)bin_path, base_dir_arg,
-                    (char *)"--embedded", (char *)"--nodaemon",
-                    (char *)"--parameter", (char *)"memory_limit=1G",
-                    (char *)"--parameter", (char *)"log_disk_size=2G",
-                    NULL};
+
+    /* seekdb writes its data files under <db_dir>/store/sstable only after it
+     * has bootstrapped this data directory, so a non-empty store/sstable means
+     * we're restarting an existing instance rather than initializing a fresh
+     * one. We seed the default parameters (memory_limit, log_disk_size) ONLY on
+     * first init; on restart we must not pass --parameter, otherwise the command
+     * line would clobber values the user changed and seekdb persisted (issue #26).
+     *
+     * store/sstable is used (rather than store/ or etc/) because it is the core
+     * storage-engine data directory and has been stable across seekdb versions,
+     * whereas the etc/ layout (e.g. seekdb.config.bin) has changed between
+     * releases. */
+    char sstable_dir[512];
+    snprintf(sstable_dir, sizeof(sstable_dir), "%s/store/sstable", db_dir);
+    const bool first_init = !dir_has_entries(sstable_dir);
+    tlog("seekdb_open: %s (sstable_dir=%s)\n",
+         first_init ? "first init — seeding default parameters"
+                    : "restart — keeping persisted parameters",
+         sstable_dir);
+
+    char *first_init_argv[] = {(char *)bin_path, base_dir_arg,
+                               (char *)"--embedded", (char *)"--nodaemon",
+                               (char *)"--parameter", (char *)"memory_limit=1G",
+                               (char *)"--parameter", (char *)"log_disk_size=2G",
+                               NULL};
+    char *restart_argv[] = {(char *)bin_path, base_dir_arg,
+                            (char *)"--embedded", (char *)"--nodaemon",
+                            NULL};
+    char *const *argv = first_init ? first_init_argv : restart_argv;
+
     if (spawn_process(bin_path, argv, &spawned) != OK) {
         flock_close(startup_lock);
         flock_close(h->clients_lock);

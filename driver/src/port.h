@@ -42,6 +42,10 @@ int get_module_dir(char *buf, size_t buflen);
 
 int ensure_dir(const char *path);
 
+/* Returns 1 if `path` is a directory containing at least one entry other than
+ * "." / "..", 0 otherwise (missing, empty, or not a directory). */
+int dir_has_entries(const char *path);
+
 #ifdef __cplusplus
 }
 #endif
