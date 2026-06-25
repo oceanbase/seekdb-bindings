@@ -34,16 +34,17 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y clang-format
+          sudo apt-get install -y clang-format-14
+          clang-format-14 --version
 
-      - name: Run clang-format check on changed lines
+      - name: Run clang-format check
         shell: bash
         run: |
           set -euo pipefail
-          base="${{ github.event.pull_request.base.sha }}"
-          head="${{ github.event.pull_request.head.sha }}"
           mapfile -t files < <(
-            git diff --name-only --diff-filter=ACMR "$base" "$head" -- \
+            git diff --name-only --diff-filter=ACMR \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}" -- \
               'driver/include/*.h' \
               'driver/src/*.c' \
               'driver/src/*.h' \
@@ -57,26 +58,7 @@ jobs:
             echo "No clang-format-managed files changed."
             exit 0
           fi
-          # Only check the lines this PR actually added/changed. The legacy
-          # sources predate this format gate and aren't fully clang-format
-          # clean, so a whole-file check would block unrelated changes; the
-          # per-line check keeps new code formatted without a repo-wide reformat.
-          status=0
-          for f in "${files[@]}"; do
-            ranges=$(git diff -U0 "$base" "$head" -- "$f" | perl -ne '
-              if (/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/) {
-                my $s = $1; my $c = defined($2) ? $2 : 1;
-                print " --lines=$s:" . ($s + $c - 1) if $c > 0;
-              }')
-            if [ -z "$ranges" ]; then
-              continue
-            fi
-            echo "Checking changed lines in $f:$ranges"
-            if ! clang-format --dry-run --Werror $ranges "$f"; then
-              status=1
-            fi
-          done
-          exit $status
+          clang-format-14 --dry-run --Werror "${files[@]}"
 
   test:
     name: Build and test

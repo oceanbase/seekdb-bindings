@@ -32,10 +32,11 @@ using namespace std::chrono_literals;
 namespace {
 
 class OneClientProcess : public ::testing::Test {
-protected:
+  protected:
     std::string db_dir_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         const char *bin = std::getenv("SEEKDB_BIN");
         ASSERT_NE(bin, nullptr) << "set SEEKDB_BIN to the seekdb binary";
         ASSERT_TRUE(fs::exists(bin));
@@ -43,7 +44,6 @@ protected:
         db_dir_ = make_per_test_db_dir(SEEKDB_TEST_DATA_ROOT);
         fs::create_directories(db_dir_);
     }
-
 };
 
 TEST_F(OneClientProcess, ClientClose)
@@ -138,4 +138,4 @@ TEST_F(OneClientProcess, KillClient)
         << "server " << server_pid << " not reaped within 15s after client close";
 }
 
-}  // namespace
+} // namespace

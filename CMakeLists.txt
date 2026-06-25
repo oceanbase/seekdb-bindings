@@ -16,7 +16,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "")
 
 include(CTest)
 
-find_program(CLANG_FORMAT_EXE NAMES clang-format)
+find_program(CLANG_FORMAT_EXE NAMES clang-format-14 clang-format)
 
 if (WIN32)
     add_compile_definitions(WIN32_LEAN_AND_MEAN)

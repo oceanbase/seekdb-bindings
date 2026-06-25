@@ -16,21 +16,30 @@
 #include <string.h>
 
 #ifdef _WIN32
-#  define strncasecmp _strnicmp
-#  define strdup      _strdup
+#define strncasecmp _strnicmp
+#define strdup _strdup
 #endif
 
 /* ---------------------------------------------------------------- types -- */
 
 typedef struct {
-    char  *data;
+    char *data;
     size_t len;
     size_t cap;
 } Buf;
 
-static void buf_init(Buf *b)       { b->data = NULL; b->len = 0; b->cap = 0; }
-static void buf_clear(Buf *b)      { b->len = 0; }
-static void buf_free(Buf *b)       { free(b->data); buf_init(b); }
+static void buf_init(Buf *b)
+{
+    b->data = NULL;
+    b->len = 0;
+    b->cap = 0;
+}
+static void buf_clear(Buf *b) { b->len = 0; }
+static void buf_free(Buf *b)
+{
+    free(b->data);
+    buf_init(b);
+}
 
 static void buf_append(Buf *b, const char *s, size_t n)
 {
@@ -49,7 +58,8 @@ static void print_separator(int ncols, int *widths)
 {
     for (int i = 0; i < ncols; i++) {
         putchar('+');
-        for (int j = 0; j < widths[i] + 2; j++) putchar('-');
+        for (int j = 0; j < widths[i] + 2; j++)
+            putchar('-');
     }
     puts("+");
 }
@@ -66,7 +76,8 @@ static void print_row(int ncols, int *widths, const char **cells)
 static void print_result(SeekdbResult result)
 {
     SeekdbResultImpl *r = result;
-    if (!r->mysql_res) return;
+    if (!r->mysql_res)
+        return;
 
     int ncols = r->column_count;
     int *widths = calloc((size_t)ncols, sizeof(int));
@@ -92,13 +103,16 @@ static void print_result(SeekdbResult result)
             const char *data = r->current_row[i];
             if (!data) {
                 row[i] = strdup("NULL");
-                if (4 > widths[i]) widths[i] = 4;
-            } else {
+                if (4 > widths[i])
+                    widths[i] = 4;
+            }
+            else {
                 size_t len = r->current_lengths[i];
                 row[i] = malloc(len + 1);
                 memcpy(row[i], data, len);
                 row[i][len] = '\0';
-                if ((int)len > widths[i]) widths[i] = (int)len;
+                if ((int)len > widths[i])
+                    widths[i] = (int)len;
             }
         }
         rows[nrows++] = row;
@@ -116,7 +130,8 @@ static void print_result(SeekdbResult result)
 
     /* Cleanup. */
     for (int i = 0; i < nrows; i++) {
-        for (int j = 0; j < ncols; j++) free(rows[i][j]);
+        for (int j = 0; j < ncols; j++)
+            free(rows[i][j]);
         free(rows[i]);
     }
     free(rows);
@@ -138,7 +153,8 @@ static void execute(SeekdbConnection conn, const char *sql, size_t len)
     SeekdbResultImpl *r = result;
     if (r->mysql_res) {
         print_result(result);
-    } else {
+    }
+    else {
         puts("Query OK");
     }
 
@@ -156,13 +172,16 @@ static char *read_line(const char *prompt)
     fflush(stdout);
 
     char buf[4096];
-    if (!fgets(buf, sizeof(buf), stdin)) return NULL;
+    if (!fgets(buf, sizeof(buf), stdin))
+        return NULL;
 
     size_t n = strlen(buf);
-    if (n > 0 && buf[n - 1] == '\n') buf[--n] = '\0';
+    if (n > 0 && buf[n - 1] == '\n')
+        buf[--n] = '\0';
 
     char *r = (char *)malloc(n + 1);
-    if (!r) return NULL;
+    if (!r)
+        return NULL;
     memcpy(r, buf, n + 1);
     return r;
 }
@@ -171,7 +190,8 @@ static char *read_line(const char *prompt)
 
 static int is_quit(const char *s)
 {
-    while (isspace((unsigned char)*s)) s++;
+    while (isspace((unsigned char)*s))
+        s++;
     return strncasecmp(s, "quit", 4) == 0 || strncasecmp(s, "exit", 4) == 0;
 }
 
@@ -203,25 +223,35 @@ int main(int argc, char **argv)
     for (;;) {
         const char *prompt = query.len == 0 ? "seekdb> " : "     -> ";
         char *line = read_line(prompt);
-        if (!line) break;                   /* EOF / Ctrl-D */
+        if (!line)
+            break; /* EOF / Ctrl-D */
 
         /* Skip empty lines. */
         const char *p = line;
-        while (isspace((unsigned char)*p)) p++;
-        if (*p == '\0') { free(line); continue; }
+        while (isspace((unsigned char)*p))
+            p++;
+        if (*p == '\0') {
+            free(line);
+            continue;
+        }
 
-        if (query.len == 0 && is_quit(line)) { free(line); break; }
+        if (query.len == 0 && is_quit(line)) {
+            free(line);
+            break;
+        }
 
         /* Append to query buffer. */
-        if (query.len) buf_append(&query, " ", 1);
+        if (query.len)
+            buf_append(&query, " ", 1);
         buf_append(&query, line, strlen(line));
         free(line);
 
         /* Check for ';' terminator. */
         size_t end = query.len;
-        while (end > 0 && isspace((unsigned char)query.data[end - 1])) end--;
+        while (end > 0 && isspace((unsigned char)query.data[end - 1]))
+            end--;
         if (end > 0 && query.data[end - 1] == ';') {
-            end--;  /* strip the ';' */
+            end--; /* strip the ';' */
             execute(conn, query.data, end);
             buf_clear(&query);
         }

@@ -7,11 +7,7 @@
 extern "C" {
 #endif
 
-enum {
-    OK              =  0,
-    ERR             = -1,
-    ERR_INVALID_ARG = -2
-};
+enum { OK = 0, ERR = -1, ERR_INVALID_ARG = -2 };
 
 typedef struct Flock Flock;
 
@@ -22,10 +18,7 @@ typedef struct Process {
 #endif
 } Process;
 
-typedef enum {
-    FLOCK_SHARED,
-    FLOCK_EXCLUSIVE
-} FlockMode;
+typedef enum { FLOCK_SHARED, FLOCK_EXCLUSIVE } FlockMode;
 
 int flock_open(const char *path, Flock **out_flock);
 int flock_acquire(Flock *lock, FlockMode mode);

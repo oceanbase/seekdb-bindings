@@ -117,7 +117,8 @@ cmake --build build
 
 ## Format source code
 
-Install `clang-format`, configure the project as usual, then run:
+Install `clang-format-14` (or `clang-format` 14.x; see `.clang-format-version`),
+configure the project as usual, then run:
 
 ```sh
 cmake --build build --target format

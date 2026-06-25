@@ -40,29 +40,22 @@ int seekdb_connect(SeekdbHandle handle, const char *database, bool autocommit,
                    SeekdbConnection *out_connection);
 int seekdb_disconnect(SeekdbConnection connection);
 
-int seekdb_last_error(SeekdbConnection connection, int *out_errno,
-                      const char **out_msg);
+int seekdb_last_error(SeekdbConnection connection, int *out_errno, const char **out_msg);
 
 int seekdb_query(SeekdbConnection connection, const char *sql, int64_t sql_len,
                  SeekdbResult *out_result);
 
 int seekdb_result_free(SeekdbResult result);
 int seekdb_result_column_count(SeekdbResult result, int64_t *out_ncolumn);
-int seekdb_result_column_name(SeekdbResult result, int64_t index,
-                              const char **out_name);
-int seekdb_result_column_type_id(SeekdbResult result, int64_t index,
-                                 SeekdbTypeId *out_typeid);
+int seekdb_result_column_name(SeekdbResult result, int64_t index, const char **out_name);
+int seekdb_result_column_type_id(SeekdbResult result, int64_t index, SeekdbTypeId *out_typeid);
 int seekdb_result_row_count(SeekdbResult result, int64_t *out_nrows);
 int seekdb_result_next(SeekdbResult result);
-int seekdb_result_get_int64(SeekdbResult result, int64_t index,
-                            int64_t *out_value);
-int seekdb_result_get_uint64(SeekdbResult result, int64_t index,
-                             uint64_t *out_value);
-int seekdb_result_get_float(SeekdbResult result, int64_t index,
-                            double *out_value);
-int seekdb_result_get_str(SeekdbResult result, int64_t index,
-                          const char **out_data, size_t *out_len,
-                          int *out_is_null);
+int seekdb_result_get_int64(SeekdbResult result, int64_t index, int64_t *out_value);
+int seekdb_result_get_uint64(SeekdbResult result, int64_t index, uint64_t *out_value);
+int seekdb_result_get_float(SeekdbResult result, int64_t index, double *out_value);
+int seekdb_result_get_str(SeekdbResult result, int64_t index, const char **out_data,
+                          size_t *out_len, int *out_is_null);
 
 int seekdb_trx_begin(SeekdbConnection connection);
 int seekdb_trx_commit(SeekdbConnection connection);

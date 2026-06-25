@@ -49,10 +49,8 @@ static inline void tlog(const char *fmt, ...)
 #endif
 
     char prefix[64];
-    int p = snprintf(prefix, sizeof(prefix),
-                     "[%02d:%02d:%02d.%03d T=%llx] ",
-                     tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec,
-                     ms, tid);
+    int p = snprintf(prefix, sizeof(prefix), "[%02d:%02d:%02d.%03d T=%llx] ", tm_buf.tm_hour,
+                     tm_buf.tm_min, tm_buf.tm_sec, ms, tid);
 
     char msg[512];
     va_list ap;
@@ -65,7 +63,7 @@ static inline void tlog(const char *fmt, ...)
     fputs(buf, stdout);
 }
 
-#else  /* SEEKDB_DRIVER_ENABLE_LOG not defined */
+#else /* SEEKDB_DRIVER_ENABLE_LOG not defined */
 
 #define tlog(...) ((void)sizeof(printf(__VA_ARGS__)))
 

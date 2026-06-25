@@ -25,8 +25,7 @@ inline std::string make_per_test_db_dir(const std::string &root)
 {
     const auto *info = ::testing::UnitTest::GetInstance()->current_test_info();
     auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    return root + "/" + info->test_suite_name() + "."
-                + info->name() + "_" + std::to_string(ns);
+                  std::chrono::system_clock::now().time_since_epoch())
+                  .count();
+    return root + "/" + info->test_suite_name() + "." + info->name() + "_" + std::to_string(ns);
 }
-

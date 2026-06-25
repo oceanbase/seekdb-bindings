@@ -38,10 +38,11 @@ using namespace std::chrono_literals;
 namespace {
 
 class TwoClientsOpen : public ::testing::Test {
-protected:
+  protected:
     std::string db_dir_;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         const char *bin = std::getenv("SEEKDB_BIN");
         ASSERT_NE(bin, nullptr) << "set SEEKDB_BIN to the seekdb binary";
         ASSERT_TRUE(fs::exists(bin));
@@ -50,7 +51,8 @@ protected:
         fs::create_directories(db_dir_);
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         // Each test cleans up the daemons it spawned in its own body
         // using the SeekdbHandleImpl::spawned_pid it captured. Nothing
         // to do here.
@@ -84,7 +86,10 @@ TEST_F(TwoClientsOpen, TwoConcurrentClients)
             tlog("saved spawned pid = %lld\n", (long long)pid);
         }
 
-        { std::lock_guard<std::mutex> lk(m); opened_flag = true; }
+        {
+            std::lock_guard<std::mutex> lk(m);
+            opened_flag = true;
+        }
         cv.notify_all();
 
         // Wait for the test thread to signal close. Holding the handle
@@ -145,7 +150,8 @@ TEST_F(TwoClientsOpen, TwoConcurrentClients)
                 break;
             }
         }
-        if (all_reaped) break;
+        if (all_reaped)
+            break;
         std::this_thread::sleep_for(200ms);
     }
 }
@@ -167,17 +173,21 @@ TEST_F(TwoClientsOpen, BArrivesAfterAStartup)
     int b_open_rc = -1, b_query_rc = -1;
     std::vector<int64_t> spawned_pids;
 
-    auto run_client = [&](SeekdbHandle &h, SeekdbConnection &c,
-                          int &open_rc, int &query_rc, bool &opened_flag) {
+    auto run_client = [&](SeekdbHandle &h, SeekdbConnection &c, int &open_rc, int &query_rc,
+                          bool &opened_flag) {
         open_rc = seekdb_open(db_dir_.c_str(), 0, &h);
         if (open_rc == SEEKDB_SUCCESS) {
             int64_t pid = ((SeekdbHandleImpl *)h)->spawned_pid;
-            { std::lock_guard<std::mutex> lk(m); spawned_pids.push_back(pid); }
+            {
+                std::lock_guard<std::mutex> lk(m);
+                spawned_pids.push_back(pid);
+            }
             tlog("saved spawned pid = %lld\n", (long long)pid);
             if (seekdb_connect(h, nullptr, true, &c) == SEEKDB_SUCCESS) {
                 SeekdbResult r = nullptr;
                 query_rc = seekdb_query(c, "SELECT 1", 8, &r);
-                if (r) seekdb_result_free(r);
+                if (r)
+                    seekdb_result_free(r);
             }
         }
         {
@@ -189,13 +199,14 @@ TEST_F(TwoClientsOpen, BArrivesAfterAStartup)
             std::unique_lock<std::mutex> lk(m);
             cv.wait(lk, [&] { return close_signal; });
         }
-        if (c) seekdb_disconnect(c);
-        if (h) seekdb_close(h);
+        if (c)
+            seekdb_disconnect(c);
+        if (h)
+            seekdb_close(h);
     };
 
-    std::thread ta(run_client, std::ref(h_a), std::ref(c_a),
-                   std::ref(a_open_rc), std::ref(a_query_rc),
-                   std::ref(a_opened));
+    std::thread ta(run_client, std::ref(h_a), std::ref(c_a), std::ref(a_open_rc),
+                   std::ref(a_query_rc), std::ref(a_opened));
 
     // Wait until A's seekdb_open has fully returned. Only then is it
     // guaranteed that B will take the "server already up" fast path and
@@ -211,9 +222,8 @@ TEST_F(TwoClientsOpen, BArrivesAfterAStartup)
     ASSERT_GT(server_pid, 0);
     ASSERT_FALSE(is_server_reaped(server_pid));
 
-    std::thread tb(run_client, std::ref(h_b), std::ref(c_b),
-                   std::ref(b_open_rc), std::ref(b_query_rc),
-                   std::ref(b_opened));
+    std::thread tb(run_client, std::ref(h_b), std::ref(c_b), std::ref(b_open_rc),
+                   std::ref(b_query_rc), std::ref(b_opened));
 
     {
         std::unique_lock<std::mutex> lk(m);
@@ -251,7 +261,8 @@ TEST_F(TwoClientsOpen, BArrivesAfterAStartup)
                 break;
             }
         }
-        if (all_reaped) break;
+        if (all_reaped)
+            break;
         std::this_thread::sleep_for(200ms);
     }
 }
@@ -279,34 +290,62 @@ TEST_F(TwoClientsOpen, ClientBSeesClientAWrite)
         a_open_rc = seekdb_open(db_dir_.c_str(), 0, &h);
         if (a_open_rc == SEEKDB_SUCCESS && h != nullptr) {
             int64_t pid = ((SeekdbHandleImpl *)h)->spawned_pid;
-            { std::lock_guard<std::mutex> lk(m); spawned_pids.push_back(pid); }
+            {
+                std::lock_guard<std::mutex> lk(m);
+                spawned_pids.push_back(pid);
+            }
             tlog("saved spawned pid = %lld\n", (long long)pid);
         }
-        { std::lock_guard<std::mutex> lk(m); a_opened = true; }
+        {
+            std::lock_guard<std::mutex> lk(m);
+            a_opened = true;
+        }
         cv.notify_all();
-        if (a_open_rc != SEEKDB_SUCCESS) { if (h) seekdb_close(h); return; }
+        if (a_open_rc != SEEKDB_SUCCESS) {
+            if (h)
+                seekdb_close(h);
+            return;
+        }
 
-        { std::unique_lock<std::mutex> lk(m); cv.wait(lk, [&] { return a_write_go; }); }
+        {
+            std::unique_lock<std::mutex> lk(m);
+            cv.wait(lk, [&] { return a_write_go; });
+        }
 
         SeekdbConnection c = nullptr;
         a_write_rc = seekdb_connect(h, nullptr, true, &c);
         if (a_write_rc == SEEKDB_SUCCESS) {
             SeekdbResult r = nullptr;
             a_write_rc = seekdb_query(c, "USE test", 8, &r);
-            if (r) { seekdb_result_free(r); r = nullptr; }
+            if (r) {
+                seekdb_result_free(r);
+                r = nullptr;
+            }
             if (a_write_rc == SEEKDB_SUCCESS)
                 a_write_rc = seekdb_query(c, "CREATE TABLE t1(v int)", 22, &r);
-            if (r) { seekdb_result_free(r); r = nullptr; }
+            if (r) {
+                seekdb_result_free(r);
+                r = nullptr;
+            }
             if (a_write_rc == SEEKDB_SUCCESS)
                 a_write_rc = seekdb_query(c, "INSERT INTO t1 VALUES (1)", 25, &r);
-            if (r) { seekdb_result_free(r); r = nullptr; }
+            if (r) {
+                seekdb_result_free(r);
+                r = nullptr;
+            }
             seekdb_disconnect(c);
         }
 
-        { std::lock_guard<std::mutex> lk(m); a_write_done = true; }
+        {
+            std::lock_guard<std::mutex> lk(m);
+            a_write_done = true;
+        }
         cv.notify_all();
 
-        { std::unique_lock<std::mutex> lk(m); cv.wait(lk, [&] { return close_signal; }); }
+        {
+            std::unique_lock<std::mutex> lk(m);
+            cv.wait(lk, [&] { return close_signal; });
+        }
         seekdb_close(h);
     };
 
@@ -315,14 +354,27 @@ TEST_F(TwoClientsOpen, ClientBSeesClientAWrite)
         b_open_rc = seekdb_open(db_dir_.c_str(), 0, &h);
         if (b_open_rc == SEEKDB_SUCCESS && h != nullptr) {
             int64_t pid = ((SeekdbHandleImpl *)h)->spawned_pid;
-            { std::lock_guard<std::mutex> lk(m); spawned_pids.push_back(pid); }
+            {
+                std::lock_guard<std::mutex> lk(m);
+                spawned_pids.push_back(pid);
+            }
             tlog("saved spawned pid = %lld\n", (long long)pid);
         }
-        { std::lock_guard<std::mutex> lk(m); b_opened = true; }
+        {
+            std::lock_guard<std::mutex> lk(m);
+            b_opened = true;
+        }
         cv.notify_all();
-        if (b_open_rc != SEEKDB_SUCCESS) { if (h) seekdb_close(h); return; }
+        if (b_open_rc != SEEKDB_SUCCESS) {
+            if (h)
+                seekdb_close(h);
+            return;
+        }
 
-        { std::unique_lock<std::mutex> lk(m); cv.wait(lk, [&] { return b_query_go; }); }
+        {
+            std::unique_lock<std::mutex> lk(m);
+            cv.wait(lk, [&] { return b_query_go; });
+        }
 
         SeekdbConnection c = nullptr;
         b_query_rc = seekdb_connect(h, nullptr, true, &c);
@@ -335,37 +387,61 @@ TEST_F(TwoClientsOpen, ClientBSeesClientAWrite)
                 else if (seekdb_result_get_int64(r, 0, &b_seen_value) != SEEKDB_SUCCESS)
                     b_query_rc = SEEKDB_INTERNAL_ERROR;
             }
-            if (r) seekdb_result_free(r);
+            if (r)
+                seekdb_result_free(r);
             seekdb_disconnect(c);
         }
 
-        { std::lock_guard<std::mutex> lk(m); b_query_done = true; }
+        {
+            std::lock_guard<std::mutex> lk(m);
+            b_query_done = true;
+        }
         cv.notify_all();
 
-        { std::unique_lock<std::mutex> lk(m); cv.wait(lk, [&] { return close_signal; }); }
+        {
+            std::unique_lock<std::mutex> lk(m);
+            cv.wait(lk, [&] { return close_signal; });
+        }
         seekdb_close(h);
     };
 
     std::thread ta(run_a);
     std::thread tb(run_b);
 
-    { std::unique_lock<std::mutex> lk(m); cv.wait(lk, [&] { return a_opened && b_opened; }); }
+    {
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait(lk, [&] { return a_opened && b_opened; });
+    }
     ASSERT_EQ(a_open_rc, SEEKDB_SUCCESS);
     ASSERT_EQ(b_open_rc, SEEKDB_SUCCESS);
 
-    { std::lock_guard<std::mutex> lk(m); a_write_go = true; }
+    {
+        std::lock_guard<std::mutex> lk(m);
+        a_write_go = true;
+    }
     cv.notify_all();
-    { std::unique_lock<std::mutex> lk(m); cv.wait(lk, [&] { return a_write_done; }); }
-    ASSERT_EQ(a_write_rc, SEEKDB_SUCCESS)
-        << "A's USE/CREATE/INSERT sequence failed";
+    {
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait(lk, [&] { return a_write_done; });
+    }
+    ASSERT_EQ(a_write_rc, SEEKDB_SUCCESS) << "A's USE/CREATE/INSERT sequence failed";
 
-    { std::lock_guard<std::mutex> lk(m); b_query_go = true; }
+    {
+        std::lock_guard<std::mutex> lk(m);
+        b_query_go = true;
+    }
     cv.notify_all();
-    { std::unique_lock<std::mutex> lk(m); cv.wait(lk, [&] { return b_query_done; }); }
+    {
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait(lk, [&] { return b_query_done; });
+    }
     ASSERT_EQ(b_query_rc, SEEKDB_SUCCESS) << "B's SELECT failed";
     EXPECT_EQ(b_seen_value, 1) << "B did not read the row A inserted";
 
-    { std::lock_guard<std::mutex> lk(m); close_signal = true; }
+    {
+        std::lock_guard<std::mutex> lk(m);
+        close_signal = true;
+    }
     cv.notify_all();
     ta.join();
     tb.join();
@@ -391,9 +467,10 @@ TEST_F(TwoClientsOpen, ClientBSeesClientAWrite)
                 break;
             }
         }
-        if (all_reaped) break;
+        if (all_reaped)
+            break;
         std::this_thread::sleep_for(200ms);
     }
 }
 
-}  // namespace
+} // namespace
