@@ -287,5 +287,4 @@ jobs:
             "-DCMAKE_SHARED_LINKER_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}"
 
       - *build-tests
-      - *verify-pure-c-driver
       - *run-tests
