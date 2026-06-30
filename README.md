@@ -2,6 +2,8 @@
 
 C driver library, CLI, and Python bindings for [seekdb](https://github.com/oceanbase/seekdb).
 
+The core shared library (`libseekdb_driver`) and CLI (`seekdb_cli`) are implemented in **C11** (`driver/src/*.c`). They do not link against `libstdc++` or `libc++`, so embedders only need a C toolchain and pthreads at runtime. C++ is used for gtest-based integration tests and the optional pybind11 Python extension.
+
 ## Layout
 
 ```

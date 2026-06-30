@@ -238,6 +238,22 @@ jobs:
         name: Build tests
         run: cmake --build build --target "${{ env.TEST_TARGET }}" --parallel
 
+      - &verify-pure-c-driver
+        name: Verify seekdb_driver has no C++ runtime dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib="build/libseekdb_driver.so"
+          if [ ! -f "$lib" ]; then
+            echo "missing $lib" >&2
+            exit 1
+          fi
+          if ldd "$lib" | grep -E 'libstdc\+\+|libc\+\+'; then
+            echo "$lib must not depend on the C++ standard library (issue #6)" >&2
+            exit 1
+          fi
+          echo "OK: $lib has no libstdc++/libc++ dependency"
+
       - &run-tests
         name: Run tests
         run: ctest --test-dir build --output-on-failure
@@ -271,4 +287,5 @@ jobs:
             "-DCMAKE_SHARED_LINKER_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}"
 
       - *build-tests
+      - *verify-pure-c-driver
       - *run-tests
