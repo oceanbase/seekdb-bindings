@@ -294,4 +294,6 @@ jobs:
             "-DCMAKE_SHARED_LINKER_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}"
 
       - *build-tests
+      # Pure-C guardrail runs only in the regular build job: ASan/UBSan linker
+      # flags can add libstdc++ to instrumented shared libs even for C code.
       - *run-tests
