@@ -6,32 +6,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 # ----------------------------------------------------------------------------
-# seekdb_driver library
+# libseekdb shared library
 # ----------------------------------------------------------------------------
 
-add_library(seekdb_driver_objs OBJECT
-            src/seekdb.c
-            src/port.c)
-
-target_include_directories(seekdb_driver_objs
-    PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-            $<INSTALL_INTERFACE:include>
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(seekdb_driver_objs PRIVATE mariadb_client)
-
-if (NOT MSVC)
-    target_compile_options(seekdb_driver_objs PRIVATE -Wall -Wextra -Wno-unused-parameter)
-endif()
-
-if (NOT WIN32)
-    target_compile_definitions(seekdb_driver_objs PRIVATE _GNU_SOURCE)
-endif()
-
-if (SEEKDB_DRIVER_ENABLE_LOG)
-    target_compile_definitions(seekdb_driver_objs PRIVATE SEEKDB_DRIVER_ENABLE_LOG)
-endif()
-
-add_library(seekdb_driver        SHARED $<TARGET_OBJECTS:seekdb_driver_objs>)
+add_library(seekdb_driver SHARED
+    src/seekdb.c
+    src/port.c)
 
 set_target_properties(seekdb_driver PROPERTIES
     OUTPUT_NAME seekdb
@@ -66,6 +46,19 @@ target_include_directories(seekdb_driver
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+if (NOT MSVC)
+    target_compile_options(seekdb_driver PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
+
+if (NOT WIN32)
+    target_compile_definitions(seekdb_driver PRIVATE _GNU_SOURCE)
+endif()
+
+if (SEEKDB_DRIVER_ENABLE_LOG)
+    target_compile_definitions(seekdb_driver PRIVATE SEEKDB_DRIVER_ENABLE_LOG)
+endif()
+
 target_link_libraries(seekdb_driver PRIVATE mariadb_client Threads::Threads)
 
 if (SEEKDB_BIN)

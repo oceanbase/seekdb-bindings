@@ -1,14 +1,14 @@
 # seekdb-bindings
 
-C driver library, CLI, and Python bindings for [seekdb](https://github.com/oceanbase/seekdb).
+C library, CLI, and Python bindings for [seekdb](https://github.com/oceanbase/seekdb).
 
-The core shared library (`libseekdb.so`, with a `libseekdb_driver.so` compatibility symlink) is implemented in **C11** (`driver/src/*.c`) and does not link against `libstdc++` or `libc++` (checked in CI via `readelf`); embedders only need a C toolchain to build and pthreads at runtime. The CLI (`seekdb_cli`) is also implemented in C11 (`driver/src/seekdb_cli.c`). The bundled **seekdb server binary** is a separate C++ product and may depend on `libstdc++`; issue #6 applies only to `libseekdb`. C++ is also used for gtest-based integration tests and the optional pybind11 Python extension.
+The core shared library (`libseekdb.so`, with a `libseekdb_driver.so` compatibility symlink) is implemented in **C11** (`lib/src/*.c`) and does not link against `libstdc++` or `libc++` (checked in CI via `readelf`); embedders only need a C toolchain to build and pthreads at runtime. The CLI (`seekdb_cli`) is also implemented in C11 (`lib/src/seekdb_cli.c`). The bundled **seekdb server binary** is a separate C++ product and may depend on `libstdc++`; issue #6 applies only to `libseekdb`. C++ is also used for gtest-based integration tests and the optional pybind11 Python extension.
 
 ## Layout
 
 ```
 seekdb-bindings/
-├── driver/
+├── lib/
 │   ├── include/seekdb.h        public C API
 │   ├── src/                    library + CLI sources
 │   └── tests/                  gtest cases
@@ -107,7 +107,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 
 | option | default | what it does |
 |---|---|---|
-| `SEEKDB_DRIVER_ENABLE_LOG` | OFF | enables `tlog()` debug prints in the driver |
+| `SEEKDB_DRIVER_ENABLE_LOG` | OFF | enables `tlog()` debug prints in libseekdb |
 | `SEEKDB_BIN` | `$SEEKDB_BIN` env | path to the seekdb binary |
 
 Example:

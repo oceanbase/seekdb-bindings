@@ -54,16 +54,16 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 add_subdirectory(deps/googletest EXCLUDE_FROM_ALL)
 include(GoogleTest)
 
-add_subdirectory(driver)
+add_subdirectory(lib)
 add_subdirectory(python)
 
 if (CLANG_FORMAT_EXE)
     file(GLOB SEEKDB_CLANG_FORMAT_FILES CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/include/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/*.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/src/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/*.cc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/driver/tests/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/include/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/src/*.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/src/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/tests/*.cc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/tests/*.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cc"
         "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.h")

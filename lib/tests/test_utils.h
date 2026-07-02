@@ -1,4 +1,4 @@
-// Observation helpers shared across seekdb-driver tests.
+// Observation helpers shared across libseekdb tests.
 
 #pragma once
 

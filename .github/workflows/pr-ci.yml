@@ -60,11 +60,11 @@ jobs:
             git diff --name-only --diff-filter=ACMR \
               "${{ github.event.pull_request.base.sha }}" \
               "${{ github.event.pull_request.head.sha }}" -- \
-              'driver/include/*.h' \
-              'driver/src/*.c' \
-              'driver/src/*.h' \
-              'driver/tests/*.cc' \
-              'driver/tests/*.h' \
+              'lib/include/*.h' \
+              'lib/src/*.c' \
+              'lib/src/*.h' \
+              'lib/tests/*.cc' \
+              'lib/tests/*.h' \
               'python/src/*.cc' \
               'python/src/*.cpp' \
               'python/src/*.h'

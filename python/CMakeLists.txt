@@ -95,7 +95,7 @@ endif()
 pybind11_add_module(pylibseekdb src/bindings.cpp)
 
 target_include_directories(pylibseekdb PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/../driver/include")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../lib/include")
 target_link_libraries(pylibseekdb PRIVATE
     "${_seekdb_driver_link}"
 )
