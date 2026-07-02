@@ -239,15 +239,21 @@ jobs:
         run: cmake --build build --target seekdb_driver --parallel
 
       - &verify-pure-c-driver
-        name: Verify libseekdb_driver has no C++ runtime dependency
+        name: Verify libseekdb has no C++ runtime dependency
         shell: bash
         run: |
           set -euo pipefail
-          # Issue #6: only libseekdb_driver must be pure C. The seekdb server
+          # Issue #6: only libseekdb must be pure C. The seekdb server
           # binary (build/seekdb) is C++ and may legitimately depend on libstdc++.
-          lib="build/libseekdb_driver.so"
+          lib="build/libseekdb.so"
+          compat="build/libseekdb_driver.so"
           if [ ! -f "$lib" ]; then
             echo "missing $lib" >&2
+            exit 1
+          fi
+          if [ ! -L "$compat" ]; then
+            echo "expected compatibility symlink $compat -> libseekdb.so (issue #7)" >&2
+            ls -la build/libseekdb*.so >&2 || true
             exit 1
           fi
           if readelf -d "$lib" | grep -E 'NEEDED.*lib(std)?c\+\+'; then

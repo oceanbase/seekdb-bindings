@@ -33,7 +33,29 @@ endif()
 
 add_library(seekdb_driver        SHARED $<TARGET_OBJECTS:seekdb_driver_objs>)
 
-set_target_properties(seekdb_driver PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+set_target_properties(seekdb_driver PROPERTIES
+    OUTPUT_NAME seekdb
+    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+# Backward-compatible name: libseekdb_driver.{so,dylib,dll} -> libseekdb.{so,dylib,dll}
+set(_seekdb_compat_name
+    "${CMAKE_SHARED_LIBRARY_PREFIX}seekdb_driver${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(_seekdb_real_name
+    "${CMAKE_SHARED_LIBRARY_PREFIX}seekdb${CMAKE_SHARED_LIBRARY_SUFFIX}")
+if (UNIX)
+    add_custom_command(TARGET seekdb_driver POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E remove -f "${_seekdb_compat_name}"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+                "${_seekdb_real_name}" "${_seekdb_compat_name}"
+        WORKING_DIRECTORY $<TARGET_FILE_DIR:seekdb_driver>
+        COMMENT "Creating compatibility symlink ${_seekdb_compat_name} -> ${_seekdb_real_name}")
+elseif (WIN32)
+    add_custom_command(TARGET seekdb_driver POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:seekdb_driver>"
+                "$<TARGET_FILE_DIR:seekdb_driver>/${_seekdb_compat_name}"
+        COMMENT "Creating compatibility copy ${_seekdb_compat_name}")
+endif()
 
 target_include_directories(seekdb_driver
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
