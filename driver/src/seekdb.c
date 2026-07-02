@@ -299,7 +299,7 @@ static int wait_for_ready(SeekdbHandleImpl *h, Process *spawned)
     }
 }
 
-/* Resolve the seekdb server binary path as "<libseekdb.so's dir>/seekdb"
+/* Resolve the seekdb server binary path as "<libseekdb's dir>/seekdb"
  * (".exe" suffix on Windows). The binary is expected to ship alongside the
  * shared library — that's the wheel/install layout. Writes the result into
  * `buf` (NUL-terminated). Returns SEEKDB_SUCCESS or SEEKDB_INTERNAL_ERROR. */

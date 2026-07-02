@@ -5,7 +5,7 @@
  *
  * If db_dir is omitted, defaults to "./seekdb.db" in the current
  * working directory. The seekdb server binary is auto-discovered next
- * to libseekdb.so.
+ * to the libseekdb shared library.
  */
 
 #include "seekdb_internal.h"

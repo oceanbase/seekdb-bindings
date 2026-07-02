@@ -50,11 +50,16 @@ if (UNIX)
         WORKING_DIRECTORY $<TARGET_FILE_DIR:seekdb_driver>
         COMMENT "Creating compatibility symlink ${_seekdb_compat_name} -> ${_seekdb_real_name}")
 elseif (WIN32)
+    set(_seekdb_compat_implib
+        "${CMAKE_IMPORT_LIBRARY_PREFIX}seekdb_driver${CMAKE_IMPORT_LIBRARY_SUFFIX}")
     add_custom_command(TARGET seekdb_driver POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:seekdb_driver>"
                 "$<TARGET_FILE_DIR:seekdb_driver>/${_seekdb_compat_name}"
-        COMMENT "Creating compatibility copy ${_seekdb_compat_name}")
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_LINKER_FILE:seekdb_driver>"
+                "$<TARGET_LINKER_FILE_DIR:seekdb_driver>/${_seekdb_compat_implib}"
+        COMMENT "Creating compatibility copies ${_seekdb_compat_name} and ${_seekdb_compat_implib}")
 endif()
 
 target_include_directories(seekdb_driver
