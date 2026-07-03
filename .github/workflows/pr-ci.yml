@@ -27,7 +27,7 @@ on:
 
 env:
   BUILD_TYPE: Debug
-  TEST_TARGET: seekdb_driver_tests
+  TEST_TARGET: seekdb_tests
   SEEKDB_ARTIFACT: seekdb-binary
 
 jobs:
@@ -235,8 +235,8 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DSEEKDB_BIN=${{ env.SEEKDB_BIN }}
 
       - &build-driver
-        name: Build seekdb_driver
-        run: cmake --build build --target seekdb_driver --parallel
+        name: Build seekdb
+        run: cmake --build build --target seekdb --parallel
 
       - &verify-pure-c-driver
         name: Verify libseekdb has no C++ runtime dependency

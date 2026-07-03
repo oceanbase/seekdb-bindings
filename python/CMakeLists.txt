@@ -35,7 +35,7 @@ endif()
 message(STATUS "pybind11 cmake dir: ${pybind11_DIR}")
 find_package(pybind11 CONFIG REQUIRED)
 
-# ------ seekdb_driver: in-tree target (subdirectory) or prebuilt lib (standalone) ------
+# ------ libseekdb: in-tree target (subdirectory) or prebuilt lib (standalone) ------
 if (SEEKDB_PYTHON_STANDALONE)
     set(SEEKDB_DRIVER_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build" CACHE PATH
         "Build dir containing the prebuilt seekdb_driver library and seekdb binary")
@@ -86,8 +86,8 @@ if (SEEKDB_PYTHON_STANDALONE)
             "Configure the top-level build with -DSEEKDB_BIN=<path-to-seekdb>.")
     endif()
 else()
-    set(_seekdb_driver_link seekdb_driver)
-    set(_seekdb_driver_lib  "$<TARGET_FILE:seekdb_driver>")
+    set(_seekdb_driver_link seekdb)
+    set(_seekdb_driver_lib  "$<TARGET_FILE:seekdb>")
     set(_seekdb_bin         "${SEEKDB_BIN}")
 endif()
 
@@ -157,7 +157,7 @@ if (NOT SEEKDB_PYTHON_STANDALONE)
                 --output-dir ${CMAKE_BINARY_DIR}/wheelhouse
                 ${CMAKE_SOURCE_DIR}/python
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        DEPENDS seekdb_driver
+        DEPENDS seekdb
         COMMENT "Building Python wheel via cibuildwheel"
         VERBATIM)
 endif()

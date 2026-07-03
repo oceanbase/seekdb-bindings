@@ -13,7 +13,7 @@ if (NOT WIN32)
     target_compile_definitions(test_one_client_process PRIVATE
         SEEKDB_TEST_DATA_ROOT="${SEEKDB_TEST_DATA_ROOT}")
     target_link_libraries(test_one_client_process PRIVATE
-        seekdb_driver mariadb_client GTest::gtest_main)
+        seekdb mariadb_client GTest::gtest_main)
     gtest_discover_tests(test_one_client_process DISCOVERY_MODE PRE_TEST)
 
     add_executable(test_parameter_persistence test_parameter_persistence.cc)
@@ -22,7 +22,7 @@ if (NOT WIN32)
     target_compile_definitions(test_parameter_persistence PRIVATE
         SEEKDB_TEST_DATA_ROOT="${SEEKDB_TEST_DATA_ROOT}")
     target_link_libraries(test_parameter_persistence PRIVATE
-        seekdb_driver mariadb_client GTest::gtest_main)
+        seekdb mariadb_client GTest::gtest_main)
     gtest_discover_tests(test_parameter_persistence DISCOVERY_MODE PRE_TEST)
 endif()
 
@@ -32,10 +32,13 @@ target_include_directories(test_two_clients_threads PRIVATE
 target_compile_definitions(test_two_clients_threads PRIVATE
     SEEKDB_TEST_DATA_ROOT="${SEEKDB_TEST_DATA_ROOT}")
 target_link_libraries(test_two_clients_threads PRIVATE
-    seekdb_driver mariadb_client GTest::gtest_main)
+    seekdb mariadb_client GTest::gtest_main)
 gtest_discover_tests(test_two_clients_threads DISCOVERY_MODE PRE_TEST)
 
-add_custom_target(seekdb_driver_tests DEPENDS test_two_clients_threads)
+add_custom_target(seekdb_tests DEPENDS test_two_clients_threads)
 if (NOT WIN32)
-    add_dependencies(seekdb_driver_tests test_one_client_process test_parameter_persistence)
+    add_dependencies(seekdb_tests test_one_client_process test_parameter_persistence)
 endif()
+
+# Backward-compatible aggregate test target.
+add_custom_target(seekdb_driver_tests DEPENDS seekdb_tests)

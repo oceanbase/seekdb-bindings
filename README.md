@@ -40,10 +40,12 @@ After configuration (per-platform commands below), choose a `make` target from i
 
 | target | output |
 |---|---|
-| `make seekdb_driver` | `libseekdb.so` (shared; `libseekdb_driver.so` symlink for compatibility) |
+| `make seekdb` | `libseekdb.so` (shared; `libseekdb_driver.so` symlink for compatibility) |
+| `make seekdb_driver` | same as `make seekdb` (backward-compatible target) |
 | `make seekdb_cli` | `seekdb_cli` (interactive SQL client) |
 | `make pylibseekdb` | `pylibseekdb.cpython-*.so` (Python extension) |
-| `make seekdb_driver_tests` | `test_one_client_process`, `test_two_clients_threads` |
+| `make seekdb_tests` | `test_one_client_process`, `test_two_clients_threads` |
+| `make seekdb_driver_tests` | same as `make seekdb_tests` (backward-compatible target) |
 | `make wheel` | `wheelhouse/pylibseekdb-*.whl` via cibuildwheel |
 | `make` | everything above |
 
@@ -55,7 +57,7 @@ After configuration (per-platform commands below), choose a `make` target from i
 export SEEKDB_BIN=/path/to/seekdb
 cmake -S . -B build
 cd build
-make seekdb_driver
+make seekdb
 ```
 
 ### Mac
@@ -66,7 +68,7 @@ Identical to Linux, plus `-DWITH_EXTERNAL_ZLIB=YES` (the vendored zlib in mariad
 export SEEKDB_BIN=/path/to/seekdb
 cmake -S . -B build -DWITH_EXTERNAL_ZLIB=YES
 cd build
-make seekdb_driver
+make seekdb
 ```
 
 ### Windows (PowerShell)
@@ -92,7 +94,7 @@ cd <repo>
 cmake -S . -B build -G Ninja `
   -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl
 cd build
-ninja seekdb_driver
+ninja seekdb
 ```
 
 Persist env vars across PowerShell sessions either via your `$PROFILE` file or with `[Environment]::SetEnvironmentVariable("SEEKDB_BIN", "C:\path\to\seekdb.exe", "User")`. The dev-shell load must be re-run every session — there's no good way to bake it in.
