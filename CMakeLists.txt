@@ -58,15 +58,14 @@ add_subdirectory(lib)
 add_subdirectory(python)
 
 if (CLANG_FORMAT_EXE)
-    file(GLOB SEEKDB_CLANG_FORMAT_FILES CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/include/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/src/*.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/src/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/tests/*.cc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/tests/*.h"
+    file(GLOB_RECURSE SEEKDB_CLANG_FORMAT_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/*.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/*.cc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.h")
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/src/*.cpp")
     add_custom_target(format
         COMMAND "${CLANG_FORMAT_EXE}" -i ${SEEKDB_CLANG_FORMAT_FILES}
         COMMENT "Running clang-format on project sources"

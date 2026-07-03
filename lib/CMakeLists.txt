@@ -22,7 +22,7 @@ set(_seekdb_real_name
     "${CMAKE_SHARED_LIBRARY_PREFIX}seekdb${CMAKE_SHARED_LIBRARY_SUFFIX}")
 if (UNIX)
     add_custom_command(TARGET seekdb POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E remove -f "${_seekdb_compat_name}"
+        COMMAND ${CMAKE_COMMAND} -E rm -f "${_seekdb_compat_name}"
         COMMAND ${CMAKE_COMMAND} -E create_symlink
                 "${_seekdb_real_name}" "${_seekdb_compat_name}"
         WORKING_DIRECTORY $<TARGET_FILE_DIR:seekdb>
@@ -83,8 +83,10 @@ endif()
 
 add_executable(seekdb_cli src/seekdb_cli.c)
 target_include_directories(seekdb_cli PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(seekdb_cli PRIVATE seekdb mariadb_client)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    "${CMAKE_SOURCE_DIR}/deps/mariadb-connector-c/include"
+    "${CMAKE_BINARY_DIR}/deps/mariadb-connector-c/include")
+target_link_libraries(seekdb_cli PRIVATE seekdb)
 
 if(APPLE)
     set(_seekdb_origin "@loader_path")
