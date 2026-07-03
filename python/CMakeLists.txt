@@ -44,8 +44,6 @@ if (SEEKDB_PYTHON_STANDALONE)
 
     set(_seekdb_lib_name "${CMAKE_SHARED_LIBRARY_PREFIX}seekdb${CMAKE_SHARED_LIBRARY_SUFFIX}")
     set(_seekdb_lib "${SEEKDB_LIB_DIR}/${_seekdb_lib_name}")
-    set(_seekdb_compat_lib
-        "${SEEKDB_LIB_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}seekdb_driver${CMAKE_SHARED_LIBRARY_SUFFIX}")
     set(_seekdb_bin "${SEEKDB_LIB_DIR}/seekdb${CMAKE_EXECUTABLE_SUFFIX}")
 
     if (NOT EXISTS "${_seekdb_lib}")
@@ -68,13 +66,9 @@ if (SEEKDB_PYTHON_STANDALONE)
             message(FATAL_ERROR "import library not found: ${_seekdb_implib}")
         endif()
         set_target_properties(seekdb PROPERTIES IMPORTED_IMPLIB "${_seekdb_implib}")
-        set(_seekdb_compat_implib
-            "${SEEKDB_LIB_DIR}/${CMAKE_IMPORT_LIBRARY_PREFIX}seekdb_driver${CMAKE_IMPORT_LIBRARY_SUFFIX}")
     endif()
 else()
     set(_seekdb_lib "$<TARGET_FILE:seekdb>")
-    set(_seekdb_compat_lib
-        "$<TARGET_FILE_DIR:seekdb>/${CMAKE_SHARED_LIBRARY_PREFIX}seekdb_driver${CMAKE_SHARED_LIBRARY_SUFFIX}")
     set(_seekdb_bin "${SEEKDB_BIN}")
 endif()
 
@@ -103,24 +97,13 @@ if (SEEKDB_PYTHON_STANDALONE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${_seekdb_lib}" "$<TARGET_FILE_DIR:pylibseekdb>"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_seekdb_compat_lib}" "$<TARGET_FILE_DIR:pylibseekdb>"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${_seekdb_bin}" "$<TARGET_FILE_DIR:pylibseekdb>")
-    if (WIN32)
-        add_custom_command(TARGET pylibseekdb POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${_seekdb_compat_implib}" "$<TARGET_FILE_DIR:pylibseekdb>")
-    endif()
 endif()
 
 if (SEEKDB_PYTHON_STANDALONE)
     install(TARGETS pylibseekdb LIBRARY DESTINATION pylibseekdb)
     install(FILES "${_seekdb_lib}" DESTINATION pylibseekdb)
-    install(FILES "${_seekdb_compat_lib}" DESTINATION pylibseekdb OPTIONAL)
     install(PROGRAMS "${_seekdb_bin}" DESTINATION pylibseekdb)
-    if (WIN32)
-        install(FILES "${_seekdb_compat_implib}" DESTINATION pylibseekdb OPTIONAL)
-    endif()
     install(FILES "${SEEKDB_LIB_DIR}/libaio.so.1"
             DESTINATION pylibseekdb
             OPTIONAL)
