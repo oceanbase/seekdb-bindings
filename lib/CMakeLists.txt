@@ -77,9 +77,6 @@ if (SEEKDB_BIN)
     endif()
 endif()
 
-# Backward-compatible build target for existing scripts (`make seekdb_driver`).
-add_custom_target(seekdb_driver DEPENDS seekdb)
-
 # ----------------------------------------------------------------------------
 # CLI tool
 # ----------------------------------------------------------------------------

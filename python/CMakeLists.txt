@@ -35,49 +35,41 @@ endif()
 message(STATUS "pybind11 cmake dir: ${pybind11_DIR}")
 find_package(pybind11 CONFIG REQUIRED)
 
-# ------ libseekdb: in-tree target (subdirectory) or prebuilt lib (standalone) ------
+# ------ libseekdb: in-tree target or prebuilt lib (standalone) ------
 if (SEEKDB_PYTHON_STANDALONE)
-    set(SEEKDB_DRIVER_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build" CACHE PATH
-        "Build dir containing the prebuilt seekdb_driver library and seekdb binary")
+    set(SEEKDB_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build" CACHE PATH
+        "Build dir containing the prebuilt libseekdb library and seekdb binary")
 
     set(_seekdb_lib_name "${CMAKE_SHARED_LIBRARY_PREFIX}seekdb${CMAKE_SHARED_LIBRARY_SUFFIX}")
-    set(_seekdb_compat_lib_name
-        "${CMAKE_SHARED_LIBRARY_PREFIX}seekdb_driver${CMAKE_SHARED_LIBRARY_SUFFIX}")
     set(_seekdb_dir "")
     foreach(_cand
-            "${SEEKDB_DRIVER_LIB_DIR}"
-            "${SEEKDB_DRIVER_LIB_DIR}/Debug"
-            "${SEEKDB_DRIVER_LIB_DIR}/Release"
-            "${SEEKDB_DRIVER_LIB_DIR}/RelWithDebInfo"
-            "${SEEKDB_DRIVER_LIB_DIR}/MinSizeRel")
+            "${SEEKDB_LIB_DIR}"
+            "${SEEKDB_LIB_DIR}/Debug"
+            "${SEEKDB_LIB_DIR}/Release"
+            "${SEEKDB_LIB_DIR}/RelWithDebInfo"
+            "${SEEKDB_LIB_DIR}/MinSizeRel")
         if (EXISTS "${_cand}/${_seekdb_lib_name}")
             set(_seekdb_dir "${_cand}")
-            break()
-        elseif (EXISTS "${_cand}/${_seekdb_compat_lib_name}")
-            set(_seekdb_dir "${_cand}")
-            set(_seekdb_lib_name "${_seekdb_compat_lib_name}")
             break()
         endif()
     endforeach()
     if (_seekdb_dir STREQUAL "")
         message(FATAL_ERROR
-            "${CMAKE_SHARED_LIBRARY_PREFIX}seekdb${CMAKE_SHARED_LIBRARY_SUFFIX} not found under ${SEEKDB_DRIVER_LIB_DIR} (or its Debug/Release subdirs).\n"
+            "${_seekdb_lib_name} not found under ${SEEKDB_LIB_DIR} (or its Debug/Release subdirs).\n"
             "Build the top-level project first, or pass\n"
-            "    -DSEEKDB_DRIVER_LIB_DIR=<path-to-build-dir>")
+            "    -DSEEKDB_LIB_DIR=<path-to-build-dir>")
     endif()
 
-    set(_seekdb_driver_lib "${_seekdb_dir}/${_seekdb_lib_name}")
-    set(_seekdb_compat_lib "${_seekdb_dir}/${_seekdb_compat_lib_name}")
-    set(_seekdb_bin        "${_seekdb_dir}/seekdb${CMAKE_EXECUTABLE_SUFFIX}")
+    set(_seekdb_lib "${_seekdb_dir}/${_seekdb_lib_name}")
+    set(_seekdb_bin "${_seekdb_dir}/seekdb${CMAKE_EXECUTABLE_SUFFIX}")
     if (WIN32)
-        set(_seekdb_driver_link
+        set(_seekdb_link
             "${_seekdb_dir}/${CMAKE_IMPORT_LIBRARY_PREFIX}seekdb${CMAKE_IMPORT_LIBRARY_SUFFIX}")
-        if (NOT EXISTS "${_seekdb_driver_link}")
-            set(_seekdb_driver_link
-                "${_seekdb_dir}/${CMAKE_IMPORT_LIBRARY_PREFIX}seekdb_driver${CMAKE_IMPORT_LIBRARY_SUFFIX}")
+        if (NOT EXISTS "${_seekdb_link}")
+            message(FATAL_ERROR "import library not found: ${_seekdb_link}")
         endif()
     else()
-        set(_seekdb_driver_link "${_seekdb_driver_lib}")
+        set(_seekdb_link "${_seekdb_lib}")
     endif()
 
     if (NOT EXISTS "${_seekdb_bin}")
@@ -86,9 +78,9 @@ if (SEEKDB_PYTHON_STANDALONE)
             "Configure the top-level build with -DSEEKDB_BIN=<path-to-seekdb>.")
     endif()
 else()
-    set(_seekdb_driver_link seekdb)
-    set(_seekdb_driver_lib  "$<TARGET_FILE:seekdb>")
-    set(_seekdb_bin         "${SEEKDB_BIN}")
+    set(_seekdb_link seekdb)
+    set(_seekdb_lib  "$<TARGET_FILE:seekdb>")
+    set(_seekdb_bin  "${SEEKDB_BIN}")
 endif()
 
 # ------ Build the extension ------
@@ -96,9 +88,7 @@ pybind11_add_module(pylibseekdb src/bindings.cpp)
 
 target_include_directories(pylibseekdb PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../lib/include")
-target_link_libraries(pylibseekdb PRIVATE
-    "${_seekdb_driver_link}"
-)
+target_link_libraries(pylibseekdb PRIVATE "${_seekdb_link}")
 
 if(APPLE)
     set(_seekdb_rpath "@loader_path")
@@ -116,30 +106,17 @@ set_target_properties(pylibseekdb PROPERTIES
 if (SEEKDB_PYTHON_STANDALONE)
     add_custom_command(TARGET pylibseekdb POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_seekdb_driver_lib}" "$<TARGET_FILE_DIR:pylibseekdb>")
-    if (EXISTS "${_seekdb_compat_lib}")
-        add_custom_command(TARGET pylibseekdb POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${_seekdb_compat_lib}" "$<TARGET_FILE_DIR:pylibseekdb>")
-    endif()
-    if (_seekdb_bin)
-        add_custom_command(TARGET pylibseekdb POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${_seekdb_bin}" "$<TARGET_FILE_DIR:pylibseekdb>")
-    endif()
+                "${_seekdb_lib}" "$<TARGET_FILE_DIR:pylibseekdb>")
+    add_custom_command(TARGET pylibseekdb POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_seekdb_bin}" "$<TARGET_FILE_DIR:pylibseekdb>")
 endif()
 
 if (SEEKDB_PYTHON_STANDALONE)
     install(TARGETS pylibseekdb LIBRARY DESTINATION pylibseekdb)
-    install(FILES "${_seekdb_driver_lib}"
-            DESTINATION pylibseekdb)
-    if (EXISTS "${_seekdb_compat_lib}")
-        install(FILES "${_seekdb_compat_lib}"
-                DESTINATION pylibseekdb)
-    endif()
-    install(PROGRAMS "${_seekdb_bin}"
-            DESTINATION pylibseekdb)
-    install(FILES "${SEEKDB_DRIVER_LIB_DIR}/libaio.so.1"
+    install(FILES "${_seekdb_lib}" DESTINATION pylibseekdb)
+    install(PROGRAMS "${_seekdb_bin}" DESTINATION pylibseekdb)
+    install(FILES "${SEEKDB_LIB_DIR}/libaio.so.1"
             DESTINATION pylibseekdb
             OPTIONAL)
     if (WIN32)

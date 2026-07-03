@@ -41,11 +41,9 @@ After configuration (per-platform commands below), choose a `make` target from i
 | target | output |
 |---|---|
 | `make seekdb` | `libseekdb.so` (shared; `libseekdb_driver.so` symlink for compatibility) |
-| `make seekdb_driver` | same as `make seekdb` (backward-compatible target) |
 | `make seekdb_cli` | `seekdb_cli` (interactive SQL client) |
 | `make pylibseekdb` | `pylibseekdb.cpython-*.so` (Python extension) |
 | `make seekdb_tests` | `test_one_client_process`, `test_two_clients_threads` |
-| `make seekdb_driver_tests` | same as `make seekdb_tests` (backward-compatible target) |
 | `make wheel` | `wheelhouse/pylibseekdb-*.whl` via cibuildwheel |
 | `make` | everything above |
 

@@ -39,6 +39,3 @@ add_custom_target(seekdb_tests DEPENDS test_two_clients_threads)
 if (NOT WIN32)
     add_dependencies(seekdb_tests test_one_client_process test_parameter_persistence)
 endif()
-
-# Backward-compatible aggregate test target.
-add_custom_target(seekdb_driver_tests DEPENDS seekdb_tests)
