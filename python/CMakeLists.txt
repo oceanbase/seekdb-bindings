@@ -23,19 +23,21 @@ if (SEEKDB_PYTHON_STANDALONE)
     set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "" FORCE)
 endif()
 
-# ------ Find Python + pybind11 ------
-find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+# ------ Find Python + nanobind ------
+find_package(Python 3.11
+    REQUIRED COMPONENTS Interpreter Development.Module
+    OPTIONAL_COMPONENTS Development.SABIModule)
 execute_process(
-    COMMAND "${Python3_EXECUTABLE}" -c "import pybind11; print(pybind11.get_cmake_dir())"
-    OUTPUT_VARIABLE pybind11_DIR
+    COMMAND "${Python_EXECUTABLE}" -c "import nanobind; print(nanobind.cmake_dir())"
+    OUTPUT_VARIABLE nanobind_DIR
     OUTPUT_STRIP_TRAILING_WHITESPACE
-    RESULT_VARIABLE _pybind11_rc
+    RESULT_VARIABLE _nanobind_rc
 )
-if(NOT _pybind11_rc EQUAL 0)
-    message(FATAL_ERROR "pybind11 not importable in ${Python3_EXECUTABLE}. Install with: pip install --user pybind11")
+if(NOT _nanobind_rc EQUAL 0)
+    message(FATAL_ERROR "nanobind not importable in ${Python_EXECUTABLE}. Install with: pip install nanobind")
 endif()
-message(STATUS "pybind11 cmake dir: ${pybind11_DIR}")
-find_package(pybind11 CONFIG REQUIRED)
+message(STATUS "nanobind cmake dir: ${nanobind_DIR}")
+find_package(nanobind CONFIG REQUIRED)
 
 # ------ libseekdb: in-tree target or prebuilt IMPORTED lib (standalone) ------
 if (SEEKDB_PYTHON_STANDALONE)
@@ -73,7 +75,7 @@ else()
 endif()
 
 # ------ Build the extension ------
-pybind11_add_module(pylibseekdb src/bindings.cpp)
+nanobind_add_module(pylibseekdb STABLE_ABI src/bindings.cpp)
 
 target_include_directories(pylibseekdb PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../lib/include")

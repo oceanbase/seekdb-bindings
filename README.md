@@ -2,7 +2,7 @@
 
 C library, CLI, and Python bindings for [seekdb](https://github.com/oceanbase/seekdb).
 
-The core shared library (`libseekdb`, with a `libseekdb_driver` compatibility symlink) is implemented in **C11** (`lib/src/*.c`) and does not link against `libstdc++` or `libc++` (checked in CI via `readelf`); embedders only need a C toolchain to build and pthreads at runtime. The CLI (`seekdb_cli`) is also implemented in C11 (`lib/src/seekdb_cli.c`). The bundled **seekdb server binary** is a separate C++ product and may depend on `libstdc++`; issue #6 applies only to `libseekdb`. C++ is also used for gtest-based integration tests and the optional pybind11 Python extension.
+The core shared library (`libseekdb`, with a `libseekdb_driver` compatibility symlink) is implemented in **C11** (`lib/src/*.c`) and does not link against `libstdc++` or `libc++` (checked in CI via `readelf`); embedders only need a C toolchain to build and pthreads at runtime. The CLI (`seekdb_cli`) is also implemented in C11 (`lib/src/seekdb_cli.c`). The bundled **seekdb server binary** is a separate C++ product and may depend on `libstdc++`; issue #6 applies only to `libseekdb`. C++ is also used for gtest-based integration tests and the optional nanobind Python extension.
 
 ## Layout
 
@@ -12,7 +12,7 @@ seekdb-bindings/
 │   ├── include/seekdb.h        public C API
 │   ├── src/                    library + CLI sources
 │   └── tests/                  gtest cases
-├── python/                     pybind11 module + cibuildwheel config
+├── python/                     nanobind module + cibuildwheel config
 ├── scripts/                    helper scripts (e.g. openssl for android)
 └── deps/                       vendored mariadb-connector-c, googletest
 ```
@@ -126,7 +126,7 @@ configure the project as usual, then run:
 cmake --build build --target format
 ```
 
-The `format` target rewrites the repository's C, C++, and pybind11 source files using the
+The `format` target rewrites the repository's C, C++, and nanobind source files using the
 root `.clang-format` style.
 
 ## Use seekdb_cli
@@ -141,14 +141,14 @@ build/seekdb_cli [db_dir]
 
 ## Prepare Python environment
 
-`make pylibseekdb` and `make wheel` need a Python toolchain. Use a venv to keep `pybind11` (required by `make pylibseekdb` at configure time) and `cibuildwheel` (required by `make wheel`) out of the system Python.
+`make pylibseekdb` and `make wheel` need a Python toolchain. Use a venv to keep `nanobind` (required by `make pylibseekdb` at configure time) and `cibuildwheel` (required by `make wheel`) out of the system Python.
 
 ### Linux / Mac
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-pip install pybind11 cibuildwheel
+pip install nanobind cibuildwheel
 ```
 
 ### Windows (PowerShell)
@@ -156,7 +156,7 @@ pip install pybind11 cibuildwheel
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install pybind11 cibuildwheel
+pip install nanobind cibuildwheel
 ```
 
 If `Activate.ps1` is blocked by execution policy, allow it for this process only:
@@ -165,12 +165,16 @@ If `Activate.ps1` is blocked by execution policy, allow it for this process only
 Set-ExecutionPolicy -Scope Process Bypass -Force
 ```
 
-`cibuildwheel` additionally needs Docker running on Linux (it builds inside the manylinux container — not needed on macOS / Windows). Wheel output lands at `build/wheelhouse/pylibseekdb-*.whl`. Target platforms (`manylinux_2_28`, `macos arm64`, `win_amd64`) are configured in `python/pyproject.toml`.
+`cibuildwheel` additionally needs Docker running on Linux (it builds inside the manylinux container — not needed on macOS / Windows). Wheel output lands at `build/wheelhouse/pylibseekdb-*.whl`. Each release produces **6 wheels** (3 platforms × 2 Python ABIs): `cp311-cp311` for Python 3.11, and `cp312-abi3` for Python 3.12+ on linux x86_64, linux aarch64, and macOS arm64. See `python/pyproject.toml`.
 
-**Linux: build seekdb inside manylinux.** The wheel must be ABI-compatible with `manylinux_2_28`, so the `seekdb` binary you point `SEEKDB_BIN` at also needs to be built against glibc 2.28. `scripts/build-seekdb-glibc228.sh` runs `seekdb`'s own `build.sh` inside the `manylinux_2_28_x86_64` image:
+**Linux: build seekdb inside manylinux.** The wheel must be ABI-compatible with `manylinux_2_28`, so the `seekdb` binary you point `SEEKDB_BIN` at also needs to be built against glibc 2.28. `scripts/build-seekdb-glibc228.sh` runs `seekdb`'s own `build.sh` inside the manylinux image:
 
 ```sh
-SEEKDB_REPO=~/seekdb ./scripts/build-seekdb-glibc228.sh    # defaults to ~/seekdb if SEEKDB_REPO is unset
+# x86_64 (default)
+SEEKDB_REPO=~/seekdb ./scripts/build-seekdb-glibc228.sh
+
+# aarch64
+SEEKDB_ARCH=aarch64 SEEKDB_REPO=~/seekdb ./scripts/build-seekdb-glibc228.sh
 ```
 
-It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`.
+It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`. Use an architecture-matching `seekdb` binary for each linux wheel arch.

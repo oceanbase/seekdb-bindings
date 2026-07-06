@@ -1,5 +1,8 @@
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
+#include <nanobind/nanobind.h>
+#include <nanobind/stl/shared_ptr.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/tuple.h>
+#include <nanobind/stl/vector.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -12,23 +15,23 @@ extern "C" {
 #include "seekdb.h"
 }
 
-namespace py = pybind11;
+namespace nb = nanobind;
 
 constexpr const char *kPublicModule = "pylibseekdb";
 
-static py::object &date_class()
+static nb::object &date_class()
 {
-    static py::object o = py::module_::import("datetime").attr("date");
+    static nb::object o = nb::module_::import_("datetime").attr("date");
     return o;
 }
-static py::object &datetime_class()
+static nb::object &datetime_class()
 {
-    static py::object o = py::module_::import("datetime").attr("datetime");
+    static nb::object o = nb::module_::import_("datetime").attr("datetime");
     return o;
 }
-static py::object &decimal_class()
+static nb::object &decimal_class()
 {
-    static py::object o = py::module_::import("decimal").attr("Decimal");
+    static nb::object o = nb::module_::import_("decimal").attr("Decimal");
     return o;
 }
 
@@ -118,18 +121,18 @@ class Cursor {
         return static_cast<uint64_t>(n);
     }
 
-    py::object fetchone()
+    nb::object fetchone()
     {
         if (!result_)
-            return py::none();
+            return nb::none();
         if (seekdb_result_next(result_) != SEEKDB_SUCCESS)
-            return py::none();
+            return nb::none();
         return build_row();
     }
 
-    std::vector<py::tuple> fetchall()
+    std::vector<nb::tuple> fetchall()
     {
-        std::vector<py::tuple> rows;
+        std::vector<nb::tuple> rows;
         if (!result_)
             return rows;
         while (seekdb_result_next(result_) == SEEKDB_SUCCESS) {
@@ -149,55 +152,59 @@ class Cursor {
         }
     }
 
-    py::tuple build_row()
+    nb::tuple build_row()
     {
         int64_t ncol = 0;
         SDB_CHECK(seekdb_result_column_count(result_, &ncol));
-        py::tuple t(ncol);
-        for (int64_t i = 0; i < ncol; ++i) {
-            t[i] = get_value(i);
+        Py_ssize_t n = static_cast<Py_ssize_t>(ncol);
+        PyObject *raw = PyTuple_New(n);
+        if (!raw)
+            throw std::runtime_error("failed to allocate tuple");
+        for (Py_ssize_t i = 0; i < n; ++i) {
+            nb::object val = get_value(static_cast<int64_t>(i));
+            PyTuple_SetItem(raw, i, val.release().ptr());
         }
-        return t;
+        return nb::steal<nb::tuple>(raw);
     }
 
-    py::object get_value(int64_t idx)
+    nb::object get_value(int64_t idx)
     {
         SeekdbTypeId t = SEEKDB_TYPE_NULL;
         SDB_CHECK(seekdb_result_column_type_id(result_, idx, &t));
 
-        // Probe the raw cell first so SQL NULL maps to py::none() regardless
+        // Probe the raw cell first so SQL NULL maps to nb::none() regardless
         // of column type — the typed getters return 0/0.0 for NULL silently.
         const char *data = nullptr;
         size_t len = 0;
         int is_null = 0;
         SDB_CHECK(seekdb_result_get_str(result_, idx, &data, &len, &is_null));
         if (is_null)
-            return py::none();
+            return nb::none();
 
         switch (t) {
         case SEEKDB_TYPE_NULL:
-            return py::none();
+            return nb::none();
         case SEEKDB_TYPE_INT64: {
             int64_t v = 0;
             SDB_CHECK(seekdb_result_get_int64(result_, idx, &v));
-            return py::int_(v);
+            return nb::int_(v);
         }
         case SEEKDB_TYPE_UINT64: {
             uint64_t v = 0;
             SDB_CHECK(seekdb_result_get_uint64(result_, idx, &v));
-            return py::int_(v);
+            return nb::int_(v);
         }
         case SEEKDB_TYPE_FLOAT: {
             double v = 0.0;
             SDB_CHECK(seekdb_result_get_float(result_, idx, &v));
-            return py::float_(v);
+            return nb::float_(v);
         }
         case SEEKDB_TYPE_DECIMAL:
-            return decimal_class()(py::str(data, len));
+            return decimal_class()(nb::str(data, len));
         case SEEKDB_TYPE_DATE: {
             int y = 0, m = 0, d = 0;
             if (std::sscanf(std::string(data, len).c_str(), "%d-%d-%d", &y, &m, &d) != 3) {
-                return py::str(data, len);
+                return nb::str(data, len);
             }
             return date_class()(y, m, d);
         }
@@ -207,11 +214,11 @@ class Cursor {
             int n = std::sscanf(std::string(data, len).c_str(), "%d-%d-%d %d:%d:%d.%d", &y, &mo, &d,
                                 &h, &mi, &s, &us);
             if (n < 6)
-                return py::str(data, len);
+                return nb::str(data, len);
             return datetime_class()(y, mo, d, h, mi, s, us);
         }
         case SEEKDB_TYPE_VARCHAR:
-            return py::str(data, len);
+            return nb::str(data, len);
         default:
             throw std::runtime_error("Cursor.get_value: unknown column type id=" +
                                      std::to_string(static_cast<int>(t)));
@@ -263,39 +270,38 @@ void close()
 
 } // namespace seekdb
 
-PYBIND11_MODULE(pylibseekdb, m)
+NB_MODULE(pylibseekdb, m)
 {
     m.doc() = "Python bindings for seekdb-driver (out-of-process MySQL-compatible client). "
               "Surface mirrors seekdb's ob_embed_impl.cpp.";
     m.attr("__version__") = "0.1.0";
 
-    auto seekdb_error = py::register_exception<SeekdbError>(m, "SeekdbError", PyExc_RuntimeError);
+    auto seekdb_error = nb::exception<SeekdbError>(m, "SeekdbError", PyExc_RuntimeError);
     seekdb_error.attr("__module__") = kPublicModule;
 
     const char *default_service_path = "./seekdb.db";
 
-    m.def("open", &seekdb::open, py::arg("db_dir") = default_service_path, "open db");
+    m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path, "open db");
 
-    m.def("connect", &seekdb::connect, py::arg("database") = "test", py::arg("autocommit") = false,
+    m.def("connect", &seekdb::connect, nb::arg("database") = "test", nb::arg("autocommit") = false,
           "connect seekdb");
 
-    auto connection_class =
-        py::class_<seekdb::Connection, std::shared_ptr<seekdb::Connection>>(m, "Connection");
+    auto connection_class = nb::class_<seekdb::Connection>(m, "Connection");
     connection_class.attr("__module__") = kPublicModule;
-    connection_class.def(py::init<>())
+    connection_class.def(nb::init<>())
         .def("cursor", &seekdb::Connection::cursor)
         .def("close", &seekdb::Connection::reset)
-        .def("begin", &seekdb::Connection::begin, py::call_guard<py::gil_scoped_release>())
-        .def("commit", &seekdb::Connection::commit, py::call_guard<py::gil_scoped_release>())
-        .def("rollback", &seekdb::Connection::rollback, py::call_guard<py::gil_scoped_release>());
+        .def("begin", &seekdb::Connection::begin)
+        .def("commit", &seekdb::Connection::commit)
+        .def("rollback", &seekdb::Connection::rollback);
 
-    auto cursor_class = py::class_<seekdb::Cursor>(m, "Cursor");
+    auto cursor_class = nb::class_<seekdb::Cursor>(m, "Cursor");
     cursor_class.attr("__module__") = kPublicModule;
-    cursor_class.def("execute", &seekdb::Cursor::execute, py::call_guard<py::gil_scoped_release>())
+    cursor_class.def("execute", &seekdb::Cursor::execute)
         .def("fetchone", &seekdb::Cursor::fetchone)
         .def("fetchall", &seekdb::Cursor::fetchall)
         .def("close", &seekdb::Cursor::close);
 
-    py::object atexit = py::module::import("atexit");
-    atexit.attr("register")(py::cpp_function(&seekdb::close));
+    nb::object atexit = nb::module_::import_("atexit");
+    atexit.attr("register")(nb::cpp_function(&seekdb::close));
 }

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.8", "pybind11>=2.10"]
+requires = ["scikit-build-core>=0.8", "nanobind>=2.0"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -38,27 +38,31 @@ Documentation = "https://docs.seekdb.ai/"
 "Bug Tracker" = "https://github.com/oceanbase/seekdb/issues"
 
 [tool.scikit-build]
+minimum-version = "0.10"
 cmake.source-dir = "."
 build.targets    = ["pylibseekdb"]
 wheel.packages   = ["pylibseekdb"]
 build-dir        = "../build/python/{wheel_tag}"
+wheel.py-api     = "cp312"
 
 [tool.cibuildwheel]
-build  = "cp311-* cp312-* cp313-* cp314-*"
-skip   = "*-musllinux_*"
+build  = "cp311-* cp312-*"
+skip   = "*-musllinux_* *-win_*"
+build-verbosity = 1
 
 environment = { PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/" }
 
 [tool.cibuildwheel.linux]
-archs = ["x86_64"]
+archs = ["x86_64", "aarch64"]
 manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
 before-build = [
     "yum install -y libaio",
     "cp /usr/lib64/libaio.so.1 /project/build/",
     "patchelf --set-rpath '$ORIGIN' /project/build/seekdb",
 ]
 
-repair-wheel-command = "auditwheel repair --plat manylinux_2_28_x86_64 -w {dest_dir} {wheel}"
+repair-wheel-command = "auditwheel repair --plat {plat} -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]

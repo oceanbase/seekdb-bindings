@@ -41,7 +41,7 @@ pip install pylibseekdb
 ### Requirements
 
 - CPython >= 3.11
-- Linux x86_64 with glibc >= 2.28 (Alpine / musl not supported yet)
+- Linux x86_64 or aarch64 with glibc >= 2.28 (Alpine / musl not supported yet)
 - macOS arm64 >= 15.5
 
 ## 🎬 Quick Start

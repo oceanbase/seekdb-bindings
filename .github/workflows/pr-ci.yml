@@ -206,7 +206,7 @@ jobs:
 
       - &install-python-build-dependencies
         name: Install Python build dependencies
-        run: python -m pip install --upgrade pip pybind11
+        run: python -m pip install --upgrade pip nanobind
 
       - &download-seekdb-binary
         name: Download seekdb binary
