@@ -156,15 +156,21 @@ class Cursor {
     {
         int64_t ncol = 0;
         SDB_CHECK(seekdb_result_column_count(result_, &ncol));
-        Py_ssize_t n = static_cast<Py_ssize_t>(ncol);
-        PyObject *raw = PyTuple_New(n);
-        if (!raw)
+
+        std::vector<nb::object> cells;
+        cells.reserve(static_cast<size_t>(ncol));
+        for (int64_t i = 0; i < ncol; ++i)
+            cells.push_back(get_value(i));
+
+        Py_ssize_t n = static_cast<Py_ssize_t>(cells.size());
+        nb::tuple row = nb::steal<nb::tuple>(PyTuple_New(n));
+        if (!row.is_valid())
             throw std::runtime_error("failed to allocate tuple");
         for (Py_ssize_t i = 0; i < n; ++i) {
-            nb::object val = get_value(static_cast<int64_t>(i));
-            PyTuple_SetItem(raw, i, val.release().ptr());
+            if (PyTuple_SetItem(row.ptr(), i, cells[i].release().ptr()) < 0)
+                throw nb::python_error();
         }
-        return nb::steal<nb::tuple>(raw);
+        return row;
     }
 
     nb::object get_value(int64_t idx)
