@@ -43,6 +43,7 @@ cmake.source-dir = "."
 build.targets    = ["pylibseekdb"]
 wheel.packages   = ["pylibseekdb"]
 build-dir        = "../build/python/{wheel_tag}"
+# cp311 builds get cp311-cp311; cp312+ builds get cp312-abi3 (scikit-build-core behavior).
 wheel.py-api     = "cp312"
 
 [tool.cibuildwheel]
