@@ -294,7 +294,7 @@ NB_MODULE(pylibseekdb, m)
 
     auto connection_class = nb::class_<seekdb::Connection>(m, "Connection");
     connection_class.attr("__module__") = kPublicModule;
-    connection_class.def(nb::init<>())
+    connection_class
         .def("cursor", &seekdb::Connection::cursor)
         .def("close", &seekdb::Connection::reset)
         .def("begin", &seekdb::Connection::begin, nb::call_guard<nb::gil_scoped_release>())
