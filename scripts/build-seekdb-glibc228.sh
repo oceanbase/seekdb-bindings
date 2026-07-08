@@ -12,24 +12,10 @@ if [ ! -d "$REPO" ]; then
   exit 1
 fi
 
-# SEEKDB_ARCH: x86_64 (default) or aarch64 — selects the manylinux_2_28 image.
-ARCH="${SEEKDB_ARCH:-x86_64}"
+IMAGE="${SEEKDB_EL8_IMAGE:-quay.io/pypa/manylinux_2_28:2026.03.20-1}"
 BUILD_TYPE="${1:-release}"
 
-case "$ARCH" in
-  x86_64)
-    IMAGE="${SEEKDB_EL8_IMAGE:-quay.io/pypa/manylinux_2_28_x86_64:2026.03.20-1}"
-    ;;
-  aarch64)
-    IMAGE="${SEEKDB_EL8_IMAGE:-quay.io/pypa/manylinux_2_28_aarch64:2026.03.20-1}"
-    ;;
-  *)
-    echo "error: unsupported SEEKDB_ARCH=$ARCH (use x86_64 or aarch64)" >&2
-    exit 1
-    ;;
-esac
-
-echo "=== building seekdb ($BUILD_TYPE) for $ARCH in $IMAGE ==="
+echo "=== building seekdb ($BUILD_TYPE) in $IMAGE ==="
 
 docker run --rm \
   -v "$REPO":/seekdb -w /seekdb \

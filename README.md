@@ -170,11 +170,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 **Linux: build seekdb inside manylinux.** The wheel must be ABI-compatible with `manylinux_2_28`, so the `seekdb` binary you point `SEEKDB_BIN` at also needs to be built against glibc 2.28. `scripts/build-seekdb-glibc228.sh` runs `seekdb`'s own `build.sh` inside the manylinux image:
 
 ```sh
-# x86_64 (default)
 SEEKDB_REPO=~/seekdb ./scripts/build-seekdb-glibc228.sh
-
-# aarch64
-SEEKDB_ARCH=aarch64 SEEKDB_REPO=~/seekdb ./scripts/build-seekdb-glibc228.sh
 ```
 
-It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`. Use an architecture-matching `seekdb` binary for each linux wheel arch.
+Docker pulls the host-matching `manylinux_2_28` image (x86_64 or aarch64). It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`.
