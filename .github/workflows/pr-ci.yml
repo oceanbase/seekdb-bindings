@@ -93,7 +93,15 @@ jobs:
           esac
           echo "SEEKDB_BUILD_TYPE=$SEEKDB_BUILD_TYPE" >> "$GITHUB_ENV"
 
+      - name: Restore cached seekdb binary
+        id: seekdb_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/seekdb-binary-cache
+          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
+
       - name: Free Disk Space
+        if: steps.seekdb_cache.outputs.cache-hit != 'true'
         uses: insightsengineering/disk-space-reclaimer@v1
         with:
           tools-cache: false
@@ -103,13 +111,6 @@ jobs:
           large-packages: true
           swap-storage: true
           docker-images: true
-
-      - name: Restore cached seekdb binary
-        id: seekdb_cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/seekdb-binary-cache
-          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
 
       - name: Prepare seekdb build dependencies
         if: steps.seekdb_cache.outputs.cache-hit != 'true'
