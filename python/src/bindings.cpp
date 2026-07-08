@@ -297,13 +297,13 @@ NB_MODULE(pylibseekdb, m)
     connection_class.def(nb::init<>())
         .def("cursor", &seekdb::Connection::cursor)
         .def("close", &seekdb::Connection::reset)
-        .def("begin", &seekdb::Connection::begin)
-        .def("commit", &seekdb::Connection::commit)
-        .def("rollback", &seekdb::Connection::rollback);
+        .def("begin", &seekdb::Connection::begin, nb::call_guard<nb::gil_scoped_release>())
+        .def("commit", &seekdb::Connection::commit, nb::call_guard<nb::gil_scoped_release>())
+        .def("rollback", &seekdb::Connection::rollback, nb::call_guard<nb::gil_scoped_release>());
 
     auto cursor_class = nb::class_<seekdb::Cursor>(m, "Cursor");
     cursor_class.attr("__module__") = kPublicModule;
-    cursor_class.def("execute", &seekdb::Cursor::execute)
+    cursor_class.def("execute", &seekdb::Cursor::execute, nb::call_guard<nb::gil_scoped_release>())
         .def("fetchone", &seekdb::Cursor::fetchone)
         .def("fetchall", &seekdb::Cursor::fetchall)
         .def("close", &seekdb::Cursor::close);
