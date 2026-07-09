@@ -14,6 +14,8 @@ extern "C" {
 
 namespace py = pybind11;
 
+constexpr const char *kPublicModule = "pylibseekdb";
+
 static py::object &date_class()
 {
     static py::object o = py::module_::import("datetime").attr("date");
@@ -267,7 +269,8 @@ PYBIND11_MODULE(pylibseekdb, m)
               "Surface mirrors seekdb's ob_embed_impl.cpp.";
     m.attr("__version__") = "0.1.0";
 
-    py::register_exception<SeekdbError>(m, "SeekdbError");
+    auto seekdb_error = py::register_exception<SeekdbError>(m, "SeekdbError", PyExc_RuntimeError);
+    seekdb_error.attr("__module__") = kPublicModule;
 
     const char *default_service_path = "./seekdb.db";
 
@@ -276,16 +279,19 @@ PYBIND11_MODULE(pylibseekdb, m)
     m.def("connect", &seekdb::connect, py::arg("database") = "test", py::arg("autocommit") = false,
           "connect seekdb");
 
-    py::class_<seekdb::Connection, std::shared_ptr<seekdb::Connection>>(m, "Connection")
-        .def(py::init<>())
+    auto connection_class =
+        py::class_<seekdb::Connection, std::shared_ptr<seekdb::Connection>>(m, "Connection");
+    connection_class.attr("__module__") = kPublicModule;
+    connection_class.def(py::init<>())
         .def("cursor", &seekdb::Connection::cursor)
         .def("close", &seekdb::Connection::reset)
         .def("begin", &seekdb::Connection::begin, py::call_guard<py::gil_scoped_release>())
         .def("commit", &seekdb::Connection::commit, py::call_guard<py::gil_scoped_release>())
         .def("rollback", &seekdb::Connection::rollback, py::call_guard<py::gil_scoped_release>());
 
-    py::class_<seekdb::Cursor>(m, "Cursor")
-        .def("execute", &seekdb::Cursor::execute, py::call_guard<py::gil_scoped_release>())
+    auto cursor_class = py::class_<seekdb::Cursor>(m, "Cursor");
+    cursor_class.attr("__module__") = kPublicModule;
+    cursor_class.def("execute", &seekdb::Cursor::execute, py::call_guard<py::gil_scoped_release>())
         .def("fetchone", &seekdb::Cursor::fetchone)
         .def("fetchall", &seekdb::Cursor::fetchall)
         .def("close", &seekdb::Cursor::close);

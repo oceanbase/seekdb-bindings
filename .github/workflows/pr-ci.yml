@@ -239,6 +239,49 @@ jobs:
         name: Build seekdb
         run: cmake --build build --target seekdb --parallel
 
+      - &build-python-binding
+        name: Build Python binding
+        run: cmake --build build --target pylibseekdb --parallel
+
+      - &verify-python-binding-contract
+        name: Verify Python binding exception contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.machinery
+          import pathlib
+          import shutil
+          import sys
+          import tempfile
+
+          build_dir = pathlib.Path("build")
+          candidates = []
+          for suffix in importlib.machinery.EXTENSION_SUFFIXES:
+              candidates.extend(build_dir.glob(f"pylibseekdb*{suffix}"))
+          candidates = sorted(set(candidates))
+          if len(candidates) != 1:
+              raise SystemExit(f"expected one built pylibseekdb extension, found: {candidates}")
+
+          with tempfile.TemporaryDirectory() as tmp:
+              package_dir = pathlib.Path(tmp) / "pylibseekdb"
+              package_dir.mkdir()
+              shutil.copy2("python/pylibseekdb/__init__.py", package_dir / "__init__.py")
+              suffix = candidates[0].name.removeprefix("pylibseekdb")
+              shutil.copy2(candidates[0], package_dir / f"pylibseekdb{suffix}")
+              for library in build_dir.glob("libseekdb.*"):
+                  shutil.copy2(library, package_dir / library.name)
+
+              sys.path.insert(0, tmp)
+              import pylibseekdb
+
+              assert issubclass(pylibseekdb.SeekdbError, RuntimeError)
+              for name in ("SeekdbError", "Connection", "Cursor"):
+                  cls = getattr(pylibseekdb, name)
+                  assert cls.__module__ == "pylibseekdb"
+                  assert str(cls) == f"<class 'pylibseekdb.{name}'>"
+          PY
+
       - &verify-pure-c-driver
         name: Verify libseekdb has no C++ runtime dependency
         shell: bash
