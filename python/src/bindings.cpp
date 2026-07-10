@@ -166,8 +166,10 @@ class Cursor {
         nb::tuple row = nb::steal<nb::tuple>(PyTuple_New(n));
         if (!row.is_valid())
             throw std::runtime_error("failed to allocate tuple");
-        for (Py_ssize_t i = 0; i < n; ++i)
-            PyTuple_SET_ITEM(row.ptr(), i, cells[i].release().ptr());
+        for (Py_ssize_t i = 0; i < n; ++i) {
+            if (PyTuple_SetItem(row.ptr(), i, cells[i].release().ptr()) < 0)
+                throw nb::python_error();
+        }
         return row;
     }
 
