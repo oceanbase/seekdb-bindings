@@ -163,11 +163,13 @@ class Cursor {
             cells.push_back(get_value(i));
 
         Py_ssize_t n = static_cast<Py_ssize_t>(cells.size());
-        nb::tuple row = nb::steal<nb::tuple>(PyTuple_New(n));
-        if (!row.is_valid())
-            throw std::runtime_error("failed to allocate tuple");
+        PyObject *raw = PyTuple_New(n);
+        if (!raw)
+            throw nb::python_error();
+        nb::tuple row = nb::steal<nb::tuple>(raw);
         for (Py_ssize_t i = 0; i < n; ++i) {
-            if (PyTuple_SetItem(row.ptr(), i, cells[i].release().ptr()) < 0)
+            PyObject *item = cells[i].release().ptr();
+            if (PyTuple_SetItem(row.ptr(), i, item) < 0)
                 throw nb::python_error();
         }
         return row;
