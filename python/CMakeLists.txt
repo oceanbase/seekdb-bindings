@@ -127,4 +127,10 @@ if (NOT SEEKDB_PYTHON_STANDALONE)
         DEPENDS seekdb
         COMMENT "Building Python wheel via cibuildwheel"
         VERBATIM)
+
+    add_custom_target(verify-wheel
+        COMMAND ${CMAKE_SOURCE_DIR}/scripts/verify-wheel.sh
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Verify wheels in build/wheelhouse with seekdb_test.py"
+        VERBATIM)
 endif()

@@ -44,7 +44,8 @@ After configuration (per-platform commands below), choose a `make` target from i
 | `make seekdb_cli` | `seekdb_cli` (interactive SQL client) |
 | `make pylibseekdb` | `pylibseekdb.cpython-*.so` (Python extension) |
 | `make seekdb_tests` | `test_one_client_process`, `test_two_clients_threads` |
-| `make wheel` | `wheelhouse/pylibseekdb-*.whl` via cibuildwheel |
+| `make wheel` | `wheelhouse/pylibseekdb-*.whl` via cibuildwheel (runs `seekdb_test.py` per wheel) |
+| `make verify-wheel` | Re-run `seekdb_test.py` against wheels in `build/wheelhouse/` |
 | `make` | everything above |
 
 `build/seekdb` (a copy of `$SEEKDB_BIN`) ships alongside the library.
@@ -174,3 +175,11 @@ SEEKDB_REPO=~/seekdb ./scripts/build-seekdb-glibc228.sh
 ```
 
 Docker pulls the host-matching `manylinux_2_28` image (x86_64 or aarch64). It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`.
+
+Each wheel built by `cibuildwheel` is smoke-tested with `python/tests/seekdb_test.py` (hybrid search end-to-end). To verify wheels built another way:
+
+```sh
+./scripts/verify-wheel.sh build/wheelhouse/pylibseekdb-*.whl
+```
+
+Override the test script with `SEEKDB_TEST_PY=/path/to/seekdb_test.py` if needed.
