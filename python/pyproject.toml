@@ -47,7 +47,7 @@ build-dir        = "../build/python/{wheel_tag}"
 wheel.py-api     = "cp312"
 
 [tool.cibuildwheel]
-build  = "cp311-* cp312-* cp313-* cp314-*"
+build  = "cp311-* cp312-*"
 skip   = "*-musllinux_* *-win_*"
 build-verbosity = 1
 test-command = "python {project}/tests/seekdb_test.py"

@@ -34,7 +34,7 @@ IMAGE="${SEEKDB_EL8_IMAGE:-quay.io/pypa/manylinux_2_28:2026.03.20-1}"
 BUILD_TYPE="${1:-release}"
 
 use_local_repo=0
-if [[ -d "$REPO/.git" ]]; then
+if [[ -e "$REPO/.git" ]]; then
   use_local_repo=1
 elif [[ -z "$GIT_URL" ]]; then
   echo "error: seekdb repo not found at $REPO and SEEKDB_GIT_URL is unset" >&2
@@ -70,20 +70,25 @@ docker run "${docker_args[@]}" "$IMAGE" bash -c '
 set -euo pipefail
 yum install -y wget cpio git
 
+checkout_git_ref() {
+  git fetch --depth 1 origin "$GIT_REF"
+  git checkout -q FETCH_HEAD
+}
+
 if [[ "$USE_LOCAL_REPO" == "1" ]]; then
   cd /seekdb
   if [[ -n "$GIT_REF" ]]; then
-    git fetch --depth 1 origin "$GIT_REF"
-    git checkout -q FETCH_HEAD
+    original_head="$(git rev-parse HEAD)"
+    checkout_git_ref
+    trap '"'"'git checkout -q "$original_head" 2>/dev/null || true'"'"' EXIT
   fi
 else
   rm -rf /seekdb
-  if [[ -n "$GIT_REF" ]]; then
-    git clone --depth 1 --branch "$GIT_REF" "$GIT_URL" /seekdb
-  else
-    git clone --depth 1 "$GIT_URL" /seekdb
-  fi
+  git clone --depth 1 "$GIT_URL" /seekdb
   cd /seekdb
+  if [[ -n "$GIT_REF" ]]; then
+    checkout_git_ref
+  fi
 fi
 
 rm -rf "build_$BUILD_TYPE"
@@ -101,6 +106,7 @@ fi
 if [[ -n "${OUT_BIN:-}" ]]; then
   cp -f "$bin" "$OUT_BIN"
   chmod +x "$OUT_BIN"
+  chown "$HOST_UID:$HOST_GID" "$OUT_BIN" 2>/dev/null || true
   bin="$OUT_BIN"
 fi
 

@@ -163,12 +163,12 @@ build_seekdb_macos() {
   local src_dir="$BUILD_DIR/seekdb-src"
   need_cmd git
 
-  if [[ ! -d "$src_dir/.git" ]]; then
+  if [[ ! -e "$src_dir/.git" ]]; then
     echo "==> cloning seekdb from $SEEKDB_GIT_URL" >&2
+    git clone --depth 1 "$SEEKDB_GIT_URL" "$src_dir"
     if [[ -n "$SEEKDB_GIT_REF" ]]; then
-      git clone --depth 1 --branch "$SEEKDB_GIT_REF" "$SEEKDB_GIT_URL" "$src_dir"
-    else
-      git clone --depth 1 "$SEEKDB_GIT_URL" "$src_dir"
+      git -C "$src_dir" fetch --depth 1 origin "$SEEKDB_GIT_REF"
+      git -C "$src_dir" checkout -q FETCH_HEAD
     fi
   elif [[ -n "$SEEKDB_GIT_REF" ]]; then
     echo "==> checking out $SEEKDB_GIT_REF in $src_dir" >&2
@@ -357,6 +357,9 @@ main() {
 
   if [[ "$BUILD_DIR" != "$ROOT/build" ]]; then
     echo "warning: BUILD_DIR must be under the project root for cibuildwheel; using $ROOT/build" >&2
+    if [[ "$DEBUG_DIR" == "$BUILD_DIR" ]]; then
+      DEBUG_DIR="$ROOT/build"
+    fi
     BUILD_DIR="$ROOT/build"
   fi
 
