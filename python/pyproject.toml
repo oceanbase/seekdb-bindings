@@ -47,7 +47,7 @@ build-dir        = "../build/python/{wheel_tag}"
 wheel.py-api     = "cp312"
 
 [tool.cibuildwheel]
-build  = "cp311-* cp312-*"
+build  = "cp311-* cp312-* cp313-* cp314-*"
 skip   = "*-musllinux_* *-win_*"
 build-verbosity = 1
 test-command = "python {project}/tests/seekdb_test.py"
@@ -64,7 +64,7 @@ before-build = [
     "patchelf --set-rpath '$ORIGIN' /project/build/seekdb",
 ]
 
-repair-wheel-command = "auditwheel repair --plat {plat} -w {dest_dir} {wheel}"
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
