@@ -50,7 +50,7 @@ wheel.py-api     = "cp312"
 build  = "cp311-* cp312-*"
 skip   = "*-musllinux_* *-win_*"
 build-verbosity = 1
-test-command = "python {project}/tests/seekdb_test.py"
+test-command = "python {package}/tests/seekdb_test.py"
 
 environment = { PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/" }
 

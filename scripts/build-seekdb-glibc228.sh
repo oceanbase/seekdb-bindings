@@ -76,7 +76,11 @@ set -euo pipefail
 yum install -y wget cpio git
 
 checkout_git_ref() {
-  git fetch --depth 1 origin "$GIT_REF"
+  if git rev-parse --verify -q "$GIT_REF^{commit}" >/dev/null 2>&1; then
+    git checkout -q "$GIT_REF"
+    return
+  fi
+  git fetch --depth 1 "$GIT_URL" "$GIT_REF"
   git checkout -q FETCH_HEAD
 }
 

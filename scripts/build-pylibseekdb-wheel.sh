@@ -39,6 +39,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 SEEKDB_BIN="${SEEKDB_BIN:-}"
 SEEKDB_URL="${SEEKDB_URL:-}"
+SEEKDB_SHA256="${SEEKDB_SHA256:-}"
 SEEKDB_GIT_URL="${SEEKDB_GIT_URL:-https://github.com/oceanbase/seekdb.git}"
 SEEKDB_GIT_REF="${SEEKDB_GIT_REF:-}"
 SEEKDB_REPO="${SEEKDB_REPO:-}"
@@ -67,6 +68,7 @@ Usage: build-pylibseekdb-wheel.sh [options]
 Obtain seekdb binary (pick one):
   --seekdb-bin PATH         Use a prebuilt seekdb binary
   --seekdb-url URL          Download a prebuilt seekdb binary
+  --seekdb-sha256 HEX       Verify downloaded seekdb binary SHA-256
   --build-seekdb            Build seekdb from source before packaging
   --seekdb-git-url URL      seekdb git remote (default: oceanbase/seekdb)
   --seekdb-git-ref REF      Branch, tag, or commit when building from source
@@ -89,7 +91,7 @@ Other:
   --cmake-arg ARG           Extra cmake configure argument (repeatable)
   -h, --help                Show this help
 
-Environment variables: SEEKDB_BIN, SEEKDB_URL, SEEKDB_GIT_URL, SEEKDB_GIT_REF,
+Environment variables: SEEKDB_BIN, SEEKDB_URL, SEEKDB_SHA256, SEEKDB_GIT_URL, SEEKDB_GIT_REF,
 SEEKDB_REPO, BUILD_SEEKDB, WHEEL_VERSION, PLATFORM, ARCH, OUTPUT_DIR, STRIP_SEEKDB,
 DEBUG_DIR, CIBW_BUILD, SKIP_TESTS, BUILD_TYPE, PYTHON
 EOF
@@ -99,11 +101,44 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
+canon_path() {
+  "$PYTHON" -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
+verify_seekdb_sha256() {
+  local file="$1"
+  [[ -n "$SEEKDB_SHA256" ]] || return 0
+  local actual
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$file" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$file" | awk '{print $1}')"
+  else
+    die "SEEKDB_SHA256 is set but neither sha256sum nor shasum is available"
+  fi
+  if [[ "$actual" != "$SEEKDB_SHA256" ]]; then
+    die "seekdb sha256 mismatch: expected $SEEKDB_SHA256, got $actual"
+  fi
+  echo "==> seekdb sha256 verified" >&2
+}
+
+checkout_seekdb_git_ref() {
+  local repo="$1"
+  [[ -n "$SEEKDB_GIT_REF" ]] || return 0
+  if git -C "$repo" rev-parse --verify -q "$SEEKDB_GIT_REF^{commit}" >/dev/null 2>&1; then
+    git -C "$repo" checkout -q "$SEEKDB_GIT_REF"
+    return
+  fi
+  git -C "$repo" fetch --depth 1 "$SEEKDB_GIT_URL" "$SEEKDB_GIT_REF"
+  git -C "$repo" checkout -q FETCH_HEAD
+}
+
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --seekdb-bin) SEEKDB_BIN="$2"; shift 2 ;;
       --seekdb-url) SEEKDB_URL="$2"; shift 2 ;;
+      --seekdb-sha256) SEEKDB_SHA256="$2"; shift 2 ;;
       --build-seekdb) BUILD_SEEKDB=1; shift ;;
       --seekdb-git-url) SEEKDB_GIT_URL="$2"; shift 2 ;;
       --seekdb-git-ref) SEEKDB_GIT_REF="$2"; shift 2 ;;
@@ -139,6 +174,7 @@ download_seekdb() {
   mkdir -p "$(dirname "$dest")"
   echo "==> downloading seekdb from $url" >&2
   curl -fsSL "$url" -o "$dest"
+  verify_seekdb_sha256 "$dest"
   chmod +x "$dest"
 }
 
@@ -170,14 +206,10 @@ build_seekdb_macos() {
   if [[ ! -e "$src_dir/.git" ]]; then
     echo "==> cloning seekdb from $SEEKDB_GIT_URL" >&2
     git clone --depth 1 "$SEEKDB_GIT_URL" "$src_dir"
-    if [[ -n "$SEEKDB_GIT_REF" ]]; then
-      git -C "$src_dir" fetch --depth 1 origin "$SEEKDB_GIT_REF"
-      git -C "$src_dir" checkout -q FETCH_HEAD
-    fi
+    checkout_seekdb_git_ref "$src_dir"
   elif [[ -n "$SEEKDB_GIT_REF" ]]; then
     echo "==> checking out $SEEKDB_GIT_REF in $src_dir" >&2
-    git -C "$src_dir" fetch --depth 1 origin "$SEEKDB_GIT_REF"
-    git -C "$src_dir" checkout -q FETCH_HEAD
+    checkout_seekdb_git_ref "$src_dir"
   fi
 
   echo "==> building seekdb natively on macOS" >&2
@@ -226,15 +258,16 @@ prepare_seekdb_binary() {
 
   mkdir -p "$BUILD_DIR" "$DEBUG_DIR"
 
-  src_canon="$(realpath -e "$src")"
+  src_canon="$(canon_path "$src")"
   if [[ -f "$staged" ]]; then
-    staged_canon="$(realpath -e "$staged")"
+    staged_canon="$(canon_path "$staged")"
     if [[ "$src_canon" == "$staged_canon" ]]; then
       echo "==> seekdb source is already staged at $staged (identical file)" >&2
     elif cmp -s "$src" "$staged"; then
       echo "==> seekdb at $staged is byte-identical to $src" >&2
     else
-      die "staged seekdb already exists at $staged and differs from $src; remove $staged or choose a different --seekdb-bin"
+      echo "==> replacing staged seekdb at $staged with $src" >&2
+      cp -f "$src" "$staged"
     fi
   else
     cp -f "$src" "$staged"
@@ -294,7 +327,8 @@ apply_wheel_version() {
   [[ -n "$WHEEL_VERSION" ]] || return 0
   PYPROJECT_BACKUP="$(mktemp)"
   cp "$PYPROJECT" "$PYPROJECT_BACKUP"
-  sed -i "s/^version = .*/version = \"${WHEEL_VERSION}\"/" "$PYPROJECT"
+  sed -i.bak "s/^version = .*/version = \"${WHEEL_VERSION}\"/" "$PYPROJECT"
+  rm -f "${PYPROJECT}.bak"
   echo "==> wheel version override: $WHEEL_VERSION" >&2
 }
 
