@@ -189,6 +189,8 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
   --wheel-version 0.2.0 --platform linux --arch x86_64
 ```
 
+`--wheel-version` temporarily patches `python/pyproject.toml` for the build (scikit-build-core does not read `CIBW_PROJECT_VERSION`) and restores it afterward.
+
 Run `./scripts/build-pylibseekdb-wheel.sh --help` for all options. Debug symbols are written to `build/seekdb.debug` by default.
 
 **Linux: build seekdb inside manylinux.** The wheel must be ABI-compatible with `manylinux_2_28`, so the `seekdb` binary you point `SEEKDB_BIN` at also needs to be built against glibc 2.28. `scripts/build-seekdb-glibc228.sh` runs `seekdb`'s own `build.sh` inside the manylinux image:
@@ -196,9 +198,14 @@ Run `./scripts/build-pylibseekdb-wheel.sh --help` for all options. Debug symbols
 ```sh
 SEEKDB_REPO=~/seekdb ./scripts/build-seekdb-glibc228.sh
 
-# Or clone a specific tag inside the container:
+# Or clone a specific tag inside the container (binary exported to ./build/seekdb-glibc228):
 SEEKDB_GIT_URL=https://github.com/oceanbase/seekdb.git \
 SEEKDB_GIT_REF=v1.0.0 ./scripts/build-seekdb-glibc228.sh
+
+# Or choose an explicit export path:
+SEEKDB_GIT_URL=https://github.com/oceanbase/seekdb.git \
+SEEKDB_GIT_REF=v1.0.0 \
+SEEKDB_OUT_BIN=./build/seekdb ./scripts/build-seekdb-glibc228.sh
 ```
 
 Docker pulls the host-matching `manylinux_2_28` image (x86_64 or aarch64). It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`.

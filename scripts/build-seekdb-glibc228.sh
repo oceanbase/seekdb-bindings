@@ -41,6 +41,11 @@ elif [[ -z "$GIT_URL" ]]; then
   exit 1
 fi
 
+if [[ "$use_local_repo" == "0" && -z "$OUT_BIN" ]]; then
+  OUT_BIN="${PWD}/build/seekdb-glibc228"
+  echo "note: cloning in container; exporting binary to $OUT_BIN (set SEEKDB_OUT_BIN to override)" >&2
+fi
+
 echo "=== building seekdb ($BUILD_TYPE) in $IMAGE ==="
 
 docker_args=(
@@ -78,9 +83,9 @@ checkout_git_ref() {
 if [[ "$USE_LOCAL_REPO" == "1" ]]; then
   cd /seekdb
   if [[ -n "$GIT_REF" ]]; then
-    original_head="$(git rev-parse HEAD)"
+    original_ref="$(git symbolic-ref -q HEAD || echo "DETACHED:$(git rev-parse HEAD)")"
     checkout_git_ref
-    trap '"'"'git checkout -q "$original_head" 2>/dev/null || true'"'"' EXIT
+    trap '"'"'if [[ "$original_ref" == DETACHED:* ]]; then git checkout -q "${original_ref#DETACHED:}" 2>/dev/null || true; else git checkout -q "$original_ref" 2>/dev/null || true; fi'"'"' EXIT
   fi
 else
   rm -rf /seekdb

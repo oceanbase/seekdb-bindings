@@ -55,6 +55,8 @@ CIBW_BUILD="${CIBW_BUILD:-}"
 SKIP_TESTS="${SKIP_TESTS:-0}"
 CMAKE_EXTRA=()
 PYTHON="${PYTHON:-}"
+PYPROJECT="$ROOT/python/pyproject.toml"
+PYPROJECT_BACKUP=""
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -71,7 +73,7 @@ Obtain seekdb binary (pick one):
   --seekdb-repo PATH        Local seekdb checkout (Linux manylinux build)
 
 Wheel / cibuildwheel:
-  --wheel-version VER       Override wheel version (CIBW_PROJECT_VERSION)
+  --wheel-version VER       Override wheel version (temporarily patches pyproject.toml)
   --platform PLATFORM       auto | linux | macos (default: auto)
   --arch ARCH               x86_64 | aarch64 | arm64 (default: all for platform)
   --output-dir DIR          Wheel output directory (default: build/wheelhouse)
@@ -134,6 +136,7 @@ download_seekdb() {
   local url="$1"
   local dest="$2"
   need_cmd curl
+  mkdir -p "$(dirname "$dest")"
   echo "==> downloading seekdb from $url" >&2
   curl -fsSL "$url" -o "$dest"
   chmod +x "$dest"
@@ -162,6 +165,7 @@ build_seekdb_linux() {
 build_seekdb_macos() {
   local src_dir="$BUILD_DIR/seekdb-src"
   need_cmd git
+  mkdir -p "$BUILD_DIR"
 
   if [[ ! -e "$src_dir/.git" ]]; then
     echo "==> cloning seekdb from $SEEKDB_GIT_URL" >&2
@@ -218,9 +222,23 @@ prepare_seekdb_binary() {
   local src="$1"
   local staged="$BUILD_DIR/seekdb"
   local debug_file="$DEBUG_DIR/seekdb.debug"
+  local src_canon staged_canon
 
   mkdir -p "$BUILD_DIR" "$DEBUG_DIR"
-  cp -f "$src" "$staged"
+
+  src_canon="$(realpath -e "$src")"
+  if [[ -f "$staged" ]]; then
+    staged_canon="$(realpath -e "$staged")"
+    if [[ "$src_canon" == "$staged_canon" ]]; then
+      echo "==> seekdb source is already staged at $staged (identical file)" >&2
+    elif cmp -s "$src" "$staged"; then
+      echo "==> seekdb at $staged is byte-identical to $src" >&2
+    else
+      die "staged seekdb already exists at $staged and differs from $src; remove $staged or choose a different --seekdb-bin"
+    fi
+  else
+    cp -f "$src" "$staged"
+  fi
   chmod +x "$staged"
 
   if [[ "$STRIP_SEEKDB" == "1" ]]; then
@@ -272,6 +290,20 @@ build_seekdb_library() {
     || die "libseekdb not found under $BUILD_DIR"
 }
 
+apply_wheel_version() {
+  [[ -n "$WHEEL_VERSION" ]] || return 0
+  PYPROJECT_BACKUP="$(mktemp)"
+  cp "$PYPROJECT" "$PYPROJECT_BACKUP"
+  sed -i "s/^version = .*/version = \"${WHEEL_VERSION}\"/" "$PYPROJECT"
+  echo "==> wheel version override: $WHEEL_VERSION" >&2
+}
+
+restore_wheel_version() {
+  [[ -n "$PYPROJECT_BACKUP" && -f "$PYPROJECT_BACKUP" ]] || return 0
+  cp -f "$PYPROJECT_BACKUP" "$PYPROJECT"
+  rm -f "$PYPROJECT_BACKUP"
+}
+
 run_cibuildwheel() {
   local platform="$1"
   mkdir -p "$OUTPUT_DIR"
@@ -280,9 +312,6 @@ run_cibuildwheel() {
     SEEKDB_BIN="$BUILD_DIR/seekdb"
   )
 
-  if [[ -n "$WHEEL_VERSION" ]]; then
-    env_args+=(CIBW_PROJECT_VERSION="$WHEEL_VERSION")
-  fi
   if [[ -n "$CIBW_BUILD" ]]; then
     env_args+=(CIBW_BUILD="$CIBW_BUILD")
   fi
@@ -370,6 +399,9 @@ main() {
   echo "    output=$OUTPUT_DIR"
 
   "$PYTHON" -m pip install -q nanobind cibuildwheel
+
+  trap restore_wheel_version EXIT
+  apply_wheel_version
 
   local raw_bin prepared_bin
   raw_bin="$(resolve_seekdb_bin)"
