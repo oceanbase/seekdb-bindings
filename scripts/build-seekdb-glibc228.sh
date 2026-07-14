@@ -11,6 +11,10 @@
 #   SEEKDB_GIT_REF=v1.0.0 \
 #   ./scripts/build-seekdb-glibc228.sh
 #
+#   # pass seekdb cmake flags, e.g. -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN
+#   ./scripts/build-seekdb-glibc228.sh release \
+#     --seekdb-cmake-arg -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN
+#
 # Environment:
 #   SEEKDB_REPO       Local seekdb checkout to mount (optional if SEEKDB_GIT_URL is set)
 #   SEEKDB_GIT_URL    Remote git URL to clone when SEEKDB_REPO is unset
@@ -18,6 +22,8 @@
 #   SEEKDB_OUT_BIN    Copy the built binary to this path (optional)
 #   SEEKDB_EL8_IMAGE  manylinux_2_28 image (default: quay.io/pypa/manylinux_2_28:2026.03.20-1)
 #   CONTAINER_RUNTIME docker | podman (auto-detected; podman used when docker is unavailable)
+#   SEEKDB_CMAKE_ARGS space-separated cmake -D flags for seekdb build.sh
+#                       (e.g. -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN)
 #
 # Prints the built binary path and max GLIBC symbol versions on stdout.
 
@@ -28,12 +34,42 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/container-runtime.sh"
 detect_container_runtime "$@"
 
+BUILD_TYPE="release"
+SEEKDB_CMAKE_EXTRA=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --seekdb-cmake-arg)
+      [[ $# -ge 2 ]] || { echo "error: --seekdb-cmake-arg requires a value" >&2; exit 1; }
+      SEEKDB_CMAKE_EXTRA+=("$2")
+      shift 2
+      ;;
+    -D*)
+      SEEKDB_CMAKE_EXTRA+=("$1")
+      shift
+      ;;
+    release|debug|errsim)
+      BUILD_TYPE="$1"
+      shift
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -n "${SEEKDB_CMAKE_ARGS:-}" ]]; then
+  read -r -a _seekdb_cmake_from_env <<< "${SEEKDB_CMAKE_ARGS}"
+  for arg in "${_seekdb_cmake_from_env[@]}"; do
+    [[ -n "$arg" ]] && SEEKDB_CMAKE_EXTRA+=("$arg")
+  done
+fi
+
 REPO="${SEEKDB_REPO:-${HOME}/seekdb}"
 GIT_URL="${SEEKDB_GIT_URL:-https://github.com/oceanbase/seekdb.git}"
 GIT_REF="${SEEKDB_GIT_REF:-}"
 OUT_BIN="${SEEKDB_OUT_BIN:-}"
 IMAGE="${SEEKDB_EL8_IMAGE:-quay.io/pypa/manylinux_2_28:2026.03.20-1}"
-BUILD_TYPE="${1:-release}"
 
 use_local_repo=0
 if [[ -e "$REPO/.git" ]]; then
@@ -73,6 +109,10 @@ if [[ -n "$OUT_BIN" ]]; then
   container_args+=(-e OUT_BIN="/out/$(basename "$OUT_BIN")")
 fi
 
+if [[ ${#SEEKDB_CMAKE_EXTRA[@]} -gt 0 ]]; then
+  container_args+=(-e "SEEKDB_CMAKE_ARGS=${SEEKDB_CMAKE_EXTRA[*]}")
+fi
+
 "$CONTAINER_RUNTIME" run "${container_args[@]}" "$IMAGE" bash -c '
 set -euo pipefail
 yum install -y wget cpio git
@@ -103,7 +143,11 @@ else
 fi
 
 rm -rf "build_$BUILD_TYPE"
-./build.sh "$BUILD_TYPE" --init --make -j"$(nproc)"
+cmake_extra=()
+if [[ -n "${SEEKDB_CMAKE_ARGS:-}" ]]; then
+  read -r -a cmake_extra <<< "${SEEKDB_CMAKE_ARGS}"
+fi
+./build.sh "$BUILD_TYPE" --init "${cmake_extra[@]}" --make -j"$(nproc)"
 if [[ "$USE_LOCAL_REPO" == "1" ]]; then
   chown -R "$HOST_UID:$HOST_GID" "build_$BUILD_TYPE" deps/3rd 2>/dev/null || true
 fi

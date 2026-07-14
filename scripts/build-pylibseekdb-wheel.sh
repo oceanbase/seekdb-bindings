@@ -27,6 +27,10 @@
 #     --seekdb-git-url https://github.com/oceanbase/seekdb.git \
 #     --seekdb-git-ref master
 #
+#   # Build seekdb with extra cmake flags (forwarded to seekdb build.sh)
+#   ./scripts/build-pylibseekdb-wheel.sh --build-seekdb \
+#     --seekdb-cmake-arg -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN
+#
 #   # Override wheel version and limit platforms
 #   ./scripts/build-pylibseekdb-wheel.sh --seekdb-bin /path/to/seekdb \
 #     --wheel-version 0.2.0 --platform linux --arch x86_64
@@ -55,6 +59,7 @@ DEBUG_DIR="${DEBUG_DIR:-$BUILD_DIR}"
 CIBW_BUILD="${CIBW_BUILD:-}"
 SKIP_TESTS="${SKIP_TESTS:-0}"
 CMAKE_EXTRA=()
+SEEKDB_CMAKE_EXTRA=()
 PYTHON="${PYTHON:-}"
 USE_VENV="${USE_VENV:-1}"
 VENV_DIR="${VENV_DIR:-$ROOT/.venv}"
@@ -91,14 +96,16 @@ Binary preparation:
 
 Other:
   --build-type TYPE         seekdb build type: release | debug (default: release)
-  --cmake-arg ARG           Extra cmake configure argument (repeatable)
+  --cmake-arg ARG           Extra cmake argument for libseekdb bindings (repeatable)
+  --seekdb-cmake-arg ARG    Extra cmake argument for seekdb build.sh (e.g. -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN)
   --venv-dir DIR            Virtualenv directory (default: .venv)
   --no-venv                 Use system PYTHON instead of creating a virtualenv
   -h, --help                Show this help
 
 Environment variables: SEEKDB_BIN, SEEKDB_URL, SEEKDB_SHA256, SEEKDB_GIT_URL, SEEKDB_GIT_REF,
 SEEKDB_REPO, BUILD_SEEKDB, WHEEL_VERSION, PLATFORM, ARCH, OUTPUT_DIR, STRIP_SEEKDB,
-DEBUG_DIR, CIBW_BUILD, SKIP_TESTS, BUILD_TYPE, PYTHON, CONTAINER_RUNTIME, USE_VENV, VENV_DIR
+DEBUG_DIR, CIBW_BUILD, SKIP_TESTS, BUILD_TYPE, PYTHON, CONTAINER_RUNTIME, USE_VENV, VENV_DIR,
+SEEKDB_CMAKE_ARGS
 EOF
 }
 
@@ -110,6 +117,15 @@ init_container_runtime() {
   # shellcheck source=lib/container-runtime.sh
   source "$ROOT/scripts/lib/container-runtime.sh"
   detect_container_runtime "${WHEEL_SCRIPT_ARGS[@]}"
+}
+
+load_seekdb_cmake_extra_from_env() {
+  [[ -n "${SEEKDB_CMAKE_ARGS:-}" ]] || return 0
+  local arg
+  read -r -a _seekdb_cmake_from_env <<< "${SEEKDB_CMAKE_ARGS}"
+  for arg in "${_seekdb_cmake_from_env[@]}"; do
+    [[ -n "$arg" ]] && SEEKDB_CMAKE_EXTRA+=("$arg")
+  done
 }
 
 canon_path() {
@@ -164,6 +180,7 @@ parse_args() {
       --debug-dir) DEBUG_DIR="$2"; shift 2 ;;
       --build-type) BUILD_TYPE="$2"; shift 2 ;;
       --cmake-arg) CMAKE_EXTRA+=("$2"); shift 2 ;;
+      --seekdb-cmake-arg) SEEKDB_CMAKE_EXTRA+=("$2"); shift 2 ;;
       --venv-dir) VENV_DIR="$2"; USE_VENV=1; shift 2 ;;
       --no-venv) USE_VENV=0; shift ;;
       -h|--help) usage; exit 0 ;;
@@ -204,6 +221,9 @@ build_seekdb_linux() {
   if [[ -n "$SEEKDB_REPO" ]]; then
     env_args+=(SEEKDB_REPO="$SEEKDB_REPO")
   fi
+  if [[ ${#SEEKDB_CMAKE_EXTRA[@]} -gt 0 ]]; then
+    env_args+=(SEEKDB_CMAKE_ARGS="${SEEKDB_CMAKE_EXTRA[*]}")
+  fi
 
   init_container_runtime
   env_args+=(CONTAINER_RUNTIME="$CONTAINER_RUNTIME")
@@ -232,7 +252,7 @@ build_seekdb_macos() {
   (
     cd "$src_dir"
     rm -rf "build_$BUILD_TYPE"
-    ./build.sh "$BUILD_TYPE" --init --make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+    ./build.sh "$BUILD_TYPE" --init "${SEEKDB_CMAKE_EXTRA[@]}" --make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
   )
 
   local bin
@@ -459,6 +479,7 @@ setup_python_env() {
 main() {
   WHEEL_SCRIPT_ARGS=("$@")
   parse_args "$@"
+  load_seekdb_cmake_extra_from_env
 
   local host_platform
   host_platform="$(detect_host_platform)"

@@ -206,6 +206,13 @@ SEEKDB_GIT_REF=v1.0.0 ./scripts/build-seekdb-glibc228.sh
 SEEKDB_GIT_URL=https://github.com/oceanbase/seekdb.git \
 SEEKDB_GIT_REF=v1.0.0 \
 SEEKDB_OUT_BIN=./build/seekdb ./scripts/build-seekdb-glibc228.sh
+
+# Optional seekdb cmake flags (forwarded to seekdb's build.sh before --make):
+./scripts/build-seekdb-glibc228.sh release \
+  --seekdb-cmake-arg -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN
+
+./scripts/build-pylibseekdb-wheel.sh --build-seekdb \
+  --seekdb-cmake-arg -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN
 ```
 
 Docker (or Podman if Docker is unavailable) pulls the host-matching `manylinux_2_28` image (x86_64 or aarch64). Set `CONTAINER_RUNTIME=podman` to force Podman. It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`.
