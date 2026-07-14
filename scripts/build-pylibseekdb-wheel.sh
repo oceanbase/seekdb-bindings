@@ -163,25 +163,25 @@ checkout_seekdb_git_ref() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --seekdb-bin) SEEKDB_BIN="$2"; shift 2 ;;
-      --seekdb-url) SEEKDB_URL="$2"; shift 2 ;;
-      --seekdb-sha256) SEEKDB_SHA256="$2"; shift 2 ;;
+      --seekdb-bin) SEEKDB_BIN="${2:?--seekdb-bin requires a value}"; shift 2 ;;
+      --seekdb-url) SEEKDB_URL="${2:?--seekdb-url requires a value}"; shift 2 ;;
+      --seekdb-sha256) SEEKDB_SHA256="${2:?--seekdb-sha256 requires a value}"; shift 2 ;;
       --build-seekdb) BUILD_SEEKDB=1; shift ;;
-      --seekdb-git-url) SEEKDB_GIT_URL="$2"; shift 2 ;;
-      --seekdb-git-ref) SEEKDB_GIT_REF="$2"; shift 2 ;;
-      --seekdb-repo) SEEKDB_REPO="$2"; shift 2 ;;
-      --wheel-version) WHEEL_VERSION="$2"; shift 2 ;;
-      --platform) PLATFORM="$2"; shift 2 ;;
-      --arch) ARCH="$2"; shift 2 ;;
-      --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
-      --build-selector) CIBW_BUILD="$2"; shift 2 ;;
+      --seekdb-git-url) SEEKDB_GIT_URL="${2:?--seekdb-git-url requires a value}"; shift 2 ;;
+      --seekdb-git-ref) SEEKDB_GIT_REF="${2:?--seekdb-git-ref requires a value}"; shift 2 ;;
+      --seekdb-repo) SEEKDB_REPO="${2:?--seekdb-repo requires a value}"; shift 2 ;;
+      --wheel-version) WHEEL_VERSION="${2:?--wheel-version requires a value}"; shift 2 ;;
+      --platform) PLATFORM="${2:?--platform requires a value}"; shift 2 ;;
+      --arch) ARCH="${2:?--arch requires a value}"; shift 2 ;;
+      --output-dir) OUTPUT_DIR="${2:?--output-dir requires a value}"; shift 2 ;;
+      --build-selector) CIBW_BUILD="${2:?--build-selector requires a value}"; shift 2 ;;
       --skip-tests) SKIP_TESTS=1; shift ;;
       --no-strip) STRIP_SEEKDB=0; shift ;;
-      --debug-dir) DEBUG_DIR="$2"; shift 2 ;;
-      --build-type) BUILD_TYPE="$2"; shift 2 ;;
-      --cmake-arg) CMAKE_EXTRA+=("$2"); shift 2 ;;
-      --seekdb-cmake-arg) SEEKDB_CMAKE_EXTRA+=("$2"); shift 2 ;;
-      --venv-dir) VENV_DIR="$2"; USE_VENV=1; shift 2 ;;
+      --debug-dir) DEBUG_DIR="${2:?--debug-dir requires a value}"; shift 2 ;;
+      --build-type) BUILD_TYPE="${2:?--build-type requires a value}"; shift 2 ;;
+      --cmake-arg) CMAKE_EXTRA+=("${2:?--cmake-arg requires a value}"); shift 2 ;;
+      --seekdb-cmake-arg) SEEKDB_CMAKE_EXTRA+=("${2:?--seekdb-cmake-arg requires a value}"); shift 2 ;;
+      --venv-dir) VENV_DIR="${2:?--venv-dir requires a value}"; USE_VENV=1; shift 2 ;;
       --no-venv) USE_VENV=0; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "unknown argument: $1 (try --help)" ;;

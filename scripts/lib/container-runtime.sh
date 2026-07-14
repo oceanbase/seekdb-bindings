@@ -16,6 +16,15 @@ _container_runtime_die() {
   fi
 }
 
+_container_runtime_reexec_cmd() {
+  local arg
+  local -a quoted=()
+  for arg in "$@"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  printf '%s' "${quoted[*]}"
+}
+
 detect_container_runtime() {
   if [[ -n "${CONTAINER_RUNTIME:-}" ]]; then
     command -v "$CONTAINER_RUNTIME" >/dev/null 2>&1 \
@@ -38,7 +47,7 @@ detect_container_runtime() {
     && command -v sg >/dev/null 2>&1; then
     if sg docker -c "docker info" >/dev/null 2>&1; then
       export _CONTAINER_RUNTIME_SG_REEXEC=1
-      exec sg docker -c "$0 ${*:-}"
+      exec sg docker -c "$(_container_runtime_reexec_cmd "$0" "$@")"
     fi
   fi
 
