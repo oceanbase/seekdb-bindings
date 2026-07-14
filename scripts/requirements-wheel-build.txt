@@ -1,0 +1,4 @@
+# Host-side dependencies for scripts/build-pylibseekdb-wheel.sh
+nanobind>=2.0
+cibuildwheel
+scikit-build-core>=0.10

@@ -56,8 +56,11 @@ CIBW_BUILD="${CIBW_BUILD:-}"
 SKIP_TESTS="${SKIP_TESTS:-0}"
 CMAKE_EXTRA=()
 PYTHON="${PYTHON:-}"
+USE_VENV="${USE_VENV:-1}"
+VENV_DIR="${VENV_DIR:-$ROOT/.venv}"
 PYPROJECT="$ROOT/python/pyproject.toml"
 PYPROJECT_BACKUP=""
+WHEEL_SCRIPT_ARGS=()
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -89,16 +92,24 @@ Binary preparation:
 Other:
   --build-type TYPE         seekdb build type: release | debug (default: release)
   --cmake-arg ARG           Extra cmake configure argument (repeatable)
+  --venv-dir DIR            Virtualenv directory (default: .venv)
+  --no-venv                 Use system PYTHON instead of creating a virtualenv
   -h, --help                Show this help
 
 Environment variables: SEEKDB_BIN, SEEKDB_URL, SEEKDB_SHA256, SEEKDB_GIT_URL, SEEKDB_GIT_REF,
 SEEKDB_REPO, BUILD_SEEKDB, WHEEL_VERSION, PLATFORM, ARCH, OUTPUT_DIR, STRIP_SEEKDB,
-DEBUG_DIR, CIBW_BUILD, SKIP_TESTS, BUILD_TYPE, PYTHON
+DEBUG_DIR, CIBW_BUILD, SKIP_TESTS, BUILD_TYPE, PYTHON, CONTAINER_RUNTIME, USE_VENV, VENV_DIR
 EOF
 }
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
+}
+
+init_container_runtime() {
+  # shellcheck source=lib/container-runtime.sh
+  source "$ROOT/scripts/lib/container-runtime.sh"
+  detect_container_runtime "${WHEEL_SCRIPT_ARGS[@]}"
 }
 
 canon_path() {
@@ -153,6 +164,8 @@ parse_args() {
       --debug-dir) DEBUG_DIR="$2"; shift 2 ;;
       --build-type) BUILD_TYPE="$2"; shift 2 ;;
       --cmake-arg) CMAKE_EXTRA+=("$2"); shift 2 ;;
+      --venv-dir) VENV_DIR="$2"; USE_VENV=1; shift 2 ;;
+      --no-venv) USE_VENV=0; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "unknown argument: $1 (try --help)" ;;
     esac
@@ -192,7 +205,10 @@ build_seekdb_linux() {
     env_args+=(SEEKDB_REPO="$SEEKDB_REPO")
   fi
 
-  echo "==> building seekdb inside manylinux_2_28" >&2
+  init_container_runtime
+  env_args+=(CONTAINER_RUNTIME="$CONTAINER_RUNTIME")
+
+  echo "==> building seekdb inside manylinux_2_28 ($CONTAINER_RUNTIME)" >&2
   env "${env_args[@]}" "$ROOT/scripts/build-seekdb-glibc228.sh" "$BUILD_TYPE" >/dev/null
   [[ -f "$out_bin" ]] || die "seekdb build did not produce $out_bin"
   echo "$out_bin"
@@ -355,8 +371,11 @@ run_cibuildwheel() {
 
   case "$platform" in
     linux)
-      need_cmd docker
-      docker info >/dev/null 2>&1 || die "docker is required for Linux wheel builds"
+      init_container_runtime
+      echo "==> container runtime: $CONTAINER_RUNTIME" >&2
+      if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
+        env_args+=(CIBW_CONTAINER_ENGINE=podman)
+      fi
       if [[ -n "$ARCH" ]]; then
         env_args+=(CIBW_ARCHS_LINUX="$ARCH")
       fi
@@ -400,7 +419,45 @@ pick_python() {
   die "python >= 3.11 not found; set PYTHON=/path/to/python"
 }
 
+setup_python_env() {
+  local requirements="$ROOT/scripts/requirements-wheel-build.txt"
+  [[ -f "$requirements" ]] || die "missing requirements file: $requirements"
+
+  if [[ -n "${PYTHON:-}" ]]; then
+    need_cmd "$PYTHON"
+    echo "==> using explicit PYTHON=$PYTHON" >&2
+    "$PYTHON" -m pip install -q --upgrade pip
+    "$PYTHON" -m pip install -q -r "$requirements"
+    return
+  fi
+
+  if [[ "$USE_VENV" != "1" ]]; then
+    PYTHON="$(pick_python)"
+    need_cmd "$PYTHON"
+    echo "==> using system python: $PYTHON (--no-venv)" >&2
+    "$PYTHON" -m pip install -q --upgrade pip
+    "$PYTHON" -m pip install -q -r "$requirements"
+    return
+  fi
+
+  local base_python
+  base_python="$(pick_python)"
+  need_cmd "$base_python"
+
+  if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+    echo "==> creating virtual environment at $VENV_DIR" >&2
+    "$base_python" -m venv "$VENV_DIR"
+  fi
+
+  PYTHON="$VENV_DIR/bin/python"
+  echo "==> using virtualenv: $PYTHON" >&2
+  "$PYTHON" -m pip install -q --upgrade pip
+  echo "==> installing build dependencies" >&2
+  "$PYTHON" -m pip install -q -r "$requirements"
+}
+
 main() {
+  WHEEL_SCRIPT_ARGS=("$@")
   parse_args "$@"
 
   local host_platform
@@ -415,7 +472,7 @@ main() {
   fi
 
   need_cmd cmake
-  PYTHON="$(pick_python)"
+  setup_python_env
   need_cmd "$PYTHON"
 
   if [[ "$BUILD_DIR" != "$ROOT/build" ]]; then
@@ -429,10 +486,13 @@ main() {
   echo "==> pylibseekdb wheel build"
   echo "    ROOT=$ROOT"
   echo "    PYTHON=$PYTHON"
+  if [[ "$PYTHON" == "$VENV_DIR/bin/python" ]]; then
+    echo "    venv=$VENV_DIR"
+  else
+    echo "    venv=disabled"
+  fi
   echo "    platform=$target_platform arch=${ARCH:-all}"
   echo "    output=$OUTPUT_DIR"
-
-  "$PYTHON" -m pip install -q nanobind cibuildwheel
 
   trap restore_wheel_version EXIT
   apply_wheel_version

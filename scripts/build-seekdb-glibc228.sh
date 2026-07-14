@@ -17,14 +17,16 @@
 #   SEEKDB_GIT_REF    Branch, tag, or commit to build (optional)
 #   SEEKDB_OUT_BIN    Copy the built binary to this path (optional)
 #   SEEKDB_EL8_IMAGE  manylinux_2_28 image (default: quay.io/pypa/manylinux_2_28:2026.03.20-1)
+#   CONTAINER_RUNTIME docker | podman (auto-detected; podman used when docker is unavailable)
 #
 # Prints the built binary path and max GLIBC symbol versions on stdout.
 
 set -euo pipefail
 
-if ! docker info >/dev/null 2>&1; then
-  exec sg docker -c "$0 ${*:-}"
-fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/container-runtime.sh
+source "$SCRIPT_DIR/lib/container-runtime.sh"
+detect_container_runtime "$@"
 
 REPO="${SEEKDB_REPO:-${HOME}/seekdb}"
 GIT_URL="${SEEKDB_GIT_URL:-https://github.com/oceanbase/seekdb.git}"
@@ -46,9 +48,9 @@ if [[ "$use_local_repo" == "0" && -z "$OUT_BIN" ]]; then
   echo "note: cloning in container; exporting binary to $OUT_BIN (set SEEKDB_OUT_BIN to override)" >&2
 fi
 
-echo "=== building seekdb ($BUILD_TYPE) in $IMAGE ==="
+echo "=== building seekdb ($BUILD_TYPE) in $IMAGE ($CONTAINER_RUNTIME) ==="
 
-docker_args=(
+container_args=(
   --rm
   -e BUILD_TYPE="$BUILD_TYPE"
   -e HOST_UID="$(id -u)"
@@ -59,19 +61,19 @@ docker_args=(
 )
 
 if [[ "$use_local_repo" == "1" ]]; then
-  docker_args+=(-v "$REPO":/seekdb -w /seekdb)
+  container_args+=(-v "$REPO":/seekdb -w /seekdb)
 else
-  docker_args+=(-w /tmp)
+  container_args+=(-w /tmp)
 fi
 
 if [[ -n "$OUT_BIN" ]]; then
   out_dir="$(dirname "$OUT_BIN")"
   mkdir -p "$out_dir"
-  docker_args+=(-v "$out_dir":/out)
-  docker_args+=(-e OUT_BIN="/out/$(basename "$OUT_BIN")")
+  container_args+=(-v "$out_dir":/out)
+  container_args+=(-e OUT_BIN="/out/$(basename "$OUT_BIN")")
 fi
 
-docker run "${docker_args[@]}" "$IMAGE" bash -c '
+"$CONTAINER_RUNTIME" run "${container_args[@]}" "$IMAGE" bash -c '
 set -euo pipefail
 yum install -y wget cpio git
 

@@ -170,7 +170,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 
 ### One-shot wheel build script
 
-`scripts/build-pylibseekdb-wheel.sh` orchestrates the full release flow: obtain a `seekdb` binary (local path, download URL, or source build), strip it while saving debug symbols, build `libseekdb`, and run `cibuildwheel`.
+`scripts/build-pylibseekdb-wheel.sh` orchestrates the full release flow: obtain a `seekdb` binary (local path, download URL, or source build), strip it while saving debug symbols, build `libseekdb`, and run `cibuildwheel`. By default it creates `.venv` in the repo root and installs `nanobind`, `cibuildwheel`, and `scikit-build-core` from `scripts/requirements-wheel-build.txt`. Use `--no-venv` or set `PYTHON=` to use a system interpreter instead.
 
 ```sh
 # Prebuilt seekdb binary
@@ -208,7 +208,7 @@ SEEKDB_GIT_REF=v1.0.0 \
 SEEKDB_OUT_BIN=./build/seekdb ./scripts/build-seekdb-glibc228.sh
 ```
 
-Docker pulls the host-matching `manylinux_2_28` image (x86_64 or aarch64). It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`.
+Docker (or Podman if Docker is unavailable) pulls the host-matching `manylinux_2_28` image (x86_64 or aarch64). Set `CONTAINER_RUNTIME=podman` to force Podman. It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`.
 
 Each wheel built by `cibuildwheel` is smoke-tested with `python/tests/seekdb_test.py` (hybrid search end-to-end). To verify wheels built another way:
 
