@@ -14,9 +14,8 @@ typedef struct {
     char clients_lock_path[256];
     char startup_lock_path[256];
     Flock *clients_lock; /* SH-locked for the lifetime of the handle */
-    char host[64];       /* set to "127.0.0.1" when caller passes a non-zero port */
-    int port; /* 0 ⇒ local transport (UDS on POSIX, named pipe on Windows); non-zero ⇒ TCP host:port
-               */
+    char host[64];       /* set to "127.0.0.1" when parameters include a non-zero port */
+    int port; /* 0 ⇒ local transport (UDS on POSIX, named pipe on Windows); non-zero ⇒ TCP */
     /* Mirrors of Process — populated after spawn_process succeeds, so the
      * handle remembers which daemon it brought up (or was given by a
      * previous owner). 0/NULL when the handle took the fast path. */

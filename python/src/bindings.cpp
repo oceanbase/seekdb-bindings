@@ -245,7 +245,7 @@ void open(const std::string &db_dir)
 {
     if (handle)
         return;
-    SDB_CHECK(seekdb_open(db_dir.c_str(), 0, &handle));
+    SDB_CHECK(seekdb_open(db_dir.c_str(), nullptr, &handle));
 }
 
 std::shared_ptr<Connection> connect(const std::string &database, bool autocommit)

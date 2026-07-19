@@ -318,11 +318,167 @@ static int resolve_bin_path(char *buf, size_t buflen)
     return SEEKDB_SUCCESS;
 }
 
-int seekdb_open(const char *db_dir, int port, SeekdbHandle *out_handle)
+static const char *default_parameters[] = {"memory_limit", "1G", "log_disk_size", "2G", NULL};
+
+static int count_null_terminated(const char *const *arr)
+{
+    if (!arr)
+        return 0;
+    int n = 0;
+    while (arr[n])
+        n++;
+    return n;
+}
+
+static bool is_driver_parameter(const char *key) { return key && strcmp(key, "port") == 0; }
+
+static int validate_parameters(const char *const *parameters)
+{
+    if (!parameters)
+        return SEEKDB_SUCCESS;
+    const int n = count_null_terminated(parameters);
+    if (n % 2 != 0)
+        return SEEKDB_INVALID_ARGUMENT;
+    for (int i = 0; i < n; i += 2) {
+        if (!parameters[i] || !parameters[i + 1] || parameters[i][0] == '\0')
+            return SEEKDB_INVALID_ARGUMENT;
+        if (is_driver_parameter(parameters[i])) {
+            errno = 0;
+            char *endp = NULL;
+            const long v = strtol(parameters[i + 1], &endp, 10);
+            if (errno || !parameters[i + 1][0] || !endp || *endp != '\0' || v < 0 || v > 65535)
+                return SEEKDB_INVALID_ARGUMENT;
+        }
+    }
+    return SEEKDB_SUCCESS;
+}
+
+static int parse_port_parameter(const char *const *parameters)
+{
+    if (!parameters)
+        return 0;
+    const int n = count_null_terminated(parameters);
+    for (int i = 0; i < n; i += 2) {
+        if (is_driver_parameter(parameters[i]))
+            return (int)strtol(parameters[i + 1], NULL, 10);
+    }
+    return 0;
+}
+
+static int count_server_parameters(const char *const *parameters)
+{
+    if (!parameters)
+        return count_null_terminated(default_parameters);
+    int count = 0;
+    const int n = count_null_terminated(parameters);
+    for (int i = 0; i < n; i += 2) {
+        if (!is_driver_parameter(parameters[i]))
+            count += 2;
+    }
+    return count;
+}
+
+/* Build argv for spawn_process. Caller must free *out_argv and each *out_owned
+ * entry. *out_argv is NULL-terminated. Driver-reserved keys are stripped. */
+static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
+                            const char *const *parameters, bool first_init, char ***out_argv,
+                            char ***out_owned, size_t *out_owned_n)
+{
+    *out_argv = NULL;
+    *out_owned = NULL;
+    *out_owned_n = 0;
+
+    const int server_entries = first_init ? count_server_parameters(parameters) : 0;
+    if (server_entries % 2 != 0)
+        return SEEKDB_INVALID_ARGUMENT;
+
+    const int npairs = server_entries / 2;
+    const int argc = 4 + (first_init ? npairs * 2 : 0) + 1;
+
+    char **argv = (char **)calloc((size_t)argc, sizeof(char *));
+    if (!argv)
+        return SEEKDB_INTERNAL_ERROR;
+
+    char **owned = first_init && npairs > 0 ? (char **)calloc((size_t)npairs, sizeof(char *)) :
+                                              NULL;
+    if (first_init && npairs > 0 && !owned) {
+        free(argv);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+
+    int i = 0;
+    argv[i++] = (char *)bin_path;
+    argv[i++] = (char *)base_dir_arg;
+    argv[i++] = (char *)"--embedded";
+    argv[i++] = (char *)"--nodaemon";
+
+    size_t owned_n = 0;
+    if (first_init) {
+        if (!parameters) {
+            for (int p = 0; p < npairs; p++) {
+                const char *key = default_parameters[p * 2];
+                const char *val = default_parameters[p * 2 + 1];
+                const size_t kv_len = strlen(key) + strlen(val) + 2;
+                char *kv = (char *)malloc(kv_len);
+                if (!kv)
+                    goto fail;
+                snprintf(kv, kv_len, "%s=%s", key, val);
+                owned[owned_n++] = kv;
+                argv[i++] = (char *)"--parameter";
+                argv[i++] = kv;
+            }
+        }
+        else {
+            const int nentries = count_null_terminated(parameters);
+            for (int si = 0; si < nentries; si += 2) {
+                const char *key = parameters[si];
+                const char *val = parameters[si + 1];
+                if (is_driver_parameter(key))
+                    continue;
+                const size_t kv_len = strlen(key) + strlen(val) + 2;
+                char *kv = (char *)malloc(kv_len);
+                if (!kv)
+                    goto fail;
+                snprintf(kv, kv_len, "%s=%s", key, val);
+                owned[owned_n++] = kv;
+                argv[i++] = (char *)"--parameter";
+                argv[i++] = kv;
+            }
+        }
+    }
+    argv[i] = NULL;
+
+    *out_argv = argv;
+    *out_owned = owned;
+    *out_owned_n = owned_n;
+    return SEEKDB_SUCCESS;
+
+fail:
+    for (size_t j = 0; j < owned_n; j++)
+        free(owned[j]);
+    free(owned);
+    free(argv);
+    return SEEKDB_INTERNAL_ERROR;
+}
+
+static void free_spawn_argv(char **argv, char **owned, size_t owned_n)
+{
+    for (size_t i = 0; i < owned_n; i++)
+        free(owned[i]);
+    free(owned);
+    free(argv);
+}
+
+int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle)
 {
     if (!db_dir || !out_handle)
         return SEEKDB_INVALID_ARGUMENT;
+    const int param_rc = validate_parameters(parameters);
+    if (param_rc != SEEKDB_SUCCESS)
+        return param_rc;
     *out_handle = NULL;
+
+    const int port = parse_port_parameter(parameters);
 
     char bin_path[1024];
     if (resolve_bin_path(bin_path, sizeof(bin_path)) != SEEKDB_SUCCESS) {
@@ -434,24 +590,25 @@ int seekdb_open(const char *db_dir, int port, SeekdbHandle *out_handle)
         first_init = !dir_has_entries(sstable_dir);
     }
     tlog("seekdb_open: %s (sstable_dir=%s)\n",
-         first_init ? "first init — seeding default parameters"
-                    : "restart — keeping persisted parameters",
+         first_init ? "first init — seeding parameters" : "restart — keeping persisted parameters",
          sstable_dir);
 
-    char *first_init_argv[] = {(char *)bin_path,
-                               base_dir_arg,
-                               (char *)"--embedded",
-                               (char *)"--nodaemon",
-                               (char *)"--parameter",
-                               (char *)"memory_limit=1G",
-                               (char *)"--parameter",
-                               (char *)"log_disk_size=2G",
-                               NULL};
-    char *restart_argv[] = {(char *)bin_path, base_dir_arg, (char *)"--embedded",
-                            (char *)"--nodaemon", NULL};
-    char *const *argv = first_init ? first_init_argv : restart_argv;
+    char **spawn_argv = NULL;
+    char **spawn_owned = NULL;
+    size_t spawn_owned_n = 0;
+    const int argv_rc =
+        build_spawn_argv(bin_path, base_dir_arg, parameters, first_init, &spawn_argv, &spawn_owned,
+                         &spawn_owned_n);
+    if (argv_rc != SEEKDB_SUCCESS) {
+        flock_close(startup_lock);
+        flock_close(h->clients_lock);
+        xfree(h->db_dir);
+        free(h);
+        return argv_rc;
+    }
 
-    if (spawn_process(bin_path, argv, &spawned) != OK) {
+    if (spawn_process(bin_path, spawn_argv, &spawned) != OK) {
+        free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
         flock_close(startup_lock);
         flock_close(h->clients_lock);
         xfree(h->db_dir);
@@ -459,6 +616,7 @@ int seekdb_open(const char *db_dir, int port, SeekdbHandle *out_handle)
         tlog("spawn process failed.");
         return SEEKDB_INTERNAL_ERROR;
     }
+    free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
 
     /* Mirror the Process fields onto the handle. wait_for_ready frees
      * `spawned` on -1, so deref before the call. */

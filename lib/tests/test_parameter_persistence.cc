@@ -140,7 +140,7 @@ TEST_F(ParameterPersistence, ChangedMemoryLimitSurvivesRestart)
     // --- first init: store/sstable is empty, so the driver seeds the default
     //     --parameter memory_limit=1G ---
     SeekdbHandle h1 = nullptr;
-    ASSERT_EQ(seekdb_open(db_dir_.c_str(), 0, &h1), SEEKDB_SUCCESS);
+    ASSERT_EQ(seekdb_open(db_dir_.c_str(), NULL, &h1), SEEKDB_SUCCESS);
     ASSERT_NE(h1, nullptr);
     const int64_t pid1 = ((SeekdbHandleImpl *)h1)->spawned_pid;
     ASSERT_GT(pid1, 0) << "first open should have spawned a fresh server";
@@ -181,7 +181,7 @@ TEST_F(ParameterPersistence, ChangedMemoryLimitSurvivesRestart)
     // --- restart: store/sstable is now non-empty, so the driver must NOT pass
     //     --parameter, and the persisted value must remain ---
     SeekdbHandle h2 = nullptr;
-    ASSERT_EQ(seekdb_open(db_dir_.c_str(), 0, &h2), SEEKDB_SUCCESS);
+    ASSERT_EQ(seekdb_open(db_dir_.c_str(), NULL, &h2), SEEKDB_SUCCESS);
     ASSERT_NE(h2, nullptr);
     const int64_t pid2 = ((SeekdbHandleImpl *)h2)->spawned_pid;
     ASSERT_GT(pid2, 0) << "restart should have re-spawned a server (not fast-path)";

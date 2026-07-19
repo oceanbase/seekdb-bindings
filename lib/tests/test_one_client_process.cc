@@ -55,7 +55,7 @@ TEST_F(OneClientProcess, ClientClose)
     if (client_pid == 0) {
         close(ready[0]);
         SeekdbHandle h = nullptr;
-        seekdb_open(db_dir_.c_str(), 0, &h);
+        seekdb_open(db_dir_.c_str(), NULL, &h);
         int64_t spawned_pid = ((SeekdbHandleImpl *)h)->spawned_pid;
         write(ready[1], &spawned_pid, sizeof(spawned_pid));
         close(ready[1]);
@@ -85,7 +85,7 @@ TEST_F(OneClientProcess, ClientExit)
     if (client_pid == 0) {
         close(ready[0]);
         SeekdbHandle h = nullptr;
-        seekdb_open(db_dir_.c_str(), 0, &h);
+        seekdb_open(db_dir_.c_str(), NULL, &h);
         int64_t spawned_pid = ((SeekdbHandleImpl *)h)->spawned_pid;
         write(ready[1], &spawned_pid, sizeof(spawned_pid));
         close(ready[1]);
@@ -114,7 +114,7 @@ TEST_F(OneClientProcess, KillClient)
     if (client_pid == 0) {
         close(ready[0]);
         SeekdbHandle h = nullptr;
-        seekdb_open(db_dir_.c_str(), 0, &h);
+        seekdb_open(db_dir_.c_str(), NULL, &h);
         int64_t spawned_pid = ((SeekdbHandleImpl *)h)->spawned_pid;
         write(ready[1], &spawned_pid, sizeof(spawned_pid));
         close(ready[1]);

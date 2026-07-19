@@ -202,7 +202,7 @@ int main(int argc, char **argv)
     const char *db_dir = (argc >= 2) ? argv[1] : "./seekdb.db";
 
     SeekdbHandle handle = NULL;
-    if (seekdb_open(db_dir, 0, &handle) != SEEKDB_SUCCESS) {
+    if (seekdb_open(db_dir, NULL, &handle) != SEEKDB_SUCCESS) {
         fprintf(stderr, "seekdb_open failed\n");
         return 1;
     }
