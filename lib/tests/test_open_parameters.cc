@@ -123,6 +123,29 @@ TEST_F(OpenParameters, RejectsInvalidPort)
     EXPECT_EQ(h, nullptr);
 }
 
+TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
+{
+    const char *parameters[] = {"port", "0", NULL};
+
+    SeekdbHandle h = nullptr;
+    ASSERT_EQ(seekdb_open(db_dir_.c_str(), parameters, &h), SEEKDB_SUCCESS);
+    ASSERT_NE(h, nullptr);
+    const int64_t pid = ((SeekdbHandleImpl *)h)->spawned_pid;
+    ASSERT_GT(pid, 0);
+
+    SeekdbConnection c = nullptr;
+    ASSERT_EQ(seekdb_connect(h, nullptr, true, &c), SEEKDB_SUCCESS);
+
+    const std::string memory_limit = read_parameter(c, "memory_limit");
+    ASSERT_FALSE(memory_limit.empty()) << "could not read memory_limit";
+    EXPECT_NE(memory_limit.find("1G"), std::string::npos)
+        << "expected default memory_limit=1G when only port is provided, got '" << memory_limit
+        << "'";
+
+    seekdb_disconnect(c);
+    shutdown_server(h, pid);
+}
+
 TEST_F(OpenParameters, SeedsUserProvidedParametersOnFirstInit)
 {
     const char *parameters[] = {"memory_limit", "10G", "log_disk_size", "4G", NULL};

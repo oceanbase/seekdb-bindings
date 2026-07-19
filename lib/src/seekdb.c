@@ -365,9 +365,21 @@ static int parse_port_parameter(const char *const *parameters)
     return 0;
 }
 
-static int count_server_parameters(const char *const *parameters)
+static bool use_default_server_parameters(const char *const *parameters)
 {
     if (!parameters)
+        return true;
+    const int n = count_null_terminated(parameters);
+    for (int i = 0; i < n; i += 2) {
+        if (!is_driver_parameter(parameters[i]))
+            return false;
+    }
+    return true;
+}
+
+static int count_server_parameters(const char *const *parameters)
+{
+    if (use_default_server_parameters(parameters))
         return count_null_terminated(default_parameters);
     int count = 0;
     const int n = count_null_terminated(parameters);
@@ -399,8 +411,8 @@ static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
     if (!argv)
         return SEEKDB_INTERNAL_ERROR;
 
-    char **owned = first_init && npairs > 0 ? (char **)calloc((size_t)npairs, sizeof(char *)) :
-                                              NULL;
+    char **owned =
+        first_init && npairs > 0 ? (char **)calloc((size_t)npairs, sizeof(char *)) : NULL;
     if (first_init && npairs > 0 && !owned) {
         free(argv);
         return SEEKDB_INTERNAL_ERROR;
@@ -414,7 +426,7 @@ static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
 
     size_t owned_n = 0;
     if (first_init) {
-        if (!parameters) {
+        if (use_default_server_parameters(parameters)) {
             for (int p = 0; p < npairs; p++) {
                 const char *key = default_parameters[p * 2];
                 const char *val = default_parameters[p * 2 + 1];
@@ -596,9 +608,8 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     char **spawn_argv = NULL;
     char **spawn_owned = NULL;
     size_t spawn_owned_n = 0;
-    const int argv_rc =
-        build_spawn_argv(bin_path, base_dir_arg, parameters, first_init, &spawn_argv, &spawn_owned,
-                         &spawn_owned_n);
+    const int argv_rc = build_spawn_argv(bin_path, base_dir_arg, parameters, first_init,
+                                         &spawn_argv, &spawn_owned, &spawn_owned_n);
     if (argv_rc != SEEKDB_SUCCESS) {
         flock_close(startup_lock);
         flock_close(h->clients_lock);
