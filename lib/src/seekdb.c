@@ -365,33 +365,60 @@ static int parse_port_parameter(const char *const *parameters)
     return 0;
 }
 
-static bool use_default_server_parameters(const char *const *parameters)
+static bool is_default_parameter_key(const char *key)
 {
-    if (!parameters)
-        return true;
-    const int n = count_null_terminated(parameters);
+    const int n = count_null_terminated(default_parameters);
     for (int i = 0; i < n; i += 2) {
-        if (!is_driver_parameter(parameters[i]))
-            return false;
+        if (strcmp(default_parameters[i], key) == 0)
+            return true;
     }
-    return true;
+    return false;
 }
 
-static int count_server_parameters(const char *const *parameters)
+static const char *parameters_lookup(const char *const *parameters, const char *key)
 {
-    if (use_default_server_parameters(parameters))
-        return count_null_terminated(default_parameters);
-    int count = 0;
+    if (!parameters)
+        return NULL;
     const int n = count_null_terminated(parameters);
     for (int i = 0; i < n; i += 2) {
-        if (!is_driver_parameter(parameters[i]))
-            count += 2;
+        if (strcmp(parameters[i], key) == 0)
+            return parameters[i + 1];
+    }
+    return NULL;
+}
+
+static int count_seed_pairs(const char *const *parameters)
+{
+    int count = count_null_terminated(default_parameters) / 2;
+    if (!parameters)
+        return count;
+    const int n = count_null_terminated(parameters);
+    for (int i = 0; i < n; i += 2) {
+        if (is_driver_parameter(parameters[i]) || is_default_parameter_key(parameters[i]))
+            continue;
+        count++;
     }
     return count;
 }
 
+static int append_parameter_kv(char ***argv, int *argv_i, char **owned, size_t *owned_n,
+                               const char *key, const char *val)
+{
+    const size_t kv_len = strlen(key) + strlen(val) + 2;
+    char *kv = (char *)malloc(kv_len);
+    if (!kv)
+        return SEEKDB_INTERNAL_ERROR;
+    snprintf(kv, kv_len, "%s=%s", key, val);
+    owned[*owned_n] = kv;
+    (*owned_n)++;
+    (*argv)[(*argv_i)++] = (char *)"--parameter";
+    (*argv)[(*argv_i)++] = kv;
+    return SEEKDB_SUCCESS;
+}
+
 /* Build argv for spawn_process. Caller must free *out_argv and each *out_owned
- * entry. *out_argv is NULL-terminated. Driver-reserved keys are stripped. */
+ * entry. *out_argv is NULL-terminated. Driver-reserved keys are stripped and
+ * default server parameters are merged with any user overrides/extras. */
 static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
                             const char *const *parameters, bool first_init, char ***out_argv,
                             char ***out_owned, size_t *out_owned_n)
@@ -400,11 +427,7 @@ static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
     *out_owned = NULL;
     *out_owned_n = 0;
 
-    const int server_entries = first_init ? count_server_parameters(parameters) : 0;
-    if (server_entries % 2 != 0)
-        return SEEKDB_INVALID_ARGUMENT;
-
-    const int npairs = server_entries / 2;
+    const int npairs = first_init ? count_seed_pairs(parameters) : 0;
     const int argc = 4 + (first_init ? npairs * 2 : 0) + 1;
 
     char **argv = (char **)calloc((size_t)argc, sizeof(char *));
@@ -426,35 +449,25 @@ static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
 
     size_t owned_n = 0;
     if (first_init) {
-        if (use_default_server_parameters(parameters)) {
-            for (int p = 0; p < npairs; p++) {
-                const char *key = default_parameters[p * 2];
-                const char *val = default_parameters[p * 2 + 1];
-                const size_t kv_len = strlen(key) + strlen(val) + 2;
-                char *kv = (char *)malloc(kv_len);
-                if (!kv)
-                    goto fail;
-                snprintf(kv, kv_len, "%s=%s", key, val);
-                owned[owned_n++] = kv;
-                argv[i++] = (char *)"--parameter";
-                argv[i++] = kv;
-            }
+        const int ndefaults = count_null_terminated(default_parameters) / 2;
+        for (int p = 0; p < ndefaults; p++) {
+            const char *key = default_parameters[p * 2];
+            const char *val = parameters_lookup(parameters, key);
+            if (!val)
+                val = default_parameters[p * 2 + 1];
+            if (append_parameter_kv(&argv, &i, owned, &owned_n, key, val) != SEEKDB_SUCCESS)
+                goto fail;
         }
-        else {
+
+        if (parameters) {
             const int nentries = count_null_terminated(parameters);
             for (int si = 0; si < nentries; si += 2) {
                 const char *key = parameters[si];
                 const char *val = parameters[si + 1];
-                if (is_driver_parameter(key))
+                if (is_driver_parameter(key) || is_default_parameter_key(key))
                     continue;
-                const size_t kv_len = strlen(key) + strlen(val) + 2;
-                char *kv = (char *)malloc(kv_len);
-                if (!kv)
+                if (append_parameter_kv(&argv, &i, owned, &owned_n, key, val) != SEEKDB_SUCCESS)
                     goto fail;
-                snprintf(kv, kv_len, "%s=%s", key, val);
-                owned[owned_n++] = kv;
-                argv[i++] = (char *)"--parameter";
-                argv[i++] = kv;
             }
         }
     }
