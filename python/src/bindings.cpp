@@ -283,6 +283,7 @@ nb::dict connection_options()
     std::string user;
 
     {
+        nb::gil_scoped_release release;
         std::lock_guard<std::mutex> lock(handle_mutex);
         if (!handle) {
             throw std::runtime_error("seekdb not opened — call open() or aopen() first");

@@ -28,7 +28,7 @@ pick_python() {
   command -v python3
 }
 
-verify_one_wheel() {
+verify_one_wheel() (
   local wheel="$1"
   local py
   py="$(pick_python "$wheel")"
@@ -37,6 +37,7 @@ verify_one_wheel() {
 
   local tmp
   tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
 
   "$py" -m venv "$tmp/venv"
   # shellcheck disable=SC1091
@@ -46,8 +47,7 @@ verify_one_wheel() {
 
   mkdir -p "$tmp/work"
   (cd "$tmp/work" && python "$TEST_PY")
-  rm -rf "$tmp"
-}
+)
 
 if [ "$#" -eq 0 ]; then
   shopt -s nullglob
