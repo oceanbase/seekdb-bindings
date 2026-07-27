@@ -33,14 +33,12 @@ typedef enum {
     SEEKDB_TYPE_VARCHAR,
 } SeekdbTypeId;
 
-typedef enum {
-    SEEKDB_CONNECTION_TRANSPORT_TCP,
-    SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET,
-    SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE,
-} SeekdbConnectionTransport;
+#define SEEKDB_CONNECTION_TRANSPORT_TCP "tcp"
+#define SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET "unix_socket"
+#define SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE "named_pipe"
 
 typedef struct {
-    SeekdbConnectionTransport transport;
+    const char *transport;
     unsigned int port;
     const char *endpoint;
     const char *user;
@@ -63,10 +61,11 @@ int seekdb_close(SeekdbHandle handle);
 
 /* Return the MySQL-protocol connection options for an open handle.
  *
- * TCP exposes only port; clients use their default local host. Local
- * transports expose endpoint as a Unix socket path or full Windows named-pipe
- * path. user is always "root". endpoint and user are borrowed and remain valid
- * until seekdb_close(handle). */
+ * transport is "tcp", "unix_socket", or "named_pipe". TCP exposes only port;
+ * clients use their default local host. Local transports expose endpoint as a
+ * Unix socket path or full Windows named-pipe path. user is always "root".
+ * transport, endpoint, and user are borrowed and remain valid until
+ * seekdb_close(handle). */
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);
 
 int seekdb_connect(SeekdbHandle handle, const char *database, bool autocommit,

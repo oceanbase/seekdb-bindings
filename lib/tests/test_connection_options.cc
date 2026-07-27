@@ -21,7 +21,7 @@ TEST(ConnectionOptions, ReturnsTcpPortAndUser)
     SeekdbConnectionOptions options = {};
 
     ASSERT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_SUCCESS);
-    EXPECT_EQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
+    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
     EXPECT_EQ(options.port, 3306U);
     EXPECT_EQ(options.endpoint, nullptr);
     ASSERT_NE(options.user, nullptr);
@@ -36,7 +36,7 @@ TEST(ConnectionOptions, ReturnsNamedPipeEndpoint)
     SeekdbConnectionOptions options = {};
 
     ASSERT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_SUCCESS);
-    EXPECT_EQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE);
+    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE);
     EXPECT_EQ(options.port, 0U);
     ASSERT_NE(options.endpoint, nullptr);
     EXPECT_STREQ(options.endpoint, "\\\\.\\pipe\\seekdb-test");
@@ -50,7 +50,7 @@ TEST(ConnectionOptions, ReturnsUnixSocketEndpoint)
     SeekdbConnectionOptions options = {};
 
     ASSERT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_SUCCESS);
-    EXPECT_EQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET);
+    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET);
     EXPECT_EQ(options.port, 0U);
     ASSERT_NE(options.endpoint, nullptr);
     EXPECT_STREQ(options.endpoint, "/tmp/seekdb/run/sql.sock");

@@ -277,7 +277,7 @@ std::shared_ptr<Connection> connect(const std::string &database, bool autocommit
 
 nb::dict mysql_connection_options()
 {
-    SeekdbConnectionTransport transport;
+    std::string transport;
     unsigned int port = 0;
     std::string endpoint;
     std::string user;
@@ -290,7 +290,8 @@ nb::dict mysql_connection_options()
 
         SeekdbConnectionOptions options = {};
         SDB_CHECK(seekdb_connection_options(handle, &options));
-        transport = options.transport;
+        if (options.transport)
+            transport = options.transport;
         port = options.port;
         if (options.endpoint)
             endpoint = options.endpoint;
@@ -300,16 +301,16 @@ nb::dict mysql_connection_options()
 
     nb::dict result;
     result["user"] = user;
-    switch (transport) {
-    case SEEKDB_CONNECTION_TRANSPORT_TCP:
+    if (transport == SEEKDB_CONNECTION_TRANSPORT_TCP) {
         result["port"] = port;
-        break;
-    case SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET:
+    }
+    else if (transport == SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET) {
         result["unix_socket"] = endpoint;
-        break;
-    case SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE:
+    }
+    else if (transport == SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE) {
         throw std::runtime_error("Windows named-pipe Python clients are not supported");
-    default:
+    }
+    else {
         throw std::runtime_error("unknown seekdb connection transport");
     }
     return result;
