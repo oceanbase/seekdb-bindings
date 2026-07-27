@@ -1,4 +1,6 @@
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/map.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/tuple.h>
@@ -6,10 +8,14 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 extern "C" {
@@ -240,26 +246,72 @@ class Cursor {
 
 Cursor Connection::cursor() { return Cursor(shared_from_this()); }
 
-static SeekdbHandle handle = nullptr;
-static std::mutex handle_mutex;
+static std::unordered_map<std::string, SeekdbHandle> handles;
+static std::mutex handles_mutex;
 
-void open(const std::string &db_dir)
+static std::string normalize_db_dir(const std::string &db_dir)
 {
-    std::lock_guard<std::mutex> lock(handle_mutex);
-    if (handle)
+    return std::filesystem::absolute(std::filesystem::path(db_dir)).lexically_normal().string();
+}
+
+static SeekdbHandle find_handle_locked(const std::optional<std::string> &db_dir)
+{
+    if (db_dir) {
+        const auto it = handles.find(normalize_db_dir(*db_dir));
+        if (it == handles.end()) {
+            throw std::runtime_error("seekdb instance not opened for db_dir: " + *db_dir +
+                                     " — call open(db_dir) or aopen(db_dir) first");
+        }
+        return it->second;
+    }
+
+    if (handles.empty()) {
+        throw std::runtime_error("seekdb not opened — call open() or aopen() first");
+    }
+    if (handles.size() != 1) {
+        throw std::runtime_error("multiple seekdb instances are open — pass db_dir");
+    }
+    return handles.begin()->second;
+}
+
+void open(const std::string &db_dir,
+          const std::optional<std::map<std::string, std::string>> &parameters)
+{
+    const std::string key = normalize_db_dir(db_dir);
+    std::vector<const char *> parameter_array;
+    if (parameters) {
+        parameter_array.reserve(parameters->size() * 2 + 1);
+        for (const auto &[name, value] : *parameters) {
+            parameter_array.push_back(name.c_str());
+            parameter_array.push_back(value.c_str());
+        }
+        parameter_array.push_back(nullptr);
+    }
+
+    std::lock_guard<std::mutex> lock(handles_mutex);
+    const auto [it, inserted] = handles.emplace(key, nullptr);
+    if (!inserted)
         return;
 
     SeekdbHandle opened = nullptr;
-    SDB_CHECK(seekdb_open(db_dir.c_str(), nullptr, &opened));
-    handle = opened;
+    try {
+        SDB_CHECK(seekdb_open(db_dir.c_str(),
+                              parameter_array.empty() ? nullptr : parameter_array.data(), &opened));
+        it->second = opened;
+    }
+    catch (...) {
+        if (opened)
+            seekdb_close(opened);
+        handles.erase(it);
+        throw;
+    }
 }
 
-std::shared_ptr<Connection> connect(const std::string &database, bool autocommit)
+std::shared_ptr<Connection> connect(const std::string &database, bool autocommit,
+                                    const std::optional<std::string> &db_dir)
 {
-    std::lock_guard<std::mutex> lock(handle_mutex);
-    if (!handle) {
-        throw std::runtime_error("seekdb not opened — call open() or aopen() first");
-    }
+    std::lock_guard<std::mutex> lock(handles_mutex);
+    SeekdbHandle handle = find_handle_locked(db_dir);
     SeekdbConnection c = nullptr;
     int rc = seekdb_connect(handle, database.c_str(), autocommit, &c);
     if (rc != SEEKDB_SUCCESS) {
@@ -276,7 +328,7 @@ std::shared_ptr<Connection> connect(const std::string &database, bool autocommit
     return std::make_shared<Connection>(c);
 }
 
-nb::dict connection_options()
+nb::dict connection_options(const std::optional<std::string> &db_dir)
 {
     std::string transport;
     unsigned int port = 0;
@@ -285,10 +337,8 @@ nb::dict connection_options()
 
     {
         nb::gil_scoped_release release;
-        std::lock_guard<std::mutex> lock(handle_mutex);
-        if (!handle) {
-            throw std::runtime_error("seekdb not opened — call open() or aopen() first");
-        }
+        std::lock_guard<std::mutex> lock(handles_mutex);
+        SeekdbHandle handle = find_handle_locked(db_dir);
 
         SeekdbConnectionOptions options = {};
         SDB_CHECK(seekdb_connection_options(handle, &options));
@@ -319,12 +369,22 @@ nb::dict connection_options()
     return result;
 }
 
-void close()
+void close(const std::optional<std::string> &db_dir)
 {
-    std::lock_guard<std::mutex> lock(handle_mutex);
-    if (handle) {
-        SDB_CHECK(seekdb_close(handle));
-        handle = nullptr;
+    std::lock_guard<std::mutex> lock(handles_mutex);
+    if (db_dir) {
+        const auto it = handles.find(normalize_db_dir(*db_dir));
+        if (it != handles.end()) {
+            SDB_CHECK(seekdb_close(it->second));
+            handles.erase(it);
+        }
+        return;
+    }
+
+    while (!handles.empty()) {
+        const auto it = handles.begin();
+        SDB_CHECK(seekdb_close(it->second));
+        handles.erase(it);
     }
 }
 
@@ -341,14 +401,16 @@ NB_MODULE(pylibseekdb, m)
 
     const char *default_service_path = "./seekdb.db";
 
-    m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path, "open db",
+    m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path,
+          nb::arg("parameters") = nb::none(), "open db", nb::call_guard<nb::gil_scoped_release>());
+    m.def("close", &seekdb::close, nb::arg("db_dir") = nb::none(), "close db",
           nb::call_guard<nb::gil_scoped_release>());
-    m.def("close", &seekdb::close, "close db", nb::call_guard<nb::gil_scoped_release>());
-    m.def("connection_options", &seekdb::connection_options,
+    m.def("connection_options", &seekdb::connection_options, nb::arg("db_dir") = nb::none(),
           "return options for a Python MySQL-protocol driver");
 
     m.def("connect", &seekdb::connect, nb::arg("database") = "test", nb::arg("autocommit") = false,
-          "connect seekdb", nb::call_guard<nb::gil_scoped_release>());
+          nb::arg("db_dir") = nb::none(), "connect seekdb",
+          nb::call_guard<nb::gil_scoped_release>());
 
     auto connection_class = nb::class_<seekdb::Connection>(m, "Connection");
     connection_class.attr("__module__") = kPublicModule;
