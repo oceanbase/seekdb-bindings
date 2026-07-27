@@ -268,9 +268,10 @@ std::shared_ptr<Connection> connect(const std::string &database, bool autocommit
         if (c)
             seekdb_last_error(c, &srv_errno, &srv_msg);
         std::string msg = (srv_msg && *srv_msg) ? srv_msg : "seekdb_connect failed";
+        int error_code = srv_errno != 0 ? srv_errno : rc;
         if (c)
             seekdb_disconnect(c);
-        throw SeekdbError(srv_errno, msg);
+        throw SeekdbError(error_code, msg);
     }
     return std::make_shared<Connection>(c);
 }
@@ -312,7 +313,8 @@ nb::dict connection_options()
         throw std::runtime_error("Windows named-pipe Python clients are not supported");
     }
     else {
-        throw std::runtime_error("unknown seekdb connection transport");
+        throw std::runtime_error("unknown seekdb connection transport: " +
+                                 (transport.empty() ? std::string("<empty>") : transport));
     }
     return result;
 }
