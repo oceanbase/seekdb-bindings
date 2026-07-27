@@ -190,13 +190,24 @@ static int read_pipe_name(SeekdbHandleImpl *h)
         return 0;
     }
     snprintf(h->pipe_name, sizeof(h->pipe_name), "%s", buf);
-    tlog("read_pipe_name: %s -> \\\\.\\pipe\\%s\n", h->pipe_file_path, h->pipe_name);
+    int path_n = snprintf(h->pipe_path, sizeof(h->pipe_path), "\\\\.\\pipe\\%s", h->pipe_name);
+    if (path_n < 0 || (size_t)path_n >= sizeof(h->pipe_path)) {
+        h->pipe_path[0] = '\0';
+        tlog("read_pipe_name: named-pipe path truncated: %s\n", h->pipe_name);
+        return 0;
+    }
+    tlog("read_pipe_name: %s -> %s\n", h->pipe_file_path, h->pipe_path);
     return 1;
 }
 #endif
 
 static int try_connect(SeekdbHandleImpl *h)
 {
+    /* The SQL listener can accept SELECT 1 before the server finishes starting
+     * its service and refreshing system views. A positive START_SERVICE_TIME
+     * is the server's explicit signal that it is ready to serve. */
+    static const char ready_sql[] =
+        "SELECT 1 FROM oceanbase.V$OB_SERVER_STAT WHERE START_SERVICE_TIME > 0 LIMIT 1";
 
     MYSQL *m = mysql_init(NULL);
     if (!m)
@@ -235,20 +246,24 @@ static int try_connect(SeekdbHandleImpl *h)
                                    h->sock_path,
 #endif
                            0)) {
-        if (mysql_real_query(m, "SELECT 1", 8) == 0) {
+        if (mysql_real_query(m, ready_sql, (unsigned long)(sizeof(ready_sql) - 1)) == 0) {
             MYSQL_RES *r = mysql_store_result(m);
             if (r) {
+                bool ready = mysql_num_rows(r) > 0;
                 mysql_free_result(r);
-                tlog("try connected succeeded\n");
-                mysql_close(m);
-                return 1;
+                if (ready) {
+                    tlog("try_connect: server is ready to serve\n");
+                    mysql_close(m);
+                    return 1;
+                }
+                tlog("try_connect: server has not started service yet\n");
             }
             else {
                 tlog("try_connect: store_result failed: %s\n", mysql_error(m));
             }
         }
         else {
-            tlog("try_connect: SELECT 1 failed: %s\n", mysql_error(m));
+            tlog("try_connect: readiness query failed: %s\n", mysql_error(m));
         }
     }
     else {
@@ -688,6 +703,34 @@ int seekdb_close(SeekdbHandle handle)
 
     xfree(h->db_dir);
     free(h);
+    return SEEKDB_SUCCESS;
+}
+
+int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options)
+{
+    if (!handle || !out_options)
+        return SEEKDB_INVALID_ARGUMENT;
+
+    SeekdbHandleImpl *h = (SeekdbHandleImpl *)handle;
+    memset(out_options, 0, sizeof(*out_options));
+    out_options->user = "root";
+
+    if (h->port != 0) {
+        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_TCP;
+        out_options->port = (unsigned int)h->port;
+    }
+    else {
+#ifdef _WIN32
+        if (h->pipe_path[0] == '\0')
+            return SEEKDB_INTERNAL_ERROR;
+        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE;
+        out_options->endpoint = h->pipe_path;
+#else
+        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET;
+        out_options->endpoint = h->sock_path;
+#endif
+    }
+
     return SEEKDB_SUCCESS;
 }
 

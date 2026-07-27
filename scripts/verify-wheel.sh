@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TEST_PY="${SEEKDB_TEST_PY:-$REPO_ROOT/python/tests/seekdb_test.py}"
+TEST_PY="${SEEKDB_TEST_PY:-$REPO_ROOT/python/tests/connection_options_test.py}"
 
 if [ ! -f "$TEST_PY" ]; then
   echo "error: wheel test script not found: $TEST_PY" >&2
@@ -28,7 +28,7 @@ pick_python() {
   command -v python3
 }
 
-verify_one_wheel() {
+verify_one_wheel() (
   local wheel="$1"
   local py
   py="$(pick_python "$wheel")"
@@ -37,17 +37,17 @@ verify_one_wheel() {
 
   local tmp
   tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
 
   "$py" -m venv "$tmp/venv"
   # shellcheck disable=SC1091
   source "$tmp/venv/bin/activate"
   python -m pip install -q --upgrade pip
-  python -m pip install -q "$wheel"
+  python -m pip install -q "$wheel" PyMySQL aiomysql
 
   mkdir -p "$tmp/work"
   (cd "$tmp/work" && python "$TEST_PY")
-  rm -rf "$tmp"
-}
+)
 
 if [ "$#" -eq 0 ]; then
   shopt -s nullglob

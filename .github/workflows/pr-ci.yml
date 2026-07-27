@@ -206,7 +206,7 @@ jobs:
 
       - &install-python-build-dependencies
         name: Install Python build dependencies
-        run: python -m pip install --upgrade pip nanobind
+        run: python -m pip install --upgrade pip nanobind scikit-build-core PyMySQL aiomysql
 
       - &download-seekdb-binary
         name: Download seekdb binary
@@ -242,6 +242,13 @@ jobs:
       - &build-python-binding
         name: Build Python binding
         run: cmake --build build --target pylibseekdb --parallel
+
+      - name: Verify Python external driver integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --no-build-isolation ./python
+          python python/tests/connection_options_test.py
 
       - &verify-python-binding-contract
         name: Verify Python binding exception contract

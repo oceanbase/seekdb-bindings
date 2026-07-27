@@ -44,8 +44,8 @@ After configuration (per-platform commands below), choose a `make` target from i
 | `make seekdb_cli` | `seekdb_cli` (interactive SQL client) |
 | `make pylibseekdb` | `pylibseekdb.cpython-*.so` (Python extension) |
 | `make seekdb_tests` | `test_one_client_process`, `test_two_clients_threads` |
-| `make wheel` | `wheelhouse/pylibseekdb-*.whl` via cibuildwheel (runs `seekdb_test.py` per wheel) |
-| `make verify-wheel` | Re-run `seekdb_test.py` against wheels in `build/wheelhouse/` |
+| `make wheel` | `wheelhouse/pylibseekdb-*.whl` via cibuildwheel (runs Python integration tests per wheel) |
+| `make verify-wheel` | Re-run Python integration tests against wheels in `build/wheelhouse/` |
 | `make` | everything above |
 
 `build/seekdb` (a copy of `$SEEKDB_BIN`) ships alongside the library.
@@ -217,7 +217,10 @@ SEEKDB_OUT_BIN=./build/seekdb ./scripts/build-seekdb-glibc228.sh
 
 Docker (or Podman if Docker is unavailable) pulls the host-matching `manylinux_2_28` image (x86_64 or aarch64). Set `CONTAINER_RUNTIME=podman` to force Podman. It prints the resulting binary path and the max GLIBC symbol version at the end — that's the path to use as `SEEKDB_BIN` before `make wheel`.
 
-Each wheel built by `cibuildwheel` is smoke-tested with `python/tests/seekdb_test.py` (hybrid search end-to-end). To verify wheels built another way:
+Each wheel built by `cibuildwheel` is smoke-tested with
+`python/tests/connection_options_test.py`, which covers the native hybrid-search
+path plus PyMySQL and aiomysql over the local endpoint. To verify wheels built
+another way:
 
 ```sh
 ./scripts/verify-wheel.sh build/wheelhouse/pylibseekdb-*.whl

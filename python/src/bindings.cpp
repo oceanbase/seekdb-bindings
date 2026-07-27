@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -240,18 +241,24 @@ class Cursor {
 Cursor Connection::cursor() { return Cursor(shared_from_this()); }
 
 static SeekdbHandle handle = nullptr;
+static std::mutex handle_mutex;
 
 void open(const std::string &db_dir)
 {
+    std::lock_guard<std::mutex> lock(handle_mutex);
     if (handle)
         return;
-    SDB_CHECK(seekdb_open(db_dir.c_str(), nullptr, &handle));
+
+    SeekdbHandle opened = nullptr;
+    SDB_CHECK(seekdb_open(db_dir.c_str(), nullptr, &opened));
+    handle = opened;
 }
 
 std::shared_ptr<Connection> connect(const std::string &database, bool autocommit)
 {
+    std::lock_guard<std::mutex> lock(handle_mutex);
     if (!handle) {
-        throw std::runtime_error("seekdb not opened — call open() or open_with_service() first");
+        throw std::runtime_error("seekdb not opened — call open() or aopen() first");
     }
     SeekdbConnection c = nullptr;
     int rc = seekdb_connect(handle, database.c_str(), autocommit, &c);
@@ -261,17 +268,62 @@ std::shared_ptr<Connection> connect(const std::string &database, bool autocommit
         if (c)
             seekdb_last_error(c, &srv_errno, &srv_msg);
         std::string msg = (srv_msg && *srv_msg) ? srv_msg : "seekdb_connect failed";
+        int error_code = srv_errno != 0 ? srv_errno : rc;
         if (c)
             seekdb_disconnect(c);
-        throw SeekdbError(srv_errno, msg);
+        throw SeekdbError(error_code, msg);
     }
     return std::make_shared<Connection>(c);
 }
 
+nb::dict connection_options()
+{
+    std::string transport;
+    unsigned int port = 0;
+    std::string endpoint;
+    std::string user;
+
+    {
+        nb::gil_scoped_release release;
+        std::lock_guard<std::mutex> lock(handle_mutex);
+        if (!handle) {
+            throw std::runtime_error("seekdb not opened — call open() or aopen() first");
+        }
+
+        SeekdbConnectionOptions options = {};
+        SDB_CHECK(seekdb_connection_options(handle, &options));
+        if (options.transport)
+            transport = options.transport;
+        port = options.port;
+        if (options.endpoint)
+            endpoint = options.endpoint;
+        if (options.user)
+            user = options.user;
+    }
+
+    nb::dict result;
+    result["user"] = user;
+    if (transport == SEEKDB_CONNECTION_TRANSPORT_TCP) {
+        result["port"] = port;
+    }
+    else if (transport == SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET) {
+        result["unix_socket"] = endpoint;
+    }
+    else if (transport == SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE) {
+        throw std::runtime_error("Windows named-pipe Python clients are not supported");
+    }
+    else {
+        throw std::runtime_error("unknown seekdb connection transport: " +
+                                 (transport.empty() ? std::string("<empty>") : transport));
+    }
+    return result;
+}
+
 void close()
 {
+    std::lock_guard<std::mutex> lock(handle_mutex);
     if (handle) {
-        seekdb_close(handle);
+        SDB_CHECK(seekdb_close(handle));
         handle = nullptr;
     }
 }
@@ -289,10 +341,14 @@ NB_MODULE(pylibseekdb, m)
 
     const char *default_service_path = "./seekdb.db";
 
-    m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path, "open db");
+    m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path, "open db",
+          nb::call_guard<nb::gil_scoped_release>());
+    m.def("close", &seekdb::close, "close db", nb::call_guard<nb::gil_scoped_release>());
+    m.def("connection_options", &seekdb::connection_options,
+          "return options for a Python MySQL-protocol driver");
 
     m.def("connect", &seekdb::connect, nb::arg("database") = "test", nb::arg("autocommit") = false,
-          "connect seekdb");
+          "connect seekdb", nb::call_guard<nb::gil_scoped_release>());
 
     auto connection_class = nb::class_<seekdb::Connection>(m, "Connection");
     connection_class.attr("__module__") = kPublicModule;
@@ -310,5 +366,5 @@ NB_MODULE(pylibseekdb, m)
         .def("close", &seekdb::Cursor::close);
 
     nb::object atexit = nb::module_::import_("atexit");
-    atexit.attr("register")(nb::cpp_function(&seekdb::close));
+    atexit.attr("register")(m.attr("close"));
 }

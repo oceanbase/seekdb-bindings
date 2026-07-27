@@ -43,7 +43,13 @@ target_link_libraries(test_two_clients_threads PRIVATE
     seekdb GTest::gtest_main)
 gtest_discover_tests(test_two_clients_threads DISCOVERY_MODE PRE_TEST)
 
-add_custom_target(seekdb_tests DEPENDS test_two_clients_threads)
+add_executable(test_connection_options test_connection_options.cc)
+target_include_directories(test_connection_options PRIVATE ${_seekdb_test_includes})
+target_link_libraries(test_connection_options PRIVATE
+    seekdb GTest::gtest_main)
+gtest_discover_tests(test_connection_options DISCOVERY_MODE PRE_TEST)
+
+add_custom_target(seekdb_tests DEPENDS test_two_clients_threads test_connection_options)
 if (NOT WIN32)
     add_dependencies(seekdb_tests test_one_client_process test_parameter_persistence
         test_open_parameters)
