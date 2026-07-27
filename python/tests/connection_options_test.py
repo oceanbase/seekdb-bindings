@@ -10,10 +10,10 @@ from seekdb_test import run_native_smoke_test
 
 def assert_options_unavailable():
     try:
-        seekdb.mysql_connection_options()
+        seekdb.connection_options()
     except RuntimeError:
         return
-    raise AssertionError("mysql_connection_options() succeeded without an open seekdb")
+    raise AssertionError("connection_options() succeeded without an open seekdb")
 
 
 async def test_connection_options():
@@ -37,7 +37,7 @@ async def test_connection_options():
         await ticker_task
 
     assert ticks > 1, "aopen() blocked the asyncio event loop"
-    options = seekdb.mysql_connection_options()
+    options = seekdb.connection_options()
     assert options == {
         "user": "root",
         "unix_socket": f"{db_dir}/run/sql.sock",

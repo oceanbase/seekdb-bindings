@@ -94,7 +94,7 @@ seekdb.close()
 
 ### Connect with PyMySQL
 
-`mysql_connection_options()` returns endpoint and authentication arguments
+`connection_options()` returns endpoint and authentication arguments
 shared by Python MySQL-protocol drivers. Install the driver separately:
 
 ```bash
@@ -106,7 +106,7 @@ import pymysql
 import pylibseekdb as seekdb
 
 seekdb.open(db_dir="./seekdb.db")
-options = seekdb.mysql_connection_options()
+options = seekdb.connection_options()
 
 connection = pymysql.connect(database="test", **options)
 try:
@@ -142,7 +142,7 @@ import pylibseekdb as seekdb
 
 async def main():
     await seekdb.aopen(db_dir="./seekdb.db")
-    options = seekdb.mysql_connection_options()
+    options = seekdb.connection_options()
     pool = await aiomysql.create_pool(
         db="test",
         minsize=1,
@@ -216,7 +216,7 @@ LIMIT 10;
 |---|---|
 | `open(db_dir="./seekdb.db")` | Start a local seekdb runtime for the given database directory. Embedded-mode support will be released soon. Must be called before `connect()`. |
 | `await aopen(db_dir="./seekdb.db")` | Run `open()` in a worker thread without blocking the asyncio event loop. |
-| `mysql_connection_options()` | Return a new dictionary for PyMySQL or aiomysql. The database name is not included. |
+| `connection_options()` | Return a new dictionary for PyMySQL or aiomysql. The database name is not included. |
 | `connect(database="test", autocommit=False)` | Return a `Connection` to the given database. |
 | `close()` | Synchronously release the seekdb lifecycle handle. Idempotent. Close external connections and pools first. |
 

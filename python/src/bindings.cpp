@@ -275,7 +275,7 @@ std::shared_ptr<Connection> connect(const std::string &database, bool autocommit
     return std::make_shared<Connection>(c);
 }
 
-nb::dict mysql_connection_options()
+nb::dict connection_options()
 {
     std::string transport;
     unsigned int port = 0;
@@ -341,7 +341,7 @@ NB_MODULE(pylibseekdb, m)
     m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path, "open db",
           nb::call_guard<nb::gil_scoped_release>());
     m.def("close", &seekdb::close, "close db");
-    m.def("mysql_connection_options", &seekdb::mysql_connection_options,
+    m.def("connection_options", &seekdb::connection_options,
           "return options for a Python MySQL-protocol driver");
 
     m.def("connect", &seekdb::connect, nb::arg("database") = "test", nb::arg("autocommit") = false,
