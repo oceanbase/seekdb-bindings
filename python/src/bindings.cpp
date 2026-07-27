@@ -340,12 +340,12 @@ NB_MODULE(pylibseekdb, m)
 
     m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path, "open db",
           nb::call_guard<nb::gil_scoped_release>());
-    m.def("close", &seekdb::close, "close db");
+    m.def("close", &seekdb::close, "close db", nb::call_guard<nb::gil_scoped_release>());
     m.def("connection_options", &seekdb::connection_options,
           "return options for a Python MySQL-protocol driver");
 
     m.def("connect", &seekdb::connect, nb::arg("database") = "test", nb::arg("autocommit") = false,
-          "connect seekdb");
+          "connect seekdb", nb::call_guard<nb::gil_scoped_release>());
 
     auto connection_class = nb::class_<seekdb::Connection>(m, "Connection");
     connection_class.attr("__module__") = kPublicModule;
@@ -363,5 +363,5 @@ NB_MODULE(pylibseekdb, m)
         .def("close", &seekdb::Cursor::close);
 
     nb::object atexit = nb::module_::import_("atexit");
-    atexit.attr("register")(nb::cpp_function(&seekdb::close));
+    atexit.attr("register")(m.attr("close"));
 }

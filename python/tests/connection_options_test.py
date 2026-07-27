@@ -46,18 +46,18 @@ async def test_connection_options():
     try:
         run_native_smoke_test()
 
-        connection = pymysql.connect(database="test", **options)
+        sync_connection = pymysql.connect(database="test", **options)
         try:
-            with connection.cursor() as cursor:
+            with sync_connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
                 assert cursor.fetchone() == (1,)
         finally:
-            connection.close()
+            sync_connection.close()
 
         pool = await aiomysql.create_pool(db="test", minsize=1, maxsize=1, **options)
         try:
-            async with pool.acquire() as connection:
-                async with connection.cursor() as cursor:
+            async with pool.acquire() as async_connection:
+                async with async_connection.cursor() as cursor:
                     await cursor.execute("SELECT 1")
                     assert await cursor.fetchone() == (1,)
         finally:
