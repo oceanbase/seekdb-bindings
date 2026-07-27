@@ -51,7 +51,8 @@ build  = "cp311-* cp312-*"
 skip   = "*-musllinux_* *-win_*"
 build-verbosity = 1
 # {package} is the cibuildwheel package source dir (python/), not site-packages.
-test-command = "python {package}/tests/seekdb_test.py"
+test-requires = ["PyMySQL", "aiomysql"]
+test-command = "python {package}/tests/connection_options_test.py"
 
 environment = { PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/" }
 

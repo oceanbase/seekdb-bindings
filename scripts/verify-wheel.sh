@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TEST_PY="${SEEKDB_TEST_PY:-$REPO_ROOT/python/tests/seekdb_test.py}"
+TEST_PY="${SEEKDB_TEST_PY:-$REPO_ROOT/python/tests/connection_options_test.py}"
 
 if [ ! -f "$TEST_PY" ]; then
   echo "error: wheel test script not found: $TEST_PY" >&2
@@ -42,7 +42,7 @@ verify_one_wheel() {
   # shellcheck disable=SC1091
   source "$tmp/venv/bin/activate"
   python -m pip install -q --upgrade pip
-  python -m pip install -q "$wheel"
+  python -m pip install -q "$wheel" PyMySQL aiomysql
 
   mkdir -p "$tmp/work"
   (cd "$tmp/work" && python "$TEST_PY")

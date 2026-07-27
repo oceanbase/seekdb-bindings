@@ -89,7 +89,84 @@ for row in rows:
 
 cursor.close()
 conn.close()
+seekdb.close()
 ```
+
+### Connect with PyMySQL
+
+`mysql_connection_options()` returns endpoint and authentication arguments
+shared by Python MySQL-protocol drivers. Install the driver separately:
+
+```bash
+pip install PyMySQL
+```
+
+```python
+import pymysql
+import pylibseekdb as seekdb
+
+seekdb.open(db_dir="./seekdb.db")
+options = seekdb.mysql_connection_options()
+
+connection = pymysql.connect(database="test", **options)
+try:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        print(cursor.fetchone())
+finally:
+    # External connections must release the server before its lifecycle handle.
+    connection.close()
+    seekdb.close()
+```
+
+On Unix, `options` contains only `user="root"` and `unix_socket`. For TCP it
+contains only `user="root"` and `port`; the driver supplies its default local
+host. The database name remains caller-owned because PyMySQL uses `database`
+while aiomysql uses `db`. Treat the returned dictionary as lifecycle-scoped:
+do not use it after `seekdb.close()`.
+
+### Async initialization and aiomysql
+
+Install aiomysql separately:
+
+```bash
+pip install aiomysql
+```
+
+```python
+import asyncio
+
+import aiomysql
+import pylibseekdb as seekdb
+
+
+async def main():
+    await seekdb.aopen(db_dir="./seekdb.db")
+    options = seekdb.mysql_connection_options()
+    pool = await aiomysql.create_pool(
+        db="test",
+        minsize=1,
+        maxsize=5,
+        **options,
+    )
+    try:
+        async with pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute("SELECT 1")
+                print(await cursor.fetchone())
+    finally:
+        pool.close()
+        await pool.wait_closed()
+        seekdb.close()
+
+
+asyncio.run(main())
+```
+
+`aopen()` runs the synchronous C startup operation in a worker thread so it
+does not block the asyncio event loop. Cancelling the coroutine cannot stop
+`seekdb_open()` after that worker starts; the runtime may finish opening and
+must still be released with `close()`.
 
 ### Transaction support
 
@@ -138,7 +215,10 @@ LIMIT 10;
 | Function | Description |
 |---|---|
 | `open(db_dir="./seekdb.db")` | Start a local seekdb runtime for the given database directory. Embedded-mode support will be released soon. Must be called before `connect()`. |
+| `await aopen(db_dir="./seekdb.db")` | Run `open()` in a worker thread without blocking the asyncio event loop. |
+| `mysql_connection_options()` | Return a new dictionary for PyMySQL or aiomysql. The database name is not included. |
 | `connect(database="test", autocommit=False)` | Return a `Connection` to the given database. |
+| `close()` | Synchronously release the seekdb lifecycle handle. Idempotent. Close external connections and pools first. |
 
 ### `Connection`
 

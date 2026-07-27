@@ -33,6 +33,19 @@ typedef enum {
     SEEKDB_TYPE_VARCHAR,
 } SeekdbTypeId;
 
+typedef enum {
+    SEEKDB_CONNECTION_TRANSPORT_TCP,
+    SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET,
+    SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE,
+} SeekdbConnectionTransport;
+
+typedef struct {
+    SeekdbConnectionTransport transport;
+    unsigned int port;
+    const char *endpoint;
+    const char *user;
+} SeekdbConnectionOptions;
+
 /* Open a seekdb instance rooted at db_dir.
  *
  * parameters is an optional NULL-terminated array of key/value pairs:
@@ -47,6 +60,14 @@ typedef enum {
  * may also be supplied. On restart, persisted values are kept (issue #26). */
 int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle);
 int seekdb_close(SeekdbHandle handle);
+
+/* Return the MySQL-protocol connection options for an open handle.
+ *
+ * TCP exposes only port; clients use their default local host. Local
+ * transports expose endpoint as a Unix socket path or full Windows named-pipe
+ * path. user is always "root". endpoint and user are borrowed and remain valid
+ * until seekdb_close(handle). */
+int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);
 
 int seekdb_connect(SeekdbHandle handle, const char *database, bool autocommit,
                    SeekdbConnection *out_connection);

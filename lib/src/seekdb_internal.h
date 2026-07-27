@@ -24,6 +24,7 @@ typedef struct {
     void *spawned_handle;
     char pipe_file_path[256]; /* <db_dir>/run/sql.pipe — server writes the pipe name here */
     char pipe_name[256]; /* contents of sql.pipe (suffix only); libmariadb prepends \\.\pipe\ */
+    char pipe_path[512]; /* full \\.\pipe\... path returned to external clients */
 #endif
 } SeekdbHandleImpl;
 

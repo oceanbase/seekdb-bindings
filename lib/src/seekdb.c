@@ -190,7 +190,13 @@ static int read_pipe_name(SeekdbHandleImpl *h)
         return 0;
     }
     snprintf(h->pipe_name, sizeof(h->pipe_name), "%s", buf);
-    tlog("read_pipe_name: %s -> \\\\.\\pipe\\%s\n", h->pipe_file_path, h->pipe_name);
+    int path_n = snprintf(h->pipe_path, sizeof(h->pipe_path), "\\\\.\\pipe\\%s", h->pipe_name);
+    if (path_n < 0 || (size_t)path_n >= sizeof(h->pipe_path)) {
+        h->pipe_path[0] = '\0';
+        tlog("read_pipe_name: named-pipe path truncated: %s\n", h->pipe_name);
+        return 0;
+    }
+    tlog("read_pipe_name: %s -> %s\n", h->pipe_file_path, h->pipe_path);
     return 1;
 }
 #endif
@@ -688,6 +694,34 @@ int seekdb_close(SeekdbHandle handle)
 
     xfree(h->db_dir);
     free(h);
+    return SEEKDB_SUCCESS;
+}
+
+int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options)
+{
+    if (!handle || !out_options)
+        return SEEKDB_INVALID_ARGUMENT;
+
+    SeekdbHandleImpl *h = (SeekdbHandleImpl *)handle;
+    memset(out_options, 0, sizeof(*out_options));
+    out_options->user = "root";
+
+    if (h->port != 0) {
+        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_TCP;
+        out_options->port = (unsigned int)h->port;
+    }
+    else {
+#ifdef _WIN32
+        if (h->pipe_path[0] == '\0')
+            return SEEKDB_INTERNAL_ERROR;
+        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE;
+        out_options->endpoint = h->pipe_path;
+#else
+        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET;
+        out_options->endpoint = h->sock_path;
+#endif
+    }
+
     return SEEKDB_SUCCESS;
 }
 
