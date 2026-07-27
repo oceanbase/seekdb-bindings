@@ -203,6 +203,11 @@ static int read_pipe_name(SeekdbHandleImpl *h)
 
 static int try_connect(SeekdbHandleImpl *h)
 {
+    /* The SQL listener can accept SELECT 1 before the server finishes starting
+     * its service and refreshing system views. A positive START_SERVICE_TIME
+     * is the server's explicit signal that it is ready to serve. */
+    static const char ready_sql[] =
+        "SELECT 1 FROM oceanbase.V$OB_SERVER_STAT WHERE START_SERVICE_TIME > 0 LIMIT 1";
 
     MYSQL *m = mysql_init(NULL);
     if (!m)
@@ -241,20 +246,24 @@ static int try_connect(SeekdbHandleImpl *h)
                                    h->sock_path,
 #endif
                            0)) {
-        if (mysql_real_query(m, "SELECT 1", 8) == 0) {
+        if (mysql_real_query(m, ready_sql, (unsigned long)(sizeof(ready_sql) - 1)) == 0) {
             MYSQL_RES *r = mysql_store_result(m);
             if (r) {
+                bool ready = mysql_num_rows(r) > 0;
                 mysql_free_result(r);
-                tlog("try connected succeeded\n");
-                mysql_close(m);
-                return 1;
+                if (ready) {
+                    tlog("try_connect: server is ready to serve\n");
+                    mysql_close(m);
+                    return 1;
+                }
+                tlog("try_connect: server has not started service yet\n");
             }
             else {
                 tlog("try_connect: store_result failed: %s\n", mysql_error(m));
             }
         }
         else {
-            tlog("try_connect: SELECT 1 failed: %s\n", mysql_error(m));
+            tlog("try_connect: readiness query failed: %s\n", mysql_error(m));
         }
     }
     else {
