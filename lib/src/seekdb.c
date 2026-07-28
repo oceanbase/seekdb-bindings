@@ -432,20 +432,18 @@ static int append_parameter_kv(char ***argv, int *argv_i, char **owned, size_t *
 }
 
 /* Build argv for spawn_process. Caller must free *out_argv and each *out_owned
- * entry. *out_argv is NULL-terminated. The driver-reserved port is translated
- * to --port; other driver keys are stripped. Default server parameters are
- * merged with any user overrides/extras. */
+ * entry. *out_argv is NULL-terminated. Driver-reserved keys are stripped and
+ * default server parameters are merged with any user overrides/extras. */
 static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
-                            const char *const *parameters, int port, bool first_init,
-                            char ***out_argv, char ***out_owned, size_t *out_owned_n)
+                            const char *const *parameters, bool first_init, char ***out_argv,
+                            char ***out_owned, size_t *out_owned_n)
 {
     *out_argv = NULL;
     *out_owned = NULL;
     *out_owned_n = 0;
 
     const int npairs = first_init ? count_seed_pairs(parameters) : 0;
-    const char *port_value = port != 0 ? parameters_lookup(parameters, "port") : NULL;
-    const int argc = 4 + (port_value ? 2 : 0) + (first_init ? npairs * 2 : 0) + 1;
+    const int argc = 4 + (first_init ? npairs * 2 : 0) + 1;
 
     char **argv = (char **)calloc((size_t)argc, sizeof(char *));
     if (!argv)
@@ -461,10 +459,6 @@ static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
     int i = 0;
     argv[i++] = (char *)bin_path;
     argv[i++] = (char *)base_dir_arg;
-    if (port_value) {
-        argv[i++] = (char *)"--port";
-        argv[i++] = (char *)port_value;
-    }
     argv[i++] = (char *)"--embedded";
     argv[i++] = (char *)"--nodaemon";
 
@@ -642,7 +636,7 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     char **spawn_argv = NULL;
     char **spawn_owned = NULL;
     size_t spawn_owned_n = 0;
-    const int argv_rc = build_spawn_argv(bin_path, base_dir_arg, parameters, port, first_init,
+    const int argv_rc = build_spawn_argv(bin_path, base_dir_arg, parameters, first_init,
                                          &spawn_argv, &spawn_owned, &spawn_owned_n);
     if (argv_rc != SEEKDB_SUCCESS) {
         flock_close(startup_lock);

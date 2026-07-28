@@ -1,5 +1,4 @@
 #include <nanobind/nanobind.h>
-#include <nanobind/stl/map.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
@@ -9,7 +8,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -274,19 +272,9 @@ static SeekdbHandle find_handle_locked(const std::optional<std::string> &db_dir)
     return handles.begin()->second;
 }
 
-void open(const std::string &db_dir,
-          const std::optional<std::map<std::string, std::string>> &parameters)
+void open(const std::string &db_dir)
 {
     const std::string key = normalize_db_dir(db_dir);
-    std::vector<const char *> parameter_array;
-    if (parameters) {
-        parameter_array.reserve(parameters->size() * 2 + 1);
-        for (const auto &[name, value] : *parameters) {
-            parameter_array.push_back(name.c_str());
-            parameter_array.push_back(value.c_str());
-        }
-        parameter_array.push_back(nullptr);
-    }
 
     std::lock_guard<std::mutex> lock(handles_mutex);
     const auto [it, inserted] = handles.emplace(key, nullptr);
@@ -295,8 +283,7 @@ void open(const std::string &db_dir,
 
     SeekdbHandle opened = nullptr;
     try {
-        SDB_CHECK(seekdb_open(db_dir.c_str(),
-                              parameter_array.empty() ? nullptr : parameter_array.data(), &opened));
+        SDB_CHECK(seekdb_open(key.c_str(), nullptr, &opened));
         it->second = opened;
     }
     catch (...) {
@@ -401,8 +388,8 @@ NB_MODULE(pylibseekdb, m)
 
     const char *default_service_path = "./seekdb.db";
 
-    m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path,
-          nb::arg("parameters") = nb::none(), "open db", nb::call_guard<nb::gil_scoped_release>());
+    m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path, "open db",
+          nb::call_guard<nb::gil_scoped_release>());
     m.def("close", &seekdb::close, nb::arg("db_dir") = nb::none(), "close db",
           nb::call_guard<nb::gil_scoped_release>());
     m.def("connection_options", &seekdb::connection_options, nb::arg("db_dir") = nb::none(),

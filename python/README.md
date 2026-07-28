@@ -101,7 +101,7 @@ instance with its database directory:
 import pylibseekdb as seekdb
 
 seekdb.open("./first.db")
-seekdb.open("./second.db", parameters={"port": "2882"})
+seekdb.open("./second.db")
 
 first = seekdb.connect(database="test", db_dir="./first.db")
 second = seekdb.connect(database="test", db_dir="./second.db")
@@ -112,9 +112,9 @@ seekdb.close("./first.db")
 seekdb.close("./second.db")
 ```
 
-Each server process also owns a TCP listener, so additional instances must use
-a distinct `port` parameter. `open()` is idempotent per normalized database
-path. When exactly one instance is open, `connect()` and
+Each instance uses the local socket inside its normalized database directory,
+so no additional port configuration is needed. `open()` is idempotent per
+normalized database path. When exactly one instance is open, `connect()` and
 `connection_options()` may omit `db_dir` for backward compatibility. When
 multiple instances are open, they require `db_dir` to avoid selecting the wrong
 runtime. `close(db_dir)` releases one lifecycle handle; plain `close()` releases
@@ -242,8 +242,8 @@ LIMIT 10;
 
 | Function | Description |
 |---|---|
-| `open(db_dir="./seekdb.db", parameters=None)` | Start a local seekdb runtime for the given database directory. `parameters` is an optional string dictionary; use a distinct `port` for each additional instance. Must be called before `connect()`. |
-| `await aopen(db_dir="./seekdb.db", parameters=None)` | Run `open()` with the same arguments in a worker thread without blocking the asyncio event loop. |
+| `open(db_dir="./seekdb.db")` | Start a local seekdb runtime for the given database directory. Must be called before `connect()`. |
+| `await aopen(db_dir="./seekdb.db")` | Run `open()` in a worker thread without blocking the asyncio event loop. |
 | `connection_options(db_dir=None)` | Return a new dictionary for PyMySQL or aiomysql. Select `db_dir` when multiple instances are open. The database name is not included. |
 | `connect(database="test", autocommit=False, db_dir=None)` | Return a `Connection` to the selected seekdb instance and database. |
 | `close(db_dir=None)` | Synchronously release one instance by path, or all instances when omitted. Idempotent. Close external connections and pools first. |

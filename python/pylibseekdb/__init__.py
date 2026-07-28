@@ -15,13 +15,11 @@ from .pylibseekdb import *  # noqa: F401, F403
 from .pylibseekdb import SeekdbError  # noqa: F401
 
 
-async def aopen(db_dir="./seekdb.db", parameters=None):
+async def aopen(db_dir="./seekdb.db"):
     """Open seekdb without blocking the running asyncio event loop.
-
-    ``parameters`` is the same optional string dictionary accepted by open().
 
     Cancelling this coroutine cannot stop seekdb_open() after its worker thread
     has started. The runtime may therefore finish opening after cancellation
     and must still be released with close().
     """
-    await _asyncio.to_thread(open, db_dir, parameters)
+    await _asyncio.to_thread(open, db_dir)

@@ -14,9 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <netinet/in.h>
 #include <string>
-#include <sys/socket.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -25,32 +23,6 @@ namespace fs = std::filesystem;
 using namespace std::chrono_literals;
 
 namespace {
-
-int find_available_port()
-{
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0)
-        return -1;
-
-    sockaddr_in address = {};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    address.sin_port = 0;
-    if (bind(fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
-        close(fd);
-        return -1;
-    }
-
-    socklen_t address_len = sizeof(address);
-    if (getsockname(fd, reinterpret_cast<sockaddr *>(&address), &address_len) != 0) {
-        close(fd);
-        return -1;
-    }
-
-    const int port = ntohs(address.sin_port);
-    close(fd);
-    return port;
-}
 
 std::string read_parameter(SeekdbConnection c, const std::string &name)
 {
@@ -171,32 +143,6 @@ TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
         << "'";
 
     seekdb_disconnect(c);
-    shutdown_server(h, pid);
-}
-
-TEST_F(OpenParameters, PortConfiguresSpawnedServer)
-{
-    const int port = find_available_port();
-    ASSERT_GT(port, 0);
-    const std::string port_string = std::to_string(port);
-    const char *parameters[] = {"port", port_string.c_str(), NULL};
-
-    SeekdbHandle h = nullptr;
-    ASSERT_EQ(seekdb_open(db_dir_.c_str(), parameters, &h), SEEKDB_SUCCESS);
-    ASSERT_NE(h, nullptr);
-    const int64_t pid = ((SeekdbHandleImpl *)h)->spawned_pid;
-    ASSERT_GT(pid, 0);
-
-    SeekdbConnectionOptions options = {};
-    ASSERT_EQ(seekdb_connection_options(h, &options), SEEKDB_SUCCESS);
-    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
-    EXPECT_EQ(options.port, (unsigned int)port);
-
-    SeekdbConnection c = nullptr;
-    EXPECT_EQ(seekdb_connect(h, "test", true, &c), SEEKDB_SUCCESS);
-    if (c)
-        seekdb_disconnect(c);
-
     shutdown_server(h, pid);
 }
 

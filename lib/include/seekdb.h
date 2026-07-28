@@ -50,8 +50,7 @@ typedef struct {
  *   {"port", "3306", "memory_limit", "10G", "syslog_max_file", "1000", NULL}
  *
  * Driver-reserved keys (consumed by libseekdb, not forwarded to the server):
- *   port — TCP port for the spawned server and client connections; omit or
- *          use "0" for local transport (UDS/pipe) and the default server port.
+ *   port — TCP port for connect; omit or "0" for local transport (UDS/pipe).
  *
  * All other keys are seekdb server parameters, passed as --parameter on first
  * init only. On first init the driver always seeds memory_limit=1G and

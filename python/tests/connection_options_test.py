@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import pathlib
-import socket
 import tempfile
 
 import aiomysql
@@ -31,12 +30,6 @@ def assert_instance_required():
             raise AssertionError("operation succeeded without selecting a seekdb instance")
 
 
-def find_available_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        return listener.getsockname()[1]
-
-
 def write_marker(db_dir, value):
     connection = seekdb.connect("test", autocommit=True, db_dir=db_dir)
     cursor = connection.cursor()
@@ -64,15 +57,8 @@ async def test_connection_options():
 
     with tempfile.TemporaryDirectory(prefix="pylibseekdb-multiple-instances-") as root_dir:
         first_db_dir = str(pathlib.Path(root_dir) / "first")
+        first_open_dir = str(pathlib.Path(root_dir) / "not-created" / ".." / "first")
         second_db_dir = str(pathlib.Path(root_dir) / "second")
-        second_port = find_available_port()
-
-        try:
-            seekdb.open(second_db_dir, parameters={"port": "invalid"})
-        except seekdb.SeekdbError:
-            pass
-        else:
-            raise AssertionError("open() accepted an invalid port")
 
         stop_ticker = asyncio.Event()
         ticks = 0
@@ -87,11 +73,9 @@ async def test_connection_options():
         try:
             try:
                 await asyncio.gather(
+                    seekdb.aopen(first_open_dir),
                     seekdb.aopen(first_db_dir),
-                    seekdb.aopen(first_db_dir),
-                    seekdb.aopen(
-                        second_db_dir, parameters={"port": str(second_port)}
-                    ),
+                    seekdb.aopen(second_db_dir),
                 )
             finally:
                 stop_ticker.set()
@@ -108,7 +92,7 @@ async def test_connection_options():
             second_options = seekdb.connection_options(second_db_dir)
             assert second_options == {
                 "user": "root",
-                "port": second_port,
+                "unix_socket": f"{second_db_dir}/run/sql.sock",
             }
 
             write_marker(first_db_dir, 1)
