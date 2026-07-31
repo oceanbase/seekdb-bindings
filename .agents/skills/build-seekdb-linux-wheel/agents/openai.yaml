@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build seekdb Linux Wheel"
+  short_description: "Build and verify seekdb Linux Python wheels"
+  default_prompt: "Use $build-seekdb-linux-wheel to build and verify seekdb Linux wheels from a requested ref."

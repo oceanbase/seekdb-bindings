@@ -1,5 +1,7 @@
 build/
 build-*/
+!/.agents/skills/build-seekdb-linux-wheel/
+!/.agents/skills/build-seekdb-linux-wheel/**
 compile_commands.json
 *.o
 *.a
