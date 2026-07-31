@@ -94,31 +94,30 @@ seekdb.close()
 
 ### Multiple instances
 
-One process can manage multiple local seekdb runtimes by selecting each
-instance with its database directory:
+One process can manage multiple local seekdb runtimes through the
+`SeekdbInstance` objects returned by `open()`:
 
 ```python
 import pylibseekdb as seekdb
 
-seekdb.open("./first.db")
-seekdb.open("./second.db")
+first = seekdb.open("./first.db")
+second = seekdb.open("./second.db")
 
-first = seekdb.connect(database="test", db_dir="./first.db")
-second = seekdb.connect(database="test", db_dir="./second.db")
+first_connection = first.connect(database="test")
+second_connection = second.connect(database="test")
 
+first_connection.close()
+second_connection.close()
 first.close()
 second.close()
-seekdb.close("./first.db")
-seekdb.close("./second.db")
 ```
 
 Each instance uses the local socket inside its normalized database directory,
-so no additional port configuration is needed. `open()` is idempotent per
-normalized database path. When exactly one instance is open, `connect()` and
-`connection_options()` may omit `db_dir` for backward compatibility. When
-multiple instances are open, they require `db_dir` to avoid selecting the wrong
-runtime. `close(db_dir)` releases one lifecycle handle; plain `close()` releases
-all open handles.
+so no additional port configuration is needed. The first successful `open()`
+also becomes the module's default instance, preserving the legacy
+`seekdb.connect()`, `seekdb.connection_options()`, and `seekdb.close()` API.
+Later calls return independent instance objects without changing that default.
+Use the object methods for additional instances.
 
 ### Connect with PyMySQL
 
@@ -133,8 +132,8 @@ pip install PyMySQL
 import pymysql
 import pylibseekdb as seekdb
 
-seekdb.open(db_dir="./seekdb.db")
-options = seekdb.connection_options()
+instance = seekdb.open(db_dir="./seekdb.db")
+options = instance.connection_options()
 
 connection = pymysql.connect(database="test", **options)
 try:
@@ -144,14 +143,14 @@ try:
 finally:
     # External connections must release the server before its lifecycle handle.
     connection.close()
-    seekdb.close()
+    instance.close()
 ```
 
 On Unix, `options` contains only `user="root"` and `unix_socket`. For TCP it
 contains only `user="root"` and `port`; the driver supplies its default local
 host. The database name remains caller-owned because PyMySQL uses `database`
 while aiomysql uses `db`. Treat the returned dictionary as lifecycle-scoped:
-do not use it after `seekdb.close()`.
+do not use it after closing its `SeekdbInstance`.
 
 ### Async initialization and aiomysql
 
@@ -169,8 +168,8 @@ import pylibseekdb as seekdb
 
 
 async def main():
-    await seekdb.aopen(db_dir="./seekdb.db")
-    options = seekdb.connection_options()
+    instance = await seekdb.aopen(db_dir="./seekdb.db")
+    options = instance.connection_options()
     pool = await aiomysql.create_pool(
         db="test",
         minsize=1,
@@ -185,16 +184,15 @@ async def main():
     finally:
         pool.close()
         await pool.wait_closed()
-        seekdb.close()
+        instance.close()
 
 
 asyncio.run(main())
 ```
 
-`aopen()` runs the synchronous C startup operation in a worker thread so it
-does not block the asyncio event loop. Cancelling the coroutine cannot stop
-`seekdb_open()` after that worker starts; the runtime may finish opening and
-must still be released with `close()`.
+`aopen()` runs the synchronous C startup operation in a worker thread and
+returns a `SeekdbInstance`, so it does not block the asyncio event loop.
+Cancelling the coroutine cannot stop `seekdb_open()` after that worker starts.
 
 ### Transaction support
 
@@ -242,11 +240,21 @@ LIMIT 10;
 
 | Function | Description |
 |---|---|
-| `open(db_dir="./seekdb.db")` | Start a local seekdb runtime for the given database directory. Must be called before `connect()`. |
-| `await aopen(db_dir="./seekdb.db")` | Run `open()` in a worker thread without blocking the asyncio event loop. |
-| `connection_options(db_dir=None)` | Return a new dictionary for PyMySQL or aiomysql. Select `db_dir` when multiple instances are open. The database name is not included. |
-| `connect(database="test", autocommit=False, db_dir=None)` | Return a `Connection` to the selected seekdb instance and database. |
-| `close(db_dir=None)` | Synchronously release one instance by path, or all instances when omitted. Idempotent. Close external connections and pools first. |
+| `open(db_dir="./seekdb.db")` | Start a local runtime and return its `SeekdbInstance`. The first open instance becomes the module default. |
+| `await aopen(db_dir="./seekdb.db")` | Run `open()` in a worker thread and return its `SeekdbInstance`. |
+| `connection_options()` | Return connection arguments for the default instance. The database name is not included. |
+| `connect(database="test", autocommit=False)` | Return a `Connection` to the default instance. |
+| `close()` | Close and clear the default instance. Idempotent. |
+
+### `SeekdbInstance`
+
+| Attribute or method | Description |
+|---|---|
+| `db_dir` | Normalized absolute database directory used by this instance. |
+| `closed` | Whether this instance has been closed. |
+| `connect(database="test", autocommit=False)` | Return a `Connection` to this instance. |
+| `connection_options()` | Return connection arguments for PyMySQL or aiomysql. |
+| `close()` | Release this instance. Existing native `Connection` objects keep the underlying lifecycle handle alive until they close. |
 
 ### `Connection`
 
