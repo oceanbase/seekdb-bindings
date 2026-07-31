@@ -6,10 +6,12 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 extern "C" {
@@ -63,10 +65,46 @@ namespace seekdb {
 
 class Cursor;
 
+class InstanceState {
+  public:
+    explicit InstanceState(const std::string &db_dir) : handle_(nullptr)
+    {
+        const int rc = seekdb_open(db_dir.c_str(), nullptr, &handle_);
+        if (rc != SEEKDB_SUCCESS) {
+            if (handle_)
+                seekdb_close(handle_);
+            throw SeekdbError(rc, "seekdb_open");
+        }
+    }
+    ~InstanceState()
+    {
+        if (handle_)
+            seekdb_close(handle_);
+    }
+    InstanceState(const InstanceState &) = delete;
+    InstanceState &operator=(const InstanceState &) = delete;
+
+    SeekdbHandle raw() const { return handle_; }
+
+    void close_checked()
+    {
+        if (handle_) {
+            SDB_CHECK(seekdb_close(handle_));
+            handle_ = nullptr;
+        }
+    }
+
+  private:
+    SeekdbHandle handle_;
+};
+
 class Connection : public std::enable_shared_from_this<Connection> {
   public:
     Connection() : c_(nullptr) {}
-    explicit Connection(SeekdbConnection c) : c_(c) {}
+    Connection(SeekdbConnection c, std::shared_ptr<InstanceState> instance)
+        : c_(c), instance_(std::move(instance))
+    {
+    }
     ~Connection() { reset(); }
     Connection(const Connection &) = delete;
     Connection &operator=(const Connection &) = delete;
@@ -79,6 +117,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
             seekdb_disconnect(c_);
             c_ = nullptr;
         }
+        instance_.reset();
     }
     void begin() { SDB_CHECK(seekdb_trx_begin(c_)); }
     void commit() { SDB_CHECK(seekdb_trx_commit(c_)); }
@@ -88,6 +127,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
 
   private:
     SeekdbConnection c_;
+    std::shared_ptr<InstanceState> instance_;
 };
 
 class Cursor {
@@ -240,91 +280,188 @@ class Cursor {
 
 Cursor Connection::cursor() { return Cursor(shared_from_this()); }
 
-static SeekdbHandle handle = nullptr;
-static std::mutex handle_mutex;
-
-void open(const std::string &db_dir)
+static std::string normalize_db_dir(const std::string &db_dir)
 {
-    std::lock_guard<std::mutex> lock(handle_mutex);
-    if (handle)
-        return;
+    return std::filesystem::absolute(std::filesystem::path(db_dir)).lexically_normal().string();
+}
 
-    SeekdbHandle opened = nullptr;
-    SDB_CHECK(seekdb_open(db_dir.c_str(), nullptr, &opened));
-    handle = opened;
+static std::unordered_map<std::string, std::weak_ptr<InstanceState>> instance_states;
+static std::mutex instance_states_mutex;
+
+class SeekdbInstance {
+  public:
+    static std::shared_ptr<SeekdbInstance> open(const std::string &db_dir)
+    {
+        const std::string normalized = normalize_db_dir(db_dir);
+        std::lock_guard<std::mutex> lock(instance_states_mutex);
+
+        const auto it = instance_states.find(normalized);
+        if (it != instance_states.end()) {
+            if (std::shared_ptr<InstanceState> instance = it->second.lock()) {
+                return std::shared_ptr<SeekdbInstance>(
+                    new SeekdbInstance(normalized, std::move(instance)));
+            }
+            instance_states.erase(it);
+        }
+
+        std::shared_ptr<InstanceState> instance = std::make_shared<InstanceState>(normalized);
+        instance_states.emplace(normalized, instance);
+        return std::shared_ptr<SeekdbInstance>(new SeekdbInstance(normalized, std::move(instance)));
+    }
+
+    ~SeekdbInstance() = default;
+    SeekdbInstance(const SeekdbInstance &) = delete;
+    SeekdbInstance &operator=(const SeekdbInstance &) = delete;
+
+    std::shared_ptr<Connection> connect(const std::string &database, bool autocommit)
+    {
+        std::shared_ptr<InstanceState> instance = require_open();
+        SeekdbConnection c = nullptr;
+        int rc = seekdb_connect(instance->raw(), database.c_str(), autocommit, &c);
+        if (rc != SEEKDB_SUCCESS) {
+            int srv_errno = 0;
+            const char *srv_msg = nullptr;
+            if (c)
+                seekdb_last_error(c, &srv_errno, &srv_msg);
+            std::string msg = (srv_msg && *srv_msg) ? srv_msg : "seekdb_connect failed";
+            int error_code = srv_errno != 0 ? srv_errno : rc;
+            if (c)
+                seekdb_disconnect(c);
+            throw SeekdbError(error_code, msg);
+        }
+        return std::make_shared<Connection>(c, std::move(instance));
+    }
+
+    nb::dict connection_options()
+    {
+        std::string transport;
+        unsigned int port = 0;
+        std::string endpoint;
+        std::string user;
+
+        {
+            nb::gil_scoped_release release;
+            std::shared_ptr<InstanceState> instance = require_open();
+            SeekdbConnectionOptions options = {};
+            SDB_CHECK(seekdb_connection_options(instance->raw(), &options));
+            if (options.transport)
+                transport = options.transport;
+            port = options.port;
+            if (options.endpoint)
+                endpoint = options.endpoint;
+            if (options.user)
+                user = options.user;
+        }
+
+        nb::dict result;
+        result["user"] = user;
+        if (transport == SEEKDB_CONNECTION_TRANSPORT_TCP) {
+            result["port"] = port;
+        }
+        else if (transport == SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET) {
+            result["unix_socket"] = endpoint;
+        }
+        else if (transport == SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE) {
+            throw std::runtime_error("Windows named-pipe Python clients are not supported");
+        }
+        else {
+            throw std::runtime_error("unknown seekdb connection transport: " +
+                                     (transport.empty() ? std::string("<empty>") : transport));
+        }
+        return result;
+    }
+
+    void close()
+    {
+        std::lock_guard<std::mutex> instance_lock(mutex_);
+        if (!instance_)
+            return;
+
+        std::lock_guard<std::mutex> states_lock(instance_states_mutex);
+        if (instance_.use_count() == 1) {
+            instance_->close_checked();
+
+            const auto it = instance_states.find(db_dir_);
+            if (it != instance_states.end()) {
+                std::shared_ptr<InstanceState> registered = it->second.lock();
+                if (registered.get() == instance_.get())
+                    instance_states.erase(it);
+            }
+        }
+        instance_.reset();
+    }
+
+    bool closed() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return !instance_;
+    }
+
+    std::string db_dir() const { return db_dir_; }
+
+  private:
+    SeekdbInstance(std::string db_dir, std::shared_ptr<InstanceState> instance)
+        : db_dir_(std::move(db_dir)), instance_(std::move(instance))
+    {
+    }
+
+    std::shared_ptr<InstanceState> require_open() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!instance_)
+            throw std::runtime_error("seekdb instance is closed");
+        return instance_;
+    }
+
+    std::string db_dir_;
+    mutable std::mutex mutex_;
+    std::shared_ptr<InstanceState> instance_;
+};
+
+static std::shared_ptr<SeekdbInstance> default_instance;
+static std::mutex default_instance_mutex;
+
+static std::shared_ptr<SeekdbInstance> require_default_instance()
+{
+    std::lock_guard<std::mutex> lock(default_instance_mutex);
+    if (!default_instance || default_instance->closed())
+        throw std::runtime_error("seekdb not opened — call open() or aopen() first");
+    return default_instance;
+}
+
+std::shared_ptr<SeekdbInstance> open(const std::string &db_dir)
+{
+    std::shared_ptr<SeekdbInstance> instance = SeekdbInstance::open(db_dir);
+    std::lock_guard<std::mutex> lock(default_instance_mutex);
+    if (!default_instance || default_instance->closed())
+        default_instance = instance;
+    return instance;
 }
 
 std::shared_ptr<Connection> connect(const std::string &database, bool autocommit)
 {
-    std::lock_guard<std::mutex> lock(handle_mutex);
-    if (!handle) {
-        throw std::runtime_error("seekdb not opened — call open() or aopen() first");
-    }
-    SeekdbConnection c = nullptr;
-    int rc = seekdb_connect(handle, database.c_str(), autocommit, &c);
-    if (rc != SEEKDB_SUCCESS) {
-        int srv_errno = 0;
-        const char *srv_msg = nullptr;
-        if (c)
-            seekdb_last_error(c, &srv_errno, &srv_msg);
-        std::string msg = (srv_msg && *srv_msg) ? srv_msg : "seekdb_connect failed";
-        int error_code = srv_errno != 0 ? srv_errno : rc;
-        if (c)
-            seekdb_disconnect(c);
-        throw SeekdbError(error_code, msg);
-    }
-    return std::make_shared<Connection>(c);
+    return require_default_instance()->connect(database, autocommit);
 }
 
-nb::dict connection_options()
-{
-    std::string transport;
-    unsigned int port = 0;
-    std::string endpoint;
-    std::string user;
-
-    {
-        nb::gil_scoped_release release;
-        std::lock_guard<std::mutex> lock(handle_mutex);
-        if (!handle) {
-            throw std::runtime_error("seekdb not opened — call open() or aopen() first");
-        }
-
-        SeekdbConnectionOptions options = {};
-        SDB_CHECK(seekdb_connection_options(handle, &options));
-        if (options.transport)
-            transport = options.transport;
-        port = options.port;
-        if (options.endpoint)
-            endpoint = options.endpoint;
-        if (options.user)
-            user = options.user;
-    }
-
-    nb::dict result;
-    result["user"] = user;
-    if (transport == SEEKDB_CONNECTION_TRANSPORT_TCP) {
-        result["port"] = port;
-    }
-    else if (transport == SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET) {
-        result["unix_socket"] = endpoint;
-    }
-    else if (transport == SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE) {
-        throw std::runtime_error("Windows named-pipe Python clients are not supported");
-    }
-    else {
-        throw std::runtime_error("unknown seekdb connection transport: " +
-                                 (transport.empty() ? std::string("<empty>") : transport));
-    }
-    return result;
-}
+nb::dict connection_options() { return require_default_instance()->connection_options(); }
 
 void close()
 {
-    std::lock_guard<std::mutex> lock(handle_mutex);
-    if (handle) {
-        SDB_CHECK(seekdb_close(handle));
-        handle = nullptr;
+    std::shared_ptr<SeekdbInstance> instance;
+    {
+        std::lock_guard<std::mutex> lock(default_instance_mutex);
+        instance.swap(default_instance);
+    }
+    if (instance) {
+        try {
+            instance->close();
+        }
+        catch (...) {
+            std::lock_guard<std::mutex> lock(default_instance_mutex);
+            if (!default_instance)
+                default_instance = instance;
+            throw;
+        }
     }
 }
 
@@ -343,12 +480,23 @@ NB_MODULE(pylibseekdb, m)
 
     m.def("open", &seekdb::open, nb::arg("db_dir") = default_service_path, "open db",
           nb::call_guard<nb::gil_scoped_release>());
-    m.def("close", &seekdb::close, "close db", nb::call_guard<nb::gil_scoped_release>());
+    m.def("close", &seekdb::close, "close the default seekdb instance",
+          nb::call_guard<nb::gil_scoped_release>());
     m.def("connection_options", &seekdb::connection_options,
           "return options for a Python MySQL-protocol driver");
 
     m.def("connect", &seekdb::connect, nb::arg("database") = "test", nb::arg("autocommit") = false,
-          "connect seekdb", nb::call_guard<nb::gil_scoped_release>());
+          "connect the default seekdb instance", nb::call_guard<nb::gil_scoped_release>());
+
+    auto instance_class = nb::class_<seekdb::SeekdbInstance>(m, "SeekdbInstance");
+    instance_class.attr("__module__") = kPublicModule;
+    instance_class
+        .def("connect", &seekdb::SeekdbInstance::connect, nb::arg("database") = "test",
+             nb::arg("autocommit") = false, nb::call_guard<nb::gil_scoped_release>())
+        .def("connection_options", &seekdb::SeekdbInstance::connection_options)
+        .def("close", &seekdb::SeekdbInstance::close, nb::call_guard<nb::gil_scoped_release>())
+        .def_prop_ro("closed", &seekdb::SeekdbInstance::closed)
+        .def_prop_ro("db_dir", &seekdb::SeekdbInstance::db_dir);
 
     auto connection_class = nb::class_<seekdb::Connection>(m, "Connection");
     connection_class.attr("__module__") = kPublicModule;

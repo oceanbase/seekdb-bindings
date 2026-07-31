@@ -2,9 +2,10 @@
 import pylibseekdb as seekdb
 
 
-def run_native_smoke_test():
-    seekdb.open()
-    connection = seekdb.connect("test")
+def run_native_smoke_test(instance=None):
+    if instance is None:
+        instance = seekdb.open()
+    connection = instance.connect("test")
     cursor = connection.cursor()
     try:
         cursor.execute("drop table if exists doc_table")

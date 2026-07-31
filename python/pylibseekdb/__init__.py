@@ -16,10 +16,13 @@ from .pylibseekdb import SeekdbError  # noqa: F401
 
 
 async def aopen(db_dir="./seekdb.db"):
-    """Open seekdb without blocking the running asyncio event loop.
+    """Open and return a SeekdbInstance without blocking the event loop.
 
-    Cancelling this coroutine cannot stop seekdb_open() after its worker thread
-    has started. The runtime may therefore finish opening after cancellation
-    and must still be released with close().
+    Keep the returned instance and call instance.close() when finished.
+    Module-level close() only closes the default instance.
+
+    Cancelling this coroutine stops waiting but cannot stop seekdb_open() after
+    its worker thread has started. Avoid cancellation when deterministic
+    ownership and cleanup are required.
     """
-    await _asyncio.to_thread(open, db_dir)
+    return await _asyncio.to_thread(open, db_dir)
