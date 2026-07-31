@@ -86,6 +86,14 @@ class InstanceState {
 
     SeekdbHandle raw() const { return handle_; }
 
+    void close_checked()
+    {
+        if (handle_) {
+            SDB_CHECK(seekdb_close(handle_));
+            handle_ = nullptr;
+        }
+    }
+
   private:
     SeekdbHandle handle_;
 };
@@ -301,7 +309,7 @@ class SeekdbInstance {
         return std::shared_ptr<SeekdbInstance>(new SeekdbInstance(normalized, std::move(instance)));
     }
 
-    ~SeekdbInstance() { close(); }
+    ~SeekdbInstance() = default;
     SeekdbInstance(const SeekdbInstance &) = delete;
     SeekdbInstance &operator=(const SeekdbInstance &) = delete;
 
@@ -365,11 +373,22 @@ class SeekdbInstance {
 
     void close()
     {
-        std::shared_ptr<InstanceState> instance;
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            instance.swap(instance_);
+        std::lock_guard<std::mutex> instance_lock(mutex_);
+        if (!instance_)
+            return;
+
+        std::lock_guard<std::mutex> states_lock(instance_states_mutex);
+        if (instance_.use_count() == 1) {
+            instance_->close_checked();
+
+            const auto it = instance_states.find(db_dir_);
+            if (it != instance_states.end()) {
+                std::shared_ptr<InstanceState> registered = it->second.lock();
+                if (registered.get() == instance_.get())
+                    instance_states.erase(it);
+            }
         }
+        instance_.reset();
     }
 
     bool closed() const
@@ -433,8 +452,17 @@ void close()
         std::lock_guard<std::mutex> lock(default_instance_mutex);
         instance.swap(default_instance);
     }
-    if (instance)
-        instance->close();
+    if (instance) {
+        try {
+            instance->close();
+        }
+        catch (...) {
+            std::lock_guard<std::mutex> lock(default_instance_mutex);
+            if (!default_instance)
+                default_instance = instance;
+            throw;
+        }
+    }
 }
 
 } // namespace seekdb
