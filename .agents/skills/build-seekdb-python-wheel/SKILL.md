@@ -99,10 +99,19 @@ export TMPDIR=/tmp
 
 `TMPDIR=/tmp` is required for tests that create a seekdb Unix socket. The default macOS per-user temporary path can make the socket path exceed the `AF_UNIX` limit and leave the test waiting even though seekdb started successfully.
 
-The current bindings script derives native job counts from the host CPU count. In the isolated checkout, cap both of these build commands at `-j2` before starting:
+Current bindings scripts default both native macOS build stages to `-j2`. Verify
+that the isolated checkout still caps these commands before starting:
 
 - seekdb's `./build.sh ... --make -j...`
 - libseekdb's `cmake --build ... -j...`
+
+Current macOS packaging also builds a single ABI-compatible RE2 dylib with the
+installed Homebrew RE2's matching Abseil version linked statically. Its custom
+repair step runs `delocate`, replaces the dynamic RE2, removes the componentized
+Abseil dylibs, ad-hoc signs the replacement, and rebuilds the wheel `RECORD`.
+Do not disable this with `--no-macos-static-re2` for a release package. If the
+Abseil source fetch fails, retry with all proxy variables unset as described
+above; the helper uses the GitHub SSH remote.
 
 Run:
 
@@ -142,6 +151,10 @@ Do not report success merely because wheel files exist. Verify all applicable it
 6. Confirm cibuildwheel's built-in test passed for both wheels and the `cp312-abi3` wheel passed strict ABI3 auditing.
 7. Run `scripts/verify-wheel.sh` explicitly against both wheels with real Python 3.11 and 3.12 interpreter paths. On macOS, keep `TMPDIR=/tmp` and restrict `PATH` per invocation when necessary so the script actually selects the intended interpreter.
 8. On macOS, inspect repaired native dependencies with `delocate-listdeps` and `otool -L`; wheel binaries must not retain absolute Homebrew paths.
+   The repaired wheel must contain no `libabsl_*.dylib`; for the known RE2
+   dependency set it should have 9 bundled dylibs and 12 Mach-O files total.
+   Treat more than 20 bundled dylibs as a packaging regression unless a new
+   direct dependency has been audited.
 9. Compute SHA-256 for each wheel and copy the wheels to the requested local destination. If none was provided, use the current bindings checkout's ignored `build/wheelhouse/`.
 
 Report the platform and architecture, resolved seekdb and bindings commits, release-flag policy, SDK and concurrency on macOS, any workaround used, wheel names, sizes, checksums, verification results, local paths, remote build directory, build log, and debug-symbol path.

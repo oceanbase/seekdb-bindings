@@ -191,6 +191,13 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 
 `--wheel-version` temporarily patches `python/pyproject.toml` for the build (scikit-build-core does not read `CIBW_PROJECT_VERSION`) and restores it afterward.
 
+On macOS, the one-shot script also replaces Homebrew's dynamic RE2 with an
+ABI-compatible RE2 dylib containing the matching Abseil version statically.
+Without this step, `delocate` must bundle roughly 64 componentized Abseil
+dylibs. The repair step verifies that no dynamic Abseil reference remains and
+fails if more than 20 dylibs are bundled. Use `--no-macos-static-re2` only for
+dependency debugging.
+
 Run `./scripts/build-pylibseekdb-wheel.sh --help` for all options. Debug symbols are written to `build/seekdb.debug` by default.
 
 **Linux: build seekdb inside manylinux.** The wheel must be ABI-compatible with `manylinux_2_28`, so the `seekdb` binary you point `SEEKDB_BIN` at also needs to be built against glibc 2.28. `scripts/build-seekdb-glibc228.sh` runs `seekdb`'s own `build.sh` inside the manylinux image:
