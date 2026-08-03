@@ -5,8 +5,8 @@
 #   1. Obtaining a seekdb server binary (local path, download URL, or source build)
 #   2. Stripping the binary while saving debug symbols
 #   3. Configuring and building libseekdb for wheel packaging
-#   4. On macOS, collapsing RE2's dynamic Abseil dependency closure
-#   5. Running cibuildwheel (manylinux_2_28 on Linux; delocate on macOS)
+#   4. Running cibuildwheel (manylinux_2_28 on Linux; delocate on macOS)
+#   5. On macOS, rejecting accidental RE2/Abseil dependency expansion
 #
 # Supported platforms:
 #   - Linux x86_64 / aarch64 (manylinux_2_28 only)
@@ -64,8 +64,6 @@ SEEKDB_CMAKE_EXTRA=()
 PYTHON="${PYTHON:-}"
 USE_VENV="${USE_VENV:-1}"
 VENV_DIR="${VENV_DIR:-$ROOT/.venv}"
-MACOS_STATIC_RE2="${MACOS_STATIC_RE2:-1}"
-MACOS_RE2_BUNDLE_DYLIB="${MACOS_RE2_BUNDLE_DYLIB:-}"
 MACOS_BUILD_JOBS="${MACOS_BUILD_JOBS:-2}"
 PYPROJECT="$ROOT/python/pyproject.toml"
 PYPROJECT_BACKUP=""
@@ -93,7 +91,6 @@ Wheel / cibuildwheel:
   --output-dir DIR          Wheel output directory (default: build/wheelhouse)
   --build-selector SPEC     cibuildwheel build selector (e.g. 'cp311-* cp312-*')
   --skip-tests              Disable cibuildwheel wheel tests
-  --no-macos-static-re2     Keep Homebrew's dynamic RE2/Abseil closure (not recommended)
 
 Binary preparation:
   --no-strip                Do not strip the seekdb binary
@@ -110,7 +107,7 @@ Other:
 Environment variables: SEEKDB_BIN, SEEKDB_URL, SEEKDB_SHA256, SEEKDB_GIT_URL, SEEKDB_GIT_REF,
 SEEKDB_REPO, BUILD_SEEKDB, WHEEL_VERSION, PLATFORM, ARCH, OUTPUT_DIR, STRIP_SEEKDB,
 DEBUG_DIR, CIBW_BUILD, SKIP_TESTS, BUILD_TYPE, PYTHON, CONTAINER_RUNTIME, USE_VENV, VENV_DIR,
-SEEKDB_CMAKE_ARGS, MACOS_STATIC_RE2, MACOS_RE2_BUNDLE_DYLIB, MACOS_BUILD_JOBS
+SEEKDB_CMAKE_ARGS, MACOS_BUILD_JOBS
 EOF
 }
 
@@ -181,7 +178,6 @@ parse_args() {
       --output-dir) OUTPUT_DIR="${2:?--output-dir requires a value}"; shift 2 ;;
       --build-selector) CIBW_BUILD="${2:?--build-selector requires a value}"; shift 2 ;;
       --skip-tests) SKIP_TESTS=1; shift ;;
-      --no-macos-static-re2) MACOS_STATIC_RE2=0; shift ;;
       --no-strip) STRIP_SEEKDB=0; shift ;;
       --debug-dir) DEBUG_DIR="${2:?--debug-dir requires a value}"; shift 2 ;;
       --build-type) BUILD_TYPE="${2:?--build-type requires a value}"; shift 2 ;;
@@ -386,31 +382,48 @@ restore_wheel_version() {
   rm -f "$PYPROJECT_BACKUP"
 }
 
-prepare_macos_re2_bundle() {
-  if [[ "$MACOS_STATIC_RE2" != "1" ]]; then
-    echo "==> keeping dynamic Homebrew RE2/Abseil (--no-macos-static-re2)" >&2
-    return
+verify_macos_seekdb_dependencies() {
+  local seekdb_bin="$1"
+  local forbidden
+  need_cmd otool
+  forbidden="$(otool -L "$seekdb_bin" | grep -E -i 'lib(re2|absl)[^/]*\.dylib' || true)"
+  if [[ -n "$forbidden" ]]; then
+    echo "$forbidden" >&2
+    die "macOS seekdb dynamically links RE2/Abseil; remove the unused source dependency before packaging"
   fi
+  echo "==> macOS seekdb has no dynamic RE2/Abseil dependency" >&2
+}
 
-  if [[ -n "$MACOS_RE2_BUNDLE_DYLIB" ]]; then
-    [[ -f "$MACOS_RE2_BUNDLE_DYLIB" ]] \
-      || die "MACOS_RE2_BUNDLE_DYLIB not found: $MACOS_RE2_BUNDLE_DYLIB"
-    return
-  fi
+verify_macos_wheel_dependencies() {
+  local wheel counts dylib_count forbidden_count
+  local -a wheels=("$OUTPUT_DIR"/*macosx*.whl)
+  [[ -e "${wheels[0]}" ]] || die "no macOS wheels found in $OUTPUT_DIR"
 
-  if ! otool -L "$BUILD_DIR/seekdb" | grep -q 'libre2.*\.dylib'; then
-    echo "==> seekdb has no dynamic RE2 dependency; standard delocate is sufficient" >&2
-    MACOS_STATIC_RE2=0
-    return
-  fi
+  for wheel in "${wheels[@]}"; do
+    counts="$("$PYTHON" -c '
+import sys
+import zipfile
 
-  local work_dir="$BUILD_DIR/macos-static-re2"
-  MACOS_RE2_BUNDLE_DYLIB="$work_dir/libre2-static-absl.dylib"
-  "$ROOT/scripts/build-macos-static-re2.sh" \
-    --work-dir "$work_dir" \
-    --output "$MACOS_RE2_BUNDLE_DYLIB" \
-    --jobs "$MACOS_BUILD_JOBS" \
-    --deployment-target "${MACOSX_DEPLOYMENT_TARGET:-15.0}"
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    dylibs = [
+        name for name in archive.namelist()
+        if "/.dylibs/" in name and name.endswith(".dylib")
+    ]
+    forbidden = [
+        name for name in dylibs
+        if "re2" in name.lower() or "absl" in name.lower()
+    ]
+print(len(dylibs), len(forbidden))
+' "$wheel")"
+    read -r dylib_count forbidden_count <<< "$counts"
+    [[ "$dylib_count" =~ ^[0-9]+$ && "$forbidden_count" =~ ^[0-9]+$ ]] \
+      || die "could not inspect bundled dylibs in $wheel"
+    echo "==> $(basename "$wheel"): $dylib_count bundled dylibs, $forbidden_count RE2/Abseil" >&2
+    [[ "$forbidden_count" == "0" ]] \
+      || die "macOS wheel unexpectedly bundles RE2/Abseil: $wheel"
+    (( dylib_count <= 20 )) \
+      || die "macOS wheel bundles $dylib_count dylibs (limit: 20): $wheel"
+  done
 }
 
 run_cibuildwheel() {
@@ -442,15 +455,6 @@ run_cibuildwheel() {
     macos)
       if [[ -n "$ARCH" ]]; then
         env_args+=(CIBW_ARCHS_MACOS="$ARCH")
-      fi
-      if [[ "$MACOS_STATIC_RE2" == "1" ]]; then
-        [[ -f "$MACOS_RE2_BUNDLE_DYLIB" ]] \
-          || die "merged macOS RE2 dylib is not ready: $MACOS_RE2_BUNDLE_DYLIB"
-        env_args+=(
-          SEEKDB_RE2_BUNDLE_DYLIB="$MACOS_RE2_BUNDLE_DYLIB"
-          SEEKDB_WHEEL_REWRITE_PYTHON="$PYTHON"
-          CIBW_REPAIR_WHEEL_COMMAND_MACOS="\"$ROOT/scripts/repair-macos-wheel.sh\" \"{wheel}\" \"{dest_dir}\" \"{delocate_archs}\""
-        )
       fi
       ;;
     auto)
@@ -572,12 +576,15 @@ main() {
   raw_bin="$(resolve_seekdb_bin)"
   prepared_bin="$(prepare_seekdb_binary "$raw_bin")"
 
+  if [[ "$target_platform" == "macos" ]]; then
+    verify_macos_seekdb_dependencies "$prepared_bin"
+  fi
   configure_bindings "$prepared_bin"
   build_seekdb_library
-  if [[ "$target_platform" == "macos" ]]; then
-    prepare_macos_re2_bundle
-  fi
   run_cibuildwheel "$target_platform"
+  if [[ "$target_platform" == "macos" ]]; then
+    verify_macos_wheel_dependencies
+  fi
 
   echo ""
   echo "done."

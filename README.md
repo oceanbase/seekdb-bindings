@@ -191,12 +191,11 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 
 `--wheel-version` temporarily patches `python/pyproject.toml` for the build (scikit-build-core does not read `CIBW_PROJECT_VERSION`) and restores it afterward.
 
-On macOS, the one-shot script also replaces Homebrew's dynamic RE2 with an
-ABI-compatible RE2 dylib containing the matching Abseil version statically.
-Without this step, `delocate` must bundle roughly 64 componentized Abseil
-dylibs. The repair step verifies that no dynamic Abseil reference remains and
-fails if more than 20 dylibs are bundled. Use `--no-macos-static-re2` only for
-dependency debugging.
+On macOS, seekdb must not dynamically link RE2 or Abseil. Those unused links
+previously caused `delocate` to bundle roughly 64 componentized Abseil dylibs.
+The one-shot script now checks the staged seekdb before packaging, uses standard
+`delocate`, and then rejects wheels containing RE2/Abseil or more than 20
+bundled dylibs.
 
 Run `./scripts/build-pylibseekdb-wheel.sh --help` for all options. Debug symbols are written to `build/seekdb.debug` by default.
 

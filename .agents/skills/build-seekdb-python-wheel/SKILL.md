@@ -105,13 +105,13 @@ that the isolated checkout still caps these commands before starting:
 - seekdb's `./build.sh ... --make -j...`
 - libseekdb's `cmake --build ... -j...`
 
-Current macOS packaging also builds a single ABI-compatible RE2 dylib with the
-installed Homebrew RE2's matching Abseil version linked statically. Its custom
-repair step runs `delocate`, replaces the dynamic RE2, removes the componentized
-Abseil dylibs, ad-hoc signs the replacement, and rebuilds the wheel `RECORD`.
-Do not disable this with `--no-macos-static-re2` for a release package. If the
-Abseil source fetch fails, retry with all proxy variables unset as described
-above; the helper uses the GitHub SSH remote.
+seekdb must not dynamically link RE2 or Abseil on macOS. An obsolete `-lre2`
+link caused `delocate` to copy RE2's componentized Abseil closure even though
+seekdb did not use it. The bindings script checks the staged seekdb, uses the
+standard `delocate` repair, and rejects a wheel containing RE2/Abseil or more
+than 20 bundled dylibs. If this check fails for an older seekdb ref, do not
+rebuild RE2 inside bindings; ask whether to backport the seekdb source fix or
+accept a dependency-heavy wheel.
 
 Run:
 
@@ -149,12 +149,12 @@ Do not report success merely because wheel files exist. Verify all applicable it
 4. Confirm `python/pyproject.toml` returned to its original version after the temporary override.
 5. Confirm wheel filenames and `METADATA` contain `wheel_version`.
 6. Confirm cibuildwheel's built-in test passed for both wheels and the `cp312-abi3` wheel passed strict ABI3 auditing.
-7. Run `scripts/verify-wheel.sh` explicitly against both wheels with real Python 3.11 and 3.12 interpreter paths. On macOS, keep `TMPDIR=/tmp` and restrict `PATH` per invocation when necessary so the script actually selects the intended interpreter.
+7. Run `scripts/verify-wheel.sh` explicitly against both wheels with real Python 3.11 and 3.12 interpreter paths. Also install and run `python/tests/connection_options_test.py` with the `cp312-abi3` wheel on Python 3.13 and 3.14. On macOS, keep `TMPDIR=/tmp` and restrict `PATH` per invocation when necessary so the script actually selects the intended interpreter.
 8. On macOS, inspect repaired native dependencies with `delocate-listdeps` and `otool -L`; wheel binaries must not retain absolute Homebrew paths.
-   The repaired wheel must contain no `libabsl_*.dylib`; for the known RE2
-   dependency set it should have 9 bundled dylibs and 12 Mach-O files total.
-   Treat more than 20 bundled dylibs as a packaging regression unless a new
-   direct dependency has been audited.
+   The repaired wheel must contain no RE2 or Abseil dylib. For seekdb commit
+   `aeadfb274c414ccb78ac502c4268b289372fac77`, expect 8 bundled dylibs and 11
+   Mach-O files total. Treat more than 20 bundled dylibs as a packaging
+   regression unless a new direct dependency has been audited.
 9. Compute SHA-256 for each wheel and copy the wheels to the requested local destination. If none was provided, use the current bindings checkout's ignored `build/wheelhouse/`.
 
 Report the platform and architecture, resolved seekdb and bindings commits, release-flag policy, SDK and concurrency on macOS, any workaround used, wheel names, sizes, checksums, verification results, local paths, remote build directory, build log, and debug-symbol path.
