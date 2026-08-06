@@ -102,4 +102,6 @@ set_target_properties(seekdb_cli PROPERTIES
 # Tests
 # ----------------------------------------------------------------------------
 
-add_subdirectory(tests)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
