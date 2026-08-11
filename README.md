@@ -188,9 +188,10 @@ lib/<runtime dependencies>
 bin/seekdb                   # convenience symlink to ../lib/seekdb
 BUILD-INFO.txt               # refs, full commits, platform, ABI
 DEPENDENCIES.txt             # bundled library provenance
+README.txt                   # package contents and usage notes
+seekdb-version.txt           # output of `seekdb -V` during packaging
 SHA256SUMS                   # checksum of every regular file in the archive
 licenses/
-```
 
 Linux glibc libraries and the ELF loader are intentionally not bundled; the
 `glibc2.28` archive tag declares that host ABI requirement. Other non-system
