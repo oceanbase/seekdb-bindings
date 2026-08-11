@@ -407,7 +407,7 @@ import zipfile
 with zipfile.ZipFile(sys.argv[1]) as archive:
     dylibs = [
         name for name in archive.namelist()
-        if "/.dylibs/" in name and name.endswith(".dylib")
+        if (name.startswith(".dylibs/") or "/.dylibs/" in name) and name.endswith(".dylib")
     ]
     forbidden = [
         name for name in dylibs
