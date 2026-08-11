@@ -177,7 +177,7 @@ libseekdb-1.3.0-r1-linux-aarch64-glibc2.28-sdb0123456789ab-bndabcdef012345.tar.g
 libseekdb-1.3.0-r1-macos15.6-arm64-sdb0123456789ab-bndabcdef012345.tar.gz
 ```
 
-Every archive has a sibling `.sha256` file. It contains this layout:
+Every archive has a sibling `.tar.gz.sha256` file containing the archive checksum. The archive itself contains this layout:
 
 ```text
 include/seekdb.h
