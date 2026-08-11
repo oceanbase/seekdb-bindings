@@ -16,6 +16,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "")
 
 include(CTest)
 
+option(SEEKDB_BUILD_PYTHON "Build the pylibseekdb Python extension" ON)
+
 find_program(CLANG_FORMAT_EXE NAMES clang-format-14 clang-format)
 
 if (WIN32)
@@ -50,12 +52,16 @@ target_include_directories(mariadb_client INTERFACE
     "${CMAKE_CURRENT_BINARY_DIR}/deps/mariadb-connector-c/include")
 target_link_libraries(mariadb_client INTERFACE mariadbclient)
 
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-add_subdirectory(deps/googletest EXCLUDE_FROM_ALL)
-include(GoogleTest)
+if(BUILD_TESTING)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    add_subdirectory(deps/googletest EXCLUDE_FROM_ALL)
+    include(GoogleTest)
+endif()
 
 add_subdirectory(lib)
-add_subdirectory(python)
+if(SEEKDB_BUILD_PYTHON)
+    add_subdirectory(python)
+endif()
 
 if (CLANG_FORMAT_EXE)
     file(GLOB_RECURSE SEEKDB_CLANG_FORMAT_FILES CONFIGURE_DEPENDS

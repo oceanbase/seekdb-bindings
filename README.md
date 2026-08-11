@@ -110,12 +110,113 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 |---|---|---|
 | `SEEKDB_DRIVER_ENABLE_LOG` | OFF | enables `tlog()` debug prints in libseekdb |
 | `SEEKDB_BIN` | `$SEEKDB_BIN` env | path to the seekdb binary |
+| `SEEKDB_BUILD_PYTHON` | ON | configure the Python extension; set OFF for a C-only build/package |
 
 Example:
 
 ```sh
 cmake -S . -B build -DSEEKDB_DRIVER_ENABLE_LOG=ON
 cmake --build build
+```
+
+## Build C SDK release packages
+
+`scripts/build-libseekdb-package.sh` creates a native C SDK archive from two
+independently selected source revisions:
+
+- an `oceanbase/seekdb` branch, tag, or commit for the embedded server;
+- a `seekdb-bindings` branch, tag, or commit for `libseekdb` and `seekdb.h`.
+
+Run the same script on one native builder for each release platform. Linux uses
+the manylinux 2.28 container for an explicit glibc 2.28 baseline. The macOS
+archive is built natively and the requested macOS major/minor version is
+validated before compiling.
+
+For repeated Linux releases, build the provided builder image once to avoid
+installing the EL8 compiler prerequisites on every attempt:
+
+```sh
+docker build -t libseekdb-manylinux2_28:local \
+  -f scripts/docker/libseekdb-manylinux.Dockerfile scripts/docker
+```
+
+```sh
+# Linux x86_64 builder
+./scripts/build-libseekdb-package.sh \
+  --version 1.3.0 --revision 1 \
+  --seekdb-ref release/1.3.0 \
+  --bindings-ref main \
+  --platform linux --arch x86_64 \
+  --linux-image libseekdb-manylinux2_28:local
+
+# Linux aarch64 builder
+./scripts/build-libseekdb-package.sh \
+  --version 1.3.0 --revision 1 \
+  --seekdb-ref release/1.3.0 \
+  --bindings-ref main \
+  --platform linux --arch aarch64 \
+  --linux-image libseekdb-manylinux2_28:local
+
+# Apple Silicon builder running macOS 15.6
+./scripts/build-libseekdb-package.sh \
+  --version 1.3.0 --revision 1 \
+  --seekdb-ref release/1.3.0 \
+  --bindings-ref main \
+  --platform macos --arch arm64 --macos-version 15.6
+```
+
+Use the product version for API/server releases and increment `--revision`
+when rebuilding the same source release for a packaging-only correction. The
+two resolved source commit IDs are also part of each archive name, so a branch
+moving between builds cannot silently produce the same artifact identity.
+Examples:
+
+```text
+libseekdb-1.3.0-r1-linux-x86_64-glibc2.28-sdb0123456789ab-bndabcdef012345.tar.gz
+libseekdb-1.3.0-r1-linux-aarch64-glibc2.28-sdb0123456789ab-bndabcdef012345.tar.gz
+libseekdb-1.3.0-r1-macos15.6-arm64-sdb0123456789ab-bndabcdef012345.tar.gz
+```
+
+Every archive has a sibling `.tar.gz.sha256` file containing the archive checksum. The archive itself contains this layout:
+
+```text
+include/seekdb.h
+lib/libseekdb.so             # libseekdb.dylib on macOS
+lib/libseekdb_driver.so      # compatibility symlink; .dylib on macOS
+lib/seekdb                   # must remain next to libseekdb for auto-discovery
+lib/<runtime dependencies>
+bin/seekdb                   # convenience symlink to ../lib/seekdb
+BUILD-INFO.txt               # refs, full commits, platform, ABI
+DEPENDENCIES.txt             # bundled library provenance
+README.txt                   # package contents and usage notes
+seekdb-version.txt           # output of `seekdb -V` during packaging
+SHA256SUMS                   # checksum of every regular file in the archive
+licenses/
+
+Linux glibc libraries and the ELF loader are intentionally not bundled; the
+`glibc2.28` archive tag declares that host ABI requirement. Other non-system
+dynamic dependencies of both `seekdb` and `libseekdb` are collected
+recursively and use package-relative RPATHs. On macOS, non-system dylibs are
+collected recursively, rewritten to package-relative install names, and
+ad-hoc signed after rewriting.
+
+The Linux builder installs the EL8 system Rust/Cargo toolchain by default. Both
+Linux and macOS use USTC's Cargo sparse registry mirror while compiling seekdb;
+an explicitly requested rustup toolchain also uses USTC's Rust distribution
+mirror. Pass `--rust-mirror none` to use the upstream services, or
+`--rust-toolchain <version>` to pin a non-system Rust release. The actual
+`rustc --version`, selected mirror, and requested toolchain are recorded in
+`BUILD-INFO.txt`.
+
+The script also keeps seekdb's downloaded dependency RPMs in
+`build/libseekdb-dep-cache/<platform>-<arch>` by default. Use
+`--dep-cache-dir` to place that cache on a CI volume.
+
+Verify an artifact before publishing or installing it:
+
+```sh
+sha256sum -c libseekdb-*.tar.gz.sha256       # Linux
+shasum -a 256 -c libseekdb-*.tar.gz.sha256  # macOS
 ```
 
 ## Format source code
