@@ -1,5 +1,7 @@
 build/
 build-*/
+!/.agents/skills/build-seekdb-python-wheel/
+!/.agents/skills/build-seekdb-python-wheel/**
 compile_commands.json
 *.o
 *.a

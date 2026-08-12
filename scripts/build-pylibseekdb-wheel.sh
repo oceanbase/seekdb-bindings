@@ -6,6 +6,7 @@
 #   2. Stripping the binary while saving debug symbols
 #   3. Configuring and building libseekdb for wheel packaging
 #   4. Running cibuildwheel (manylinux_2_28 on Linux; delocate on macOS)
+#   5. On macOS, rejecting accidental RE2/Abseil dependency expansion
 #
 # Supported platforms:
 #   - Linux x86_64 / aarch64 (manylinux_2_28 only)
@@ -63,6 +64,7 @@ SEEKDB_CMAKE_EXTRA=()
 PYTHON="${PYTHON:-}"
 USE_VENV="${USE_VENV:-1}"
 VENV_DIR="${VENV_DIR:-$ROOT/.venv}"
+MACOS_BUILD_JOBS="${MACOS_BUILD_JOBS:-2}"
 PYPROJECT="$ROOT/python/pyproject.toml"
 PYPROJECT_BACKUP=""
 WHEEL_SCRIPT_ARGS=()
@@ -105,7 +107,7 @@ Other:
 Environment variables: SEEKDB_BIN, SEEKDB_URL, SEEKDB_SHA256, SEEKDB_GIT_URL, SEEKDB_GIT_REF,
 SEEKDB_REPO, BUILD_SEEKDB, WHEEL_VERSION, PLATFORM, ARCH, OUTPUT_DIR, STRIP_SEEKDB,
 DEBUG_DIR, CIBW_BUILD, SKIP_TESTS, BUILD_TYPE, PYTHON, CONTAINER_RUNTIME, USE_VENV, VENV_DIR,
-SEEKDB_CMAKE_ARGS
+SEEKDB_CMAKE_ARGS, MACOS_BUILD_JOBS
 EOF
 }
 
@@ -252,7 +254,7 @@ build_seekdb_macos() {
   (
     cd "$src_dir"
     rm -rf "build_$BUILD_TYPE"
-    ./build.sh "$BUILD_TYPE" --init "${SEEKDB_CMAKE_EXTRA[@]}" --make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+    ./build.sh "$BUILD_TYPE" --init "${SEEKDB_CMAKE_EXTRA[@]}" --make -j"$MACOS_BUILD_JOBS"
   )
 
   local bin
@@ -353,7 +355,13 @@ configure_bindings() {
 
 build_seekdb_library() {
   echo "==> building libseekdb"
-  cmake --build "$BUILD_DIR" --target seekdb -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  local jobs
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    jobs="$MACOS_BUILD_JOBS"
+  else
+    jobs="$(nproc 2>/dev/null || echo 4)"
+  fi
+  cmake --build "$BUILD_DIR" --target seekdb -j"$jobs"
   [[ -f "$BUILD_DIR/seekdb" ]] || die "expected $BUILD_DIR/seekdb after build"
   [[ -f "$BUILD_DIR/libseekdb.so" || -f "$BUILD_DIR/libseekdb.dylib" ]] \
     || die "libseekdb not found under $BUILD_DIR"
@@ -372,6 +380,50 @@ restore_wheel_version() {
   [[ -n "$PYPROJECT_BACKUP" && -f "$PYPROJECT_BACKUP" ]] || return 0
   cp -f "$PYPROJECT_BACKUP" "$PYPROJECT"
   rm -f "$PYPROJECT_BACKUP"
+}
+
+verify_macos_seekdb_dependencies() {
+  local seekdb_bin="$1"
+  local forbidden
+  need_cmd otool
+  forbidden="$(otool -L "$seekdb_bin" | grep -E -i 'lib(re2|absl)[^/]*\.dylib' || true)"
+  if [[ -n "$forbidden" ]]; then
+    echo "$forbidden" >&2
+    die "macOS seekdb dynamically links RE2/Abseil; remove the unused source dependency before packaging"
+  fi
+  echo "==> macOS seekdb has no dynamic RE2/Abseil dependency" >&2
+}
+
+verify_macos_wheel_dependencies() {
+  local wheel counts dylib_count forbidden_count
+  local -a wheels=("$OUTPUT_DIR"/*macosx*.whl)
+  [[ -e "${wheels[0]}" ]] || die "no macOS wheels found in $OUTPUT_DIR"
+
+  for wheel in "${wheels[@]}"; do
+    counts="$("$PYTHON" -c '
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    dylibs = [
+        name for name in archive.namelist()
+        if (name.startswith(".dylibs/") or "/.dylibs/" in name) and name.endswith(".dylib")
+    ]
+    forbidden = [
+        name for name in dylibs
+        if "re2" in name.lower() or "absl" in name.lower()
+    ]
+print(len(dylibs), len(forbidden))
+' "$wheel")"
+    read -r dylib_count forbidden_count <<< "$counts"
+    [[ "$dylib_count" =~ ^[0-9]+$ && "$forbidden_count" =~ ^[0-9]+$ ]] \
+      || die "could not inspect bundled dylibs in $wheel"
+    echo "==> $(basename "$wheel"): $dylib_count bundled dylibs, $forbidden_count RE2/Abseil" >&2
+    [[ "$forbidden_count" == "0" ]] \
+      || die "macOS wheel unexpectedly bundles RE2/Abseil: $wheel"
+    (( dylib_count <= 20 )) \
+      || die "macOS wheel bundles $dylib_count dylibs (limit: 20): $wheel"
+  done
 }
 
 run_cibuildwheel() {
@@ -480,6 +532,8 @@ main() {
   WHEEL_SCRIPT_ARGS=("$@")
   parse_args "$@"
   load_seekdb_cmake_extra_from_env
+  [[ "$MACOS_BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] \
+    || die "MACOS_BUILD_JOBS must be a positive integer"
 
   local host_platform
   host_platform="$(detect_host_platform)"
@@ -522,9 +576,15 @@ main() {
   raw_bin="$(resolve_seekdb_bin)"
   prepared_bin="$(prepare_seekdb_binary "$raw_bin")"
 
+  if [[ "$target_platform" == "macos" ]]; then
+    verify_macos_seekdb_dependencies "$prepared_bin"
+  fi
   configure_bindings "$prepared_bin"
   build_seekdb_library
   run_cibuildwheel "$target_platform"
+  if [[ "$target_platform" == "macos" ]]; then
+    verify_macos_wheel_dependencies
+  fi
 
   echo ""
   echo "done."
