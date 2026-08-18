@@ -170,6 +170,7 @@ TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
     EXPECT_FALSE(fs::exists(alias_dir));
     EXPECT_TRUE(fs::is_directory(long_db_dir / "run"));
 }
+#endif // !_WIN32
 
 TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
 {
