@@ -10,11 +10,11 @@
 
 typedef struct {
     char *db_dir;
-    char sock_path[256];
-    char clients_lock_path[256];
-    char startup_lock_path[256];
-    Flock *clients_lock; /* SH-locked for the lifetime of the handle */
-    char host[64];       /* set to "127.0.0.1" when parameters include a non-zero port */
+    char *sock_path;         /* effective POSIX UDS path; NULL for TCP/Windows */
+    char *clients_lock_path; /* <db_dir>/run/seekdb.clients */
+    char *startup_lock_path; /* <db_dir>/run/seekdb.startup */
+    Flock *clients_lock;     /* SH-locked for the lifetime of the handle */
+    char host[64];           /* set to "127.0.0.1" when parameters include a non-zero port */
     int port; /* 0 ⇒ local transport (UDS on POSIX, named pipe on Windows); non-zero ⇒ TCP */
     /* Mirrors of Process — populated after spawn_process succeeds, so the
      * handle remembers which daemon it brought up (or was given by a
@@ -25,6 +25,8 @@ typedef struct {
     char pipe_file_path[256]; /* <db_dir>/run/sql.pipe — server writes the pipe name here */
     char pipe_name[256]; /* contents of sql.pipe (suffix only); libmariadb prepends \\.\pipe\ */
     char pipe_path[512]; /* full \\.\pipe\... path returned to external clients */
+#else
+    char *socket_alias_dir; /* /tmp/pylibseekdb-uds-<pid>-XXXXXX */
 #endif
 } SeekdbHandleImpl;
 

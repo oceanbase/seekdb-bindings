@@ -46,7 +46,8 @@ TEST(ConnectionOptions, ReturnsNamedPipeEndpoint)
 TEST(ConnectionOptions, ReturnsUnixSocketEndpoint)
 {
     SeekdbHandleImpl handle = {};
-    std::snprintf(handle.sock_path, sizeof(handle.sock_path), "/tmp/seekdb/run/sql.sock");
+    char sock_path[] = "/tmp/seekdb/run/sql.sock";
+    handle.sock_path = sock_path;
     SeekdbConnectionOptions options = {};
 
     ASSERT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_SUCCESS);

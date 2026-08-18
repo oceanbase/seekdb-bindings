@@ -64,6 +64,8 @@ int seekdb_close(SeekdbHandle handle);
  * transport is "tcp", "unix_socket", or "named_pipe". TCP exposes only port;
  * clients use their default local host. Local transports expose endpoint as a
  * Unix socket path or full Windows named-pipe path. user is always "root".
+ * On POSIX, the Unix socket endpoint is a per-handle alias under /tmp and is
+ * usable only while the handle remains open.
  * transport, endpoint, and user are borrowed and remain valid until
  * seekdb_close(handle). */
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);

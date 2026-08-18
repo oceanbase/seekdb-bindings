@@ -123,6 +123,53 @@ TEST_F(OpenParameters, RejectsInvalidPort)
     EXPECT_EQ(h, nullptr);
 }
 
+TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
+{
+    fs::path long_db_dir = db_dir_;
+    for (int i = 0; i < 4; ++i) {
+        long_db_dir /= "pylibseekdb-long-path-component-" + std::to_string(i);
+    }
+    fs::create_directories(long_db_dir);
+    ASSERT_GT((long_db_dir / "run/sql.sock").string().size(), 150U);
+
+    SeekdbHandle h = nullptr;
+    ASSERT_EQ(seekdb_open(long_db_dir.string().c_str(), nullptr, &h), SEEKDB_SUCCESS);
+    ASSERT_NE(h, nullptr);
+
+    auto *impl = (SeekdbHandleImpl *)h;
+    ASSERT_NE(impl->socket_alias_dir, nullptr);
+    ASSERT_NE(impl->sock_path, nullptr);
+    const int64_t pid = impl->spawned_pid;
+    ASSERT_GT(pid, 0);
+
+    const std::string alias_dir = impl->socket_alias_dir;
+    const std::string expected_prefix =
+        "/tmp/pylibseekdb-uds-" + std::to_string((long long)getpid()) + "-";
+    EXPECT_EQ(alias_dir.rfind(expected_prefix, 0), 0U);
+    EXPECT_EQ(alias_dir.size(), expected_prefix.size() + 6);
+    EXPECT_EQ(impl->sock_path, alias_dir + "/run/sql.sock");
+    EXPECT_TRUE(fs::is_directory(alias_dir));
+    EXPECT_TRUE(fs::is_symlink(fs::path(alias_dir) / "run"));
+    EXPECT_EQ(fs::canonical(fs::path(alias_dir) / "run"), fs::canonical(long_db_dir / "run"));
+
+    SeekdbConnectionOptions options = {};
+    ASSERT_EQ(seekdb_connection_options(h, &options), SEEKDB_SUCCESS);
+    ASSERT_NE(options.endpoint, nullptr);
+    EXPECT_EQ(options.endpoint, alias_dir + "/run/sql.sock");
+
+    SeekdbConnection c = nullptr;
+    ASSERT_EQ(seekdb_connect(h, "test", true, &c), SEEKDB_SUCCESS);
+    SeekdbResult query_result = nullptr;
+    ASSERT_EQ(seekdb_query(c, "SELECT 1", 8, &query_result), SEEKDB_SUCCESS);
+    ASSERT_EQ(seekdb_result_next(query_result), SEEKDB_SUCCESS);
+    seekdb_result_free(query_result);
+    seekdb_disconnect(c);
+
+    shutdown_server(h, pid);
+    EXPECT_FALSE(fs::exists(alias_dir));
+    EXPECT_TRUE(fs::is_directory(long_db_dir / "run"));
+}
+
 TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
 {
     const char *parameters[] = {"port", "0", NULL};

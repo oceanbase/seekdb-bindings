@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import os
 import pathlib
 import tempfile
 
@@ -30,6 +31,23 @@ def assert_instance_closed(instance):
             raise AssertionError("operation succeeded on a closed seekdb instance")
 
 
+def assert_unix_socket_alias(options, db_dir):
+    assert options["user"] == "root"
+    endpoint = pathlib.Path(options["unix_socket"])
+    alias_dir = endpoint.parent.parent
+    name_prefix = f"pylibseekdb-uds-{os.getpid()}-"
+
+    assert alias_dir.parent == pathlib.Path("/tmp")
+    assert alias_dir.name.startswith(name_prefix)
+    assert len(alias_dir.name) == len(name_prefix) + 6
+    assert endpoint == alias_dir / "run" / "sql.sock"
+    assert alias_dir.is_dir()
+    assert endpoint.parent.is_symlink()
+    assert endpoint.parent.resolve() == (pathlib.Path(db_dir) / "run").resolve()
+    assert endpoint.exists()
+    return alias_dir
+
+
 def write_marker(instance, value):
     connection = instance.connect("test", autocommit=True)
     cursor = connection.cursor()
@@ -56,10 +74,16 @@ async def test_connection_options():
     assert_options_unavailable()
 
     with tempfile.TemporaryDirectory(prefix="pylibseekdb-multiple-instances-") as root_dir:
-        first_db_dir = str(pathlib.Path(root_dir) / "first")
-        first_open_dir = str(pathlib.Path(root_dir) / "not-created" / ".." / "first")
-        second_db_dir = str(pathlib.Path(root_dir) / "second")
+        long_root = pathlib.Path(root_dir)
+        for index in range(4):
+            long_root /= f"pylibseekdb-long-path-component-{index}"
+        long_root.mkdir(parents=True)
+
+        first_db_dir = str(long_root / "first")
+        first_open_dir = str(long_root / "not-created" / ".." / "first")
+        second_db_dir = str(long_root / "second")
         legacy_db_dir = str(pathlib.Path(root_dir) / "legacy")
+        assert len(str(pathlib.Path(first_db_dir) / "run" / "sql.sock")) > 150
 
         stop_ticker = asyncio.Event()
         ticks = 0
@@ -67,6 +91,9 @@ async def test_connection_options():
         duplicate = None
         second = None
         legacy = None
+        first_alias_dir = None
+        second_alias_dir = None
+        legacy_alias_dir = None
 
         async def ticker():
             nonlocal ticks
@@ -97,21 +124,18 @@ async def test_connection_options():
             assert not second.closed
 
             first_options = first.connection_options()
-            assert first_options == {
-                "user": "root",
-                "unix_socket": f"{first_db_dir}/run/sql.sock",
-            }
+            first_alias_dir = assert_unix_socket_alias(first_options, first_db_dir)
+            assert duplicate.connection_options() == first_options
             assert seekdb.connection_options() == first_options
 
             duplicate.close()
             assert duplicate.closed
             assert not first.closed
+            assert first_alias_dir.is_dir()
 
             second_options = second.connection_options()
-            assert second_options == {
-                "user": "root",
-                "unix_socket": f"{second_db_dir}/run/sql.sock",
-            }
+            second_alias_dir = assert_unix_socket_alias(second_options, second_db_dir)
+            assert second_alias_dir != first_alias_dir
             assert seekdb.connection_options() == first_options
 
             write_marker(first, 1)
@@ -147,27 +171,33 @@ async def test_connection_options():
             assert first.closed
             assert_instance_closed(first)
             assert_options_unavailable()
+            assert first_alias_dir.is_dir()
             try:
                 retained_cursor.execute("select value from instance_marker")
                 assert retained_cursor.fetchone() == (1,)
             finally:
                 retained_cursor.close()
                 retained_connection.close()
+            assert not first_alias_dir.exists()
 
             assert read_marker(second) == 2
             seekdb.close()
             assert not second.closed
 
             legacy = seekdb.open(legacy_db_dir)
-            assert seekdb.connection_options() == legacy.connection_options()
+            legacy_options = legacy.connection_options()
+            legacy_alias_dir = assert_unix_socket_alias(legacy_options, legacy_db_dir)
+            assert seekdb.connection_options() == legacy_options
             legacy_connection = seekdb.connect("test")
             legacy_connection.close()
             seekdb.close()
             assert legacy.closed
+            assert not legacy_alias_dir.exists()
             assert read_marker(second) == 2
 
             second.close()
             assert_instance_closed(second)
+            assert not second_alias_dir.exists()
         finally:
             seekdb.close()
             for instance in (legacy, second, duplicate, first):
