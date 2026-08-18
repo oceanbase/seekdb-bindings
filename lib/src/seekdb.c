@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -156,6 +157,121 @@ static void xfree(void *p)
 {
     if (p)
         free(p);
+}
+
+static char *concat_strings(const char *left, const char *right)
+{
+    if (!left || !right)
+        return NULL;
+    const size_t left_len = strlen(left);
+    const size_t right_len = strlen(right);
+    if (left_len >= SIZE_MAX - right_len)
+        return NULL;
+    char *out = (char *)malloc(left_len + right_len + 1);
+    if (!out)
+        return NULL;
+    memcpy(out, left, left_len);
+    memcpy(out + left_len, right, right_len + 1);
+    return out;
+}
+
+#ifndef _WIN32
+static void cleanup_unix_socket_alias(SeekdbHandleImpl *h)
+{
+    if (!h || !h->socket_alias_dir)
+        return;
+
+    char run_link[128];
+    const int n = snprintf(run_link, sizeof(run_link), "%s/run", h->socket_alias_dir);
+    if (n >= 0 && (size_t)n < sizeof(run_link)) {
+        if (unlink(run_link) != 0 && errno != ENOENT)
+            tlog("cleanup_unix_socket_alias: unlink(%s) failed: errno=%d\n", run_link, errno);
+    }
+    else {
+        tlog("cleanup_unix_socket_alias: alias path unexpectedly long: %s\n", h->socket_alias_dir);
+    }
+
+    if (rmdir(h->socket_alias_dir) != 0 && errno != ENOENT) {
+        tlog("cleanup_unix_socket_alias: rmdir(%s) failed: errno=%d\n", h->socket_alias_dir, errno);
+    }
+    xfree(h->socket_alias_dir);
+    h->socket_alias_dir = NULL;
+}
+
+static int prepare_unix_socket_alias(SeekdbHandleImpl *h, const char *run_dir)
+{
+    char *resolved_run_dir = realpath(run_dir, NULL);
+    if (!resolved_run_dir) {
+        tlog("prepare_unix_socket_alias: realpath(%s) failed: errno=%d\n", run_dir, errno);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+
+    char alias_template[128];
+    const int template_n = snprintf(alias_template, sizeof(alias_template),
+                                    "/tmp/pylibseekdb-uds-%lld-XXXXXX", (long long)getpid());
+    if (template_n < 0 || (size_t)template_n >= sizeof(alias_template)) {
+        tlog("prepare_unix_socket_alias: alias template truncated\n");
+        xfree(resolved_run_dir);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+
+    if (!mkdtemp(alias_template)) {
+        tlog("prepare_unix_socket_alias: mkdtemp(%s) failed: errno=%d\n", alias_template, errno);
+        xfree(resolved_run_dir);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+
+    char *alias_dir = xstrdup(alias_template);
+    char *run_link = concat_strings(alias_template, "/run");
+    char *sock_path = concat_strings(alias_template, "/run/sql.sock");
+    if (!alias_dir || !run_link || !sock_path) {
+        tlog("prepare_unix_socket_alias: allocation failed\n");
+        xfree(alias_dir);
+        xfree(run_link);
+        xfree(sock_path);
+        rmdir(alias_template);
+        xfree(resolved_run_dir);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+
+    if (symlink(resolved_run_dir, run_link) != 0) {
+        tlog("prepare_unix_socket_alias: symlink(%s -> %s) failed: errno=%d\n", run_link,
+             resolved_run_dir, errno);
+        xfree(alias_dir);
+        xfree(run_link);
+        xfree(sock_path);
+        rmdir(alias_template);
+        xfree(resolved_run_dir);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+
+    h->socket_alias_dir = alias_dir;
+    h->sock_path = sock_path;
+    tlog("prepare_unix_socket_alias: %s -> %s (socket=%s)\n", run_link, resolved_run_dir,
+         h->sock_path);
+
+    xfree(run_link);
+    xfree(resolved_run_dir);
+    return SEEKDB_SUCCESS;
+}
+#endif
+
+static void destroy_handle(SeekdbHandleImpl *h)
+{
+    if (!h)
+        return;
+    if (h->clients_lock) {
+        flock_close(h->clients_lock);
+        h->clients_lock = NULL;
+    }
+#ifndef _WIN32
+    cleanup_unix_socket_alias(h);
+#endif
+    xfree(h->sock_path);
+    xfree(h->clients_lock_path);
+    xfree(h->startup_lock_path);
+    xfree(h->db_dir);
+    free(h);
 }
 
 /* ============================================================ utils ====== */
@@ -529,80 +645,98 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
 
     tlog("seekdb_open: bin=%s db_dir=%s\n", bin_path, db_dir);
 
+    int result = SEEKDB_INTERNAL_ERROR;
     SeekdbHandleImpl *h = (SeekdbHandleImpl *)calloc(1, sizeof(*h));
-    h->db_dir = xstrdup(db_dir);
-    snprintf(h->sock_path, sizeof(h->sock_path), "%s/run/sql.sock", db_dir);
-    snprintf(h->clients_lock_path, sizeof(h->clients_lock_path), "%s/run/seekdb.clients", db_dir);
-    snprintf(h->startup_lock_path, sizeof(h->startup_lock_path), "%s/run/seekdb.startup", db_dir);
+    char *run_dir = NULL;
+    char *base_dir_arg = NULL;
+    char *sstable_dir = NULL;
+    Flock *startup_lock = NULL;
+    Process *spawned = NULL;
+    char **spawn_argv = NULL;
+    char **spawn_owned = NULL;
+    size_t spawn_owned_n = 0;
+    bool first_init = false;
+    int argv_rc = SEEKDB_INTERNAL_ERROR;
+    int64_t spawned_pid = 0;
+    int wait_rc = -1;
 #ifdef _WIN32
-    snprintf(h->pipe_file_path, sizeof(h->pipe_file_path), "%s/run/sql.pipe", db_dir);
+    int pipe_n = 0;
 #endif
 
+    if (!h)
+        goto cleanup;
+    h->db_dir = xstrdup(db_dir);
+    run_dir = concat_strings(db_dir, "/run");
+    h->clients_lock_path = concat_strings(db_dir, "/run/seekdb.clients");
+    h->startup_lock_path = concat_strings(db_dir, "/run/seekdb.startup");
+    if (!h->db_dir || !run_dir || !h->clients_lock_path || !h->startup_lock_path) {
+        tlog("seekdb_open: allocation failed while building paths for db_dir=%s\n", db_dir);
+        goto cleanup;
+    }
+#ifdef _WIN32
+    pipe_n = snprintf(h->pipe_file_path, sizeof(h->pipe_file_path), "%s/run/sql.pipe", db_dir);
+    if (pipe_n < 0 || (size_t)pipe_n >= sizeof(h->pipe_file_path)) {
+        tlog("seekdb_open: pipe discovery path truncated for db_dir=%s\n", db_dir);
+        goto cleanup;
+    }
+#endif
+
+    h->port = port;
     if (port != 0) {
         snprintf(h->host, sizeof(h->host), "127.0.0.1");
-        h->port = port;
     }
 
     if (ensure_dir(db_dir) != OK) {
         tlog("ensure_dir failed: %s\n", db_dir);
-        xfree(h->db_dir);
-        free(h);
-        return SEEKDB_INTERNAL_ERROR;
+        goto cleanup;
     }
 
-    char run_dir[256];
-    snprintf(run_dir, sizeof(run_dir), "%s/run", db_dir);
     if (ensure_dir(run_dir) != OK) {
         tlog("ensure_dir failed: %s\n", run_dir);
-        xfree(h->db_dir);
-        free(h);
-        return SEEKDB_INTERNAL_ERROR;
+        goto cleanup;
     }
+
+#ifndef _WIN32
+    if (port == 0 && prepare_unix_socket_alias(h, run_dir) != SEEKDB_SUCCESS)
+        goto cleanup;
+#endif
 
     if (flock_open(h->clients_lock_path, &h->clients_lock) != OK) {
         tlog("flock_open failed: %s\n", h->clients_lock_path);
-        xfree(h->db_dir);
-        free(h);
-        return SEEKDB_INTERNAL_ERROR;
+        goto cleanup;
     }
 
     if (!flock_acquire(h->clients_lock, FLOCK_SHARED)) {
         tlog("flock_acquire(seekdb.clients, SH) failed\n");
-        flock_close(h->clients_lock);
-        xfree(h->db_dir);
-        free(h);
-        return SEEKDB_INTERNAL_ERROR;
+        goto cleanup;
     }
     tlog("got seekdb.clients\n");
 
     if (try_connect(h)) {
         tlog("seekdb_open: fast-path success — server already serving\n");
         *out_handle = (SeekdbHandle)h;
-        return SEEKDB_SUCCESS;
+        h = NULL;
+        result = SEEKDB_SUCCESS;
+        goto cleanup;
     }
     tlog("tried to connect after getting client lock, but failed\n");
 
-    Flock *startup_lock = NULL;
     if (flock_open(h->startup_lock_path, &startup_lock) != OK) {
         tlog("flock_open failed: %s\n", h->startup_lock_path);
-        flock_close(h->clients_lock);
-        xfree(h->db_dir);
-        free(h);
-        return SEEKDB_INTERNAL_ERROR;
+        goto cleanup;
     }
     if (!flock_acquire(startup_lock, FLOCK_EXCLUSIVE)) {
         tlog("flock_acquire(seekdb.startup, EX) failed\n");
-        flock_close(startup_lock);
-        flock_close(h->clients_lock);
-        xfree(h->db_dir);
-        free(h);
-        return SEEKDB_INTERNAL_ERROR;
+        goto cleanup;
     }
     tlog("got startup lock\n");
 
-    Process *spawned = NULL;
-    char base_dir_arg[512];
-    snprintf(base_dir_arg, sizeof(base_dir_arg), "--base-dir=%s", db_dir);
+    base_dir_arg = concat_strings("--base-dir=", db_dir);
+    sstable_dir = concat_strings(db_dir, "/store/sstable");
+    if (!base_dir_arg || !sstable_dir) {
+        tlog("seekdb_open: allocation failed while building spawn paths for db_dir=%s\n", db_dir);
+        goto cleanup;
+    }
 
     /* seekdb writes its data files under <db_dir>/store/sstable only after it
      * has bootstrapped this data directory, so a non-empty store/sstable means
@@ -615,47 +749,26 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
      * storage-engine data directory and has been stable across seekdb versions,
      * whereas the etc/ layout (e.g. seekdb.config.bin) has changed between
      * releases. */
-    char sstable_dir[512];
-    int sstable_n = snprintf(sstable_dir, sizeof(sstable_dir), "%s/store/sstable", db_dir);
-    bool first_init;
-    if (sstable_n < 0 || (size_t)sstable_n >= sizeof(sstable_dir)) {
-        /* Path truncated — we can't reliably probe store/sstable. Fall back to
-         * the pre-#26 behavior (always seed defaults) so a genuine first init
-         * can still bootstrap; unreachable in practice since the handle's other
-         * path buffers (sock_path, 256 bytes) would have failed first. */
-        tlog("seekdb_open: sstable path truncated for db_dir=%s — seeding defaults\n", db_dir);
-        first_init = true;
-    }
-    else {
-        first_init = !dir_has_entries(sstable_dir);
-    }
+    first_init = !dir_has_entries(sstable_dir);
     tlog("seekdb_open: %s (sstable_dir=%s)\n",
          first_init ? "first init — seeding parameters" : "restart — keeping persisted parameters",
          sstable_dir);
 
-    char **spawn_argv = NULL;
-    char **spawn_owned = NULL;
-    size_t spawn_owned_n = 0;
-    const int argv_rc = build_spawn_argv(bin_path, base_dir_arg, parameters, first_init,
-                                         &spawn_argv, &spawn_owned, &spawn_owned_n);
+    argv_rc = build_spawn_argv(bin_path, base_dir_arg, parameters, first_init, &spawn_argv,
+                               &spawn_owned, &spawn_owned_n);
     if (argv_rc != SEEKDB_SUCCESS) {
-        flock_close(startup_lock);
-        flock_close(h->clients_lock);
-        xfree(h->db_dir);
-        free(h);
-        return argv_rc;
+        result = argv_rc;
+        goto cleanup;
     }
 
     if (spawn_process(bin_path, spawn_argv, &spawned) != OK) {
-        free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
-        flock_close(startup_lock);
-        flock_close(h->clients_lock);
-        xfree(h->db_dir);
-        free(h);
         tlog("spawn process failed.");
-        return SEEKDB_INTERNAL_ERROR;
+        goto cleanup;
     }
     free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
+    spawn_argv = NULL;
+    spawn_owned = NULL;
+    spawn_owned_n = 0;
 
     /* Mirror the Process fields onto the handle. wait_for_ready frees
      * `spawned` on -1, so deref before the call. */
@@ -663,29 +776,40 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
 #ifdef _WIN32
     h->spawned_handle = spawned->handle;
 #endif
-    const int64_t spawned_pid = spawned->pid;
+    spawned_pid = spawned->pid;
     tlog("ready to call wait_for_ready(spawned pid = %lld)\n", (long long)spawned_pid);
-    int rc = wait_for_ready(h, spawned);
+    wait_rc = wait_for_ready(h, spawned);
 
     tlog("spawned pid = %lld, released startup\n", (long long)spawned_pid);
     flock_close(startup_lock);
+    startup_lock = NULL;
 
-    if (rc < 0) {
+    if (wait_rc < 0) {
+        spawned = NULL; /* wait_for_ready reaped and freed it */
         tlog("seekdb: server not ready\n");
-        flock_close(h->clients_lock);
-        xfree(h->db_dir);
-        free(h);
-        return SEEKDB_INTERNAL_ERROR;
+        goto cleanup;
     }
 
     /* Register the spawned process with the background reaper so it
      * gets reaped once the server exits. Start the reaper lazily. */
     spawned_add(spawned);
+    spawned = NULL;
     // start_reaper();
 
     tlog("seekdb_open: success (spawned pid = %lld)\n", (long long)spawned_pid);
     *out_handle = (SeekdbHandle)h;
-    return SEEKDB_SUCCESS;
+    h = NULL;
+    result = SEEKDB_SUCCESS;
+
+cleanup:
+    free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
+    if (startup_lock)
+        flock_close(startup_lock);
+    xfree(sstable_dir);
+    xfree(base_dir_arg);
+    xfree(run_dir);
+    destroy_handle(h);
+    return result;
 }
 
 int seekdb_close(SeekdbHandle handle)
@@ -696,13 +820,9 @@ int seekdb_close(SeekdbHandle handle)
 
     tlog("seekdb_close: db_dir=%s\n", h->db_dir);
 
-    if (h->clients_lock) {
-        flock_close(h->clients_lock);
+    if (h->clients_lock)
         tlog("released seekdb.clients\n");
-    }
-
-    xfree(h->db_dir);
-    free(h);
+    destroy_handle(h);
     return SEEKDB_SUCCESS;
 }
 
@@ -726,6 +846,8 @@ int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_
         out_options->transport = SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE;
         out_options->endpoint = h->pipe_path;
 #else
+        if (!h->sock_path)
+            return SEEKDB_INTERNAL_ERROR;
         out_options->transport = SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET;
         out_options->endpoint = h->sock_path;
 #endif

@@ -112,9 +112,11 @@ first.close()
 second.close()
 ```
 
-Each instance uses the local socket inside its normalized database directory,
-so no additional port configuration is needed. The first successful `open()`
-also becomes the module's default instance, preserving the legacy
+Each instance stores its local socket inside the normalized database directory.
+On macOS and Linux, pylibseekdb connects through a per-instance short alias under
+`/tmp/pylibseekdb-uds-<pid>-XXXXXX`, so long database paths do not exceed the
+Unix socket pathname limit. The first successful `open()` also becomes the
+module's default instance, preserving the legacy
 `seekdb.connect()`, `seekdb.connection_options()`, and `seekdb.close()` API.
 Later calls return independent instance objects without changing that default.
 Use the object methods for additional instances.
@@ -150,7 +152,9 @@ On Unix, `options` contains only `user="root"` and `unix_socket`. For TCP it
 contains only `user="root"` and `port`; the driver supplies its default local
 host. The database name remains caller-owned because PyMySQL uses `database`
 while aiomysql uses `db`. Treat the returned dictionary as lifecycle-scoped:
-do not use it after closing its `SeekdbInstance`.
+the Unix socket alias is removed with the underlying lifecycle handle, so do
+not use it after closing its `SeekdbInstance` and any retained native
+connections.
 
 ### Async initialization and aiomysql
 
