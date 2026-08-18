@@ -123,6 +123,7 @@ TEST_F(OpenParameters, RejectsInvalidPort)
     EXPECT_EQ(h, nullptr);
 }
 
+#ifndef _WIN32
 TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
 {
     fs::path long_db_dir = db_dir_;
