@@ -20,7 +20,7 @@ extern "C" {
 
 namespace nb = nanobind;
 
-constexpr const char *kPublicModule = "pylibseekdb";
+constexpr const char *kPublicModule = "seekdb";
 
 static nb::object &date_class()
 {
@@ -467,12 +467,10 @@ void close()
 
 } // namespace seekdb
 
-NB_MODULE(pylibseekdb, m)
+NB_MODULE(seekdb_binding, m)
 {
     m.doc() = "Python bindings for seekdb-driver (out-of-process MySQL-compatible client). "
               "Surface mirrors seekdb's ob_embed_impl.cpp.";
-    m.attr("__version__") = "0.1.0";
-
     auto seekdb_error = nb::exception<SeekdbError>(m, "SeekdbError", PyExc_RuntimeError);
     seekdb_error.attr("__module__") = kPublicModule;
 

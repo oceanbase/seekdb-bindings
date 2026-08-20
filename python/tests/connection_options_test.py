@@ -6,7 +6,7 @@ import tempfile
 
 import aiomysql
 import pymysql
-import pylibseekdb as seekdb
+import seekdb
 from seekdb_test import run_native_smoke_test
 
 
@@ -35,7 +35,7 @@ def assert_unix_socket_alias(options, db_dir):
     assert options["user"] == "root"
     endpoint = pathlib.Path(options["unix_socket"])
     alias_dir = endpoint.parent.parent
-    name_prefix = f"pylibseekdb-uds-{os.getpid()}-"
+    name_prefix = f"seekdb-uds-{os.getpid()}-"
 
     assert alias_dir.parent == pathlib.Path("/tmp")
     assert alias_dir.name.startswith(name_prefix)
@@ -73,10 +73,10 @@ def read_marker(instance):
 async def test_connection_options():
     assert_options_unavailable()
 
-    with tempfile.TemporaryDirectory(prefix="pylibseekdb-multiple-instances-") as root_dir:
+    with tempfile.TemporaryDirectory(prefix="seekdb-multiple-instances-") as root_dir:
         long_root = pathlib.Path(root_dir)
         for index in range(4):
-            long_root /= f"pylibseekdb-long-path-component-{index}"
+            long_root /= f"seekdb-long-path-component-{index}"
         long_root.mkdir(parents=True)
 
         first_db_dir = str(long_root / "first")

@@ -16,7 +16,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "")
 
 include(CTest)
 
-option(SEEKDB_BUILD_PYTHON "Build the pylibseekdb Python extension" ON)
+option(SEEKDB_BUILD_PYTHON "Build the seekdb Python extension" ON)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format-14 clang-format)
 
