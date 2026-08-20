@@ -208,7 +208,7 @@ static int prepare_unix_socket_alias(SeekdbHandleImpl *h, const char *run_dir)
 
     char alias_template[128];
     const int template_n = snprintf(alias_template, sizeof(alias_template),
-                                    "/tmp/pylibseekdb-uds-%lld-XXXXXX", (long long)getpid());
+                                    "/tmp/seekdb-uds-%lld-XXXXXX", (long long)getpid());
     if (template_n < 0 || (size_t)template_n >= sizeof(alias_template)) {
         tlog("prepare_unix_socket_alias: alias template truncated\n");
         xfree(resolved_run_dir);

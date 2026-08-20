@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pylibseekdb"
+version = "1.4.0"
+description = "Compatibility package for the renamed seekdb Python bindings"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [
+    { name = "OceanBase", email = "open_oceanbase@oceanbase.com" },
+]
+dependencies = [
+    "seekdb==1.4.0",
+]
+
+[project.urls]
+Homepage = "https://seekdb.ai"
+Repository = "https://github.com/oceanbase/seekdb-bindings"
+Documentation = "https://docs.seekdb.ai/"
+
+[tool.setuptools.packages.find]
+where = ["src"]

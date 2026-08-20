@@ -26,7 +26,7 @@ typedef struct {
     char pipe_name[256]; /* contents of sql.pipe (suffix only); libmariadb prepends \\.\pipe\ */
     char pipe_path[512]; /* full \\.\pipe\... path returned to external clients */
 #else
-    char *socket_alias_dir; /* /tmp/pylibseekdb-uds-<pid>-XXXXXX */
+    char *socket_alias_dir; /* /tmp/seekdb-uds-<pid>-XXXXXX */
 #endif
 } SeekdbHandleImpl;
 

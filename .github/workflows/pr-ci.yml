@@ -241,13 +241,20 @@ jobs:
 
       - &build-python-binding
         name: Build Python binding
-        run: cmake --build build --target pylibseekdb --parallel
+        run: cmake --build build --target seekdb_python --parallel
 
       - name: Verify Python external driver integration
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --no-build-isolation ./python
+          python - <<'PY'
+          import importlib.metadata
+          import seekdb
+
+          assert seekdb.__version__ == importlib.metadata.version("seekdb")
+          PY
+          python python/tests/compat_package_test.py
           python python/tests/connection_options_test.py
 
       - &verify-python-binding-contract
@@ -265,28 +272,28 @@ jobs:
           build_dir = pathlib.Path("build")
           candidates = []
           for suffix in importlib.machinery.EXTENSION_SUFFIXES:
-              candidates.extend(build_dir.glob(f"pylibseekdb*{suffix}"))
+              candidates.extend(build_dir.glob(f"seekdb_binding*{suffix}"))
           candidates = sorted(set(candidates))
           if len(candidates) != 1:
-              raise SystemExit(f"expected one built pylibseekdb extension, found: {candidates}")
+              raise SystemExit(f"expected one built seekdb extension, found: {candidates}")
 
           with tempfile.TemporaryDirectory() as tmp:
-              package_dir = pathlib.Path(tmp) / "pylibseekdb"
+              package_dir = pathlib.Path(tmp) / "seekdb"
               package_dir.mkdir()
-              shutil.copy2("python/pylibseekdb/__init__.py", package_dir / "__init__.py")
-              suffix = candidates[0].name.removeprefix("pylibseekdb")
-              shutil.copy2(candidates[0], package_dir / f"pylibseekdb{suffix}")
+              shutil.copy2("python/seekdb/__init__.py", package_dir / "__init__.py")
+              suffix = candidates[0].name.removeprefix("seekdb_binding")
+              shutil.copy2(candidates[0], package_dir / f"seekdb_binding{suffix}")
               for library in build_dir.glob("libseekdb.*"):
                   shutil.copy2(library, package_dir / library.name)
 
               sys.path.insert(0, tmp)
-              import pylibseekdb
+              import seekdb
 
-              assert issubclass(pylibseekdb.SeekdbError, RuntimeError)
+              assert issubclass(seekdb.SeekdbError, RuntimeError)
               for name in ("SeekdbError", "Connection", "Cursor"):
-                  cls = getattr(pylibseekdb, name)
-                  assert cls.__module__ == "pylibseekdb"
-                  assert str(cls) == f"<class 'pylibseekdb.{name}'>"
+                  cls = getattr(seekdb, name)
+                  assert cls.__module__ == "seekdb"
+                  assert str(cls) == f"<class 'seekdb.{name}'>"
           PY
 
       - &verify-pure-c-driver

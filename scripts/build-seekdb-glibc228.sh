@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the seekdb server binary inside a manylinux_2_28 container so it is
-# compatible with pylibseekdb manylinux wheels.
+# compatible with seekdb manylinux wheels.
 #
 # Usage:
 #   # local checkout (default: $HOME/seekdb)

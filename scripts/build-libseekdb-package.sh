@@ -381,7 +381,7 @@ if ! grep -q 'SEEKDB_BUILD_PYTHON' /tmp/bindings-src/CMakeLists.txt; then
     || fail "selected bindings ref cannot be adapted for a C-only build"
   awk '
     /^[[:space:]]*add_subdirectory\(python\)[[:space:]]*$/ {
-      print "option(SEEKDB_BUILD_PYTHON \"Build the pylibseekdb Python extension\" ON)"
+      print "option(SEEKDB_BUILD_PYTHON \"Build the seekdb Python extension\" ON)"
       print "if(SEEKDB_BUILD_PYTHON)"
       print "    add_subdirectory(python)"
       print "endif()"
@@ -712,7 +712,7 @@ EOF
       || die "selected bindings ref cannot be adapted for a C-only build"
     awk '
       /^[[:space:]]*add_subdirectory\(python\)[[:space:]]*$/ {
-        print "option(SEEKDB_BUILD_PYTHON \"Build the pylibseekdb Python extension\" ON)"
+        print "option(SEEKDB_BUILD_PYTHON \"Build the seekdb Python extension\" ON)"
         print "if(SEEKDB_BUILD_PYTHON)"
         print "    add_subdirectory(python)"
         print "endif()"

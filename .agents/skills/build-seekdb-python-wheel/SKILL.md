@@ -1,6 +1,6 @@
 ---
 name: build-seekdb-python-wheel
-description: Build and verify pylibseekdb Python wheels from seekdb source on remote Linux x86_64 or macOS arm64 hosts. Use when a user asks to package seekdb from a commit, tag, or branch; the workflow fetches source through GitHub SSH, runs the seekdb-bindings build, applies release-only compiler policy, handles known remote failures, verifies both supported Python ABI wheels, and returns checksums and artifact paths.
+description: Build and verify seekdb Python wheels from seekdb source on remote Linux x86_64 or macOS arm64 hosts. Use when a user asks to package seekdb from a commit, tag, or branch; the workflow fetches source through GitHub SSH, runs the seekdb-bindings build, applies release-only compiler policy, handles known remote failures, verifies both supported Python ABI wheels, and returns checksums and artifact paths.
 ---
 
 # Build seekdb Python wheels
@@ -68,7 +68,7 @@ Limit this compatibility edit to the isolated build checkout.
 Run:
 
 ```bash
-./scripts/build-pylibseekdb-wheel.sh \
+./scripts/build-seekdb-wheel.sh \
   --build-seekdb \
   --seekdb-git-url git@github.com:oceanbase/seekdb.git \
   --seekdb-git-ref "$seekdb_ref" \
@@ -116,7 +116,7 @@ accept a dependency-heavy wheel.
 Run:
 
 ```bash
-./scripts/build-pylibseekdb-wheel.sh \
+./scripts/build-seekdb-wheel.sh \
   --build-seekdb \
   --seekdb-git-url git@github.com:oceanbase/seekdb.git \
   --seekdb-git-ref "$seekdb_ref" \

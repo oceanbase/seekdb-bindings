@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import pylibseekdb as seekdb
+import seekdb
 
 
 def run_native_smoke_test(instance=None):

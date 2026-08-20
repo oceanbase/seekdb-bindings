@@ -128,7 +128,7 @@ TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
 {
     fs::path long_db_dir = db_dir_;
     for (int i = 0; i < 4; ++i) {
-        long_db_dir /= "pylibseekdb-long-path-component-" + std::to_string(i);
+        long_db_dir /= "seekdb-long-path-component-" + std::to_string(i);
     }
     fs::create_directories(long_db_dir);
     ASSERT_GT((long_db_dir / "run/sql.sock").string().size(), 150U);
@@ -145,7 +145,7 @@ TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
 
     const std::string alias_dir = impl->socket_alias_dir;
     const std::string expected_prefix =
-        "/tmp/pylibseekdb-uds-" + std::to_string((long long)getpid()) + "-";
+        "/tmp/seekdb-uds-" + std::to_string((long long)getpid()) + "-";
     EXPECT_EQ(alias_dir.rfind(expected_prefix, 0), 0U);
     EXPECT_EQ(alias_dir.size(), expected_prefix.size() + 6);
     EXPECT_EQ(impl->sock_path, alias_dir + "/run/sql.sock");

@@ -75,18 +75,19 @@ else()
 endif()
 
 # ------ Build the extension ------
-nanobind_add_module(pylibseekdb STABLE_ABI src/bindings.cpp)
+nanobind_add_module(seekdb_python STABLE_ABI src/bindings.cpp)
 
-target_include_directories(pylibseekdb PRIVATE
+target_include_directories(seekdb_python PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../lib/include")
-target_link_libraries(pylibseekdb PRIVATE seekdb)
+target_link_libraries(seekdb_python PRIVATE seekdb)
 
 if(APPLE)
     set(_seekdb_rpath "@loader_path")
 else()
     set(_seekdb_rpath "\$ORIGIN")
 endif()
-set_target_properties(pylibseekdb PROPERTIES
+set_target_properties(seekdb_python PROPERTIES
+    OUTPUT_NAME              seekdb_binding
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     INSTALL_RPATH            "${_seekdb_rpath}"
@@ -95,23 +96,23 @@ set_target_properties(pylibseekdb PROPERTIES
 )
 
 if (SEEKDB_PYTHON_STANDALONE)
-    add_custom_command(TARGET pylibseekdb POST_BUILD
+    add_custom_command(TARGET seekdb_python POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_seekdb_lib}" "$<TARGET_FILE_DIR:pylibseekdb>"
+                "${_seekdb_lib}" "$<TARGET_FILE_DIR:seekdb_python>"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_seekdb_bin}" "$<TARGET_FILE_DIR:pylibseekdb>")
+                "${_seekdb_bin}" "$<TARGET_FILE_DIR:seekdb_python>")
 endif()
 
 if (SEEKDB_PYTHON_STANDALONE)
-    install(TARGETS pylibseekdb LIBRARY DESTINATION pylibseekdb)
-    install(FILES "${_seekdb_lib}" DESTINATION pylibseekdb)
-    install(PROGRAMS "${_seekdb_bin}" DESTINATION pylibseekdb)
+    install(TARGETS seekdb_python LIBRARY DESTINATION seekdb)
+    install(FILES "${_seekdb_lib}" DESTINATION seekdb)
+    install(PROGRAMS "${_seekdb_bin}" DESTINATION seekdb)
     install(FILES "${SEEKDB_LIB_DIR}/libaio.so.1"
-            DESTINATION pylibseekdb
+            DESTINATION seekdb
             OPTIONAL)
     if (WIN32)
         file(GLOB _seekdb_runtime_dlls "${SEEKDB_LIB_DIR}/*.dll")
-        install(FILES ${_seekdb_runtime_dlls} DESTINATION pylibseekdb)
+        install(FILES ${_seekdb_runtime_dlls} DESTINATION seekdb)
     endif()
 endif()
 

@@ -3,8 +3,8 @@ requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "pylibseekdb"
-version = "0.1.0"
+name = "seekdb"
+version = "1.4.0.dev1"
 description = "Python bindings for the seekdb C client"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -40,8 +40,8 @@ Documentation = "https://docs.seekdb.ai/"
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 cmake.source-dir = "."
-build.targets    = ["pylibseekdb"]
-wheel.packages   = ["pylibseekdb"]
+build.targets    = ["seekdb_python"]
+wheel.packages   = ["seekdb"]
 build-dir        = "../build/python/{wheel_tag}"
 # cp311 builds get cp311-cp311; cp312+ builds get cp312-abi3 (scikit-build-core behavior).
 wheel.py-api     = "cp312"
@@ -52,7 +52,7 @@ skip   = "*-musllinux_* *-win_*"
 build-verbosity = 1
 # {package} is the cibuildwheel package source dir (python/), not site-packages.
 test-requires = ["PyMySQL", "aiomysql"]
-test-command = "python {package}/tests/connection_options_test.py"
+test-command = "python {package}/tests/connection_options_test.py && python {package}/tests/compat_package_test.py"
 
 environment = { PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/" }
 

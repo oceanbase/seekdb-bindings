@@ -42,9 +42,9 @@ After configuration (per-platform commands below), choose a `make` target from i
 |---|---|
 | `make seekdb` | `libseekdb` (shared; `libseekdb_driver` symlink for compatibility) |
 | `make seekdb_cli` | `seekdb_cli` (interactive SQL client) |
-| `make pylibseekdb` | `pylibseekdb.cpython-*.so` (Python extension) |
+| `make seekdb_python` | `seekdb_binding.cpython-*.so` (Python extension) |
 | `make seekdb_tests` | `test_one_client_process`, `test_two_clients_threads` |
-| `make wheel` | `wheelhouse/pylibseekdb-*.whl` via cibuildwheel (runs Python integration tests per wheel) |
+| `make wheel` | `wheelhouse/seekdb-*.whl` via cibuildwheel (runs Python integration tests per wheel) |
 | `make verify-wheel` | Re-run Python integration tests against wheels in `build/wheelhouse/` |
 | `make` | everything above |
 
@@ -243,7 +243,7 @@ build/seekdb_cli [db_dir]
 
 ## Prepare Python environment
 
-`make pylibseekdb` and `make wheel` need a Python toolchain. Use a venv to keep `nanobind` (required by `make pylibseekdb` at configure time) and `cibuildwheel` (required by `make wheel`) out of the system Python.
+`make seekdb_python` and `make wheel` need a Python toolchain. Use a venv to keep `nanobind` (required by `make seekdb_python` at configure time) and `cibuildwheel` (required by `make wheel`) out of the system Python.
 
 ### Linux / Mac
 
@@ -267,26 +267,26 @@ If `Activate.ps1` is blocked by execution policy, allow it for this process only
 Set-ExecutionPolicy -Scope Process Bypass -Force
 ```
 
-`cibuildwheel` additionally needs Docker running on Linux (it builds inside the manylinux container — not needed on macOS / Windows). Wheel output lands at `build/wheelhouse/pylibseekdb-*.whl`. Each release produces **6 wheels** (3 platforms × 2 Python ABIs): `cp311-cp311` for Python 3.11, and `cp312-abi3` for Python 3.12+ (including 3.13 and 3.14) on linux x86_64, linux aarch64, and macOS arm64. See `python/pyproject.toml`.
+`cibuildwheel` additionally needs Docker running on Linux (it builds inside the manylinux container — not needed on macOS / Windows). Wheel output lands at `build/wheelhouse/seekdb-*.whl`. Each release produces **6 wheels** (3 platforms × 2 Python ABIs): `cp311-cp311` for Python 3.11, and `cp312-abi3` for Python 3.12+ (including 3.13 and 3.14) on linux x86_64, linux aarch64, and macOS arm64. See `python/pyproject.toml`.
 
 ### One-shot wheel build script
 
-`scripts/build-pylibseekdb-wheel.sh` orchestrates the full release flow: obtain a `seekdb` binary (local path, download URL, or source build), strip it while saving debug symbols, build `libseekdb`, and run `cibuildwheel`. By default it creates `.venv` in the repo root and installs `nanobind`, `cibuildwheel`, and `scikit-build-core` from `scripts/requirements-wheel-build.txt`. Use `--no-venv` or set `PYTHON=` to use a system interpreter instead.
+`scripts/build-seekdb-wheel.sh` orchestrates the full release flow: obtain a `seekdb` binary (local path, download URL, or source build), strip it while saving debug symbols, build `libseekdb`, and run `cibuildwheel`. By default it creates `.venv` in the repo root and installs `nanobind`, `cibuildwheel`, and `scikit-build-core` from `scripts/requirements-wheel-build.txt`. Use `--no-venv` or set `PYTHON=` to use a system interpreter instead.
 
 ```sh
 # Prebuilt seekdb binary
-./scripts/build-pylibseekdb-wheel.sh --seekdb-bin /path/to/seekdb
+./scripts/build-seekdb-wheel.sh --seekdb-bin /path/to/seekdb
 
 # Download a binary
-./scripts/build-pylibseekdb-wheel.sh --seekdb-url https://example.com/seekdb
+./scripts/build-seekdb-wheel.sh --seekdb-url https://example.com/seekdb
 
 # Build seekdb from git, then package wheels (manylinux_2_28 on Linux)
-./scripts/build-pylibseekdb-wheel.sh --build-seekdb \
+./scripts/build-seekdb-wheel.sh --build-seekdb \
   --seekdb-git-url https://github.com/oceanbase/seekdb.git \
   --seekdb-git-ref master
 
 # Override wheel version and target one Linux arch
-./scripts/build-pylibseekdb-wheel.sh --seekdb-bin /path/to/seekdb \
+./scripts/build-seekdb-wheel.sh --seekdb-bin /path/to/seekdb \
   --wheel-version 0.2.0 --platform linux --arch x86_64
 ```
 
@@ -298,7 +298,9 @@ The one-shot script now checks the staged seekdb before packaging, uses standard
 `delocate`, and then rejects wheels containing RE2/Abseil or more than 20
 bundled dylibs.
 
-Run `./scripts/build-pylibseekdb-wheel.sh --help` for all options. Debug symbols are written to `build/seekdb.debug` by default.
+Run `./scripts/build-seekdb-wheel.sh --help` for all options. Debug symbols are written to `build/seekdb.debug` by default.
+The former `build-pylibseekdb-wheel.sh` entry point remains as a deprecated
+one-release wrapper around the renamed script.
 
 **Linux: build seekdb inside manylinux.** The wheel must be ABI-compatible with `manylinux_2_28`, so the `seekdb` binary you point `SEEKDB_BIN` at also needs to be built against glibc 2.28. `scripts/build-seekdb-glibc228.sh` runs `seekdb`'s own `build.sh` inside the manylinux image:
 
@@ -318,7 +320,7 @@ SEEKDB_OUT_BIN=./build/seekdb ./scripts/build-seekdb-glibc228.sh
 ./scripts/build-seekdb-glibc228.sh release \
   --seekdb-cmake-arg -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN
 
-./scripts/build-pylibseekdb-wheel.sh --build-seekdb \
+./scripts/build-seekdb-wheel.sh --build-seekdb \
   --seekdb-cmake-arg -DDEFAULT_LOG_LEVEL=OB_LOG_LEVEL_DBA_WARN
 ```
 
@@ -330,7 +332,25 @@ path plus PyMySQL and aiomysql over the local endpoint. To verify wheels built
 another way:
 
 ```sh
-./scripts/verify-wheel.sh build/wheelhouse/pylibseekdb-*.whl
+./scripts/verify-wheel.sh build/wheelhouse/seekdb-*.whl
 ```
 
 Override the test script with `SEEKDB_TEST_PY=/path/to/seekdb_test.py` if needed.
+
+### Python package rename
+
+Starting with `1.4.0.dev1`, the wheel is installed and imported as `seekdb`:
+
+```sh
+pip install --pre seekdb==1.4.0.dev1
+```
+
+```python
+import seekdb
+```
+
+The preview wheel does not contain a `pylibseekdb` namespace. When `seekdb
+1.4.0` is released, `python/compat/pylibseekdb/` is the source for the final
+pure-Python `pylibseekdb 1.4.0` compatibility release. It depends on
+`seekdb==1.4.0`, preserves only the public top-level import, and emits a
+`DeprecationWarning`. Publish `seekdb 1.4.0` before that compatibility package.

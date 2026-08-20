@@ -1,4 +1,4 @@
-# pylibseekdb
+# seekdb
 
 Low-level Python bindings for the [seekdb](https://github.com/oceanbase/seekdb) C client library.
 
@@ -35,7 +35,7 @@ Built on the proven OceanBase SQL engine. Works as an embedded library, a single
 ## Installation
 
 ```bash
-pip install pylibseekdb
+pip install seekdb
 ```
 
 ### Requirements
@@ -46,11 +46,11 @@ pip install pylibseekdb
 
 ## 🎬 Quick Start
 
-`pylibseekdb` exposes a lightweight DB-API 2-style interface directly over the seekdb C driver.
+`seekdb` exposes a lightweight DB-API 2-style interface directly over the seekdb C driver.
 It currently starts a local seekdb runtime via `open()`. Native embedded-mode support will be released soon.
 
 ```python
-import pylibseekdb as seekdb
+import seekdb
 
 # Start a local seekdb runtime (embedded-mode support will be released soon)
 seekdb.open(db_dir="./seekdb.db")
@@ -98,7 +98,7 @@ One process can manage multiple local seekdb runtimes through the
 `SeekdbInstance` objects returned by `open()`:
 
 ```python
-import pylibseekdb as seekdb
+import seekdb
 
 first = seekdb.open("./first.db")
 second = seekdb.open("./second.db")
@@ -113,8 +113,8 @@ second.close()
 ```
 
 Each instance stores its local socket inside the normalized database directory.
-On macOS and Linux, pylibseekdb connects through a per-instance short alias under
-`/tmp/pylibseekdb-uds-<pid>-XXXXXX`, so long database paths do not exceed the
+On macOS and Linux, seekdb connects through a per-instance short alias under
+`/tmp/seekdb-uds-<pid>-XXXXXX`, so long database paths do not exceed the
 Unix socket pathname limit. The first successful `open()` also becomes the
 module's default instance, preserving the legacy
 `seekdb.connect()`, `seekdb.connection_options()`, and `seekdb.close()` API.
@@ -132,7 +132,7 @@ pip install PyMySQL
 
 ```python
 import pymysql
-import pylibseekdb as seekdb
+import seekdb
 
 instance = seekdb.open(db_dir="./seekdb.db")
 options = instance.connection_options()
@@ -168,7 +168,7 @@ pip install aiomysql
 import asyncio
 
 import aiomysql
-import pylibseekdb as seekdb
+import seekdb
 
 
 async def main():
