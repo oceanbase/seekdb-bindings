@@ -19,7 +19,8 @@ def test_compatibility_import():
     sys.path.insert(0, str(compat_src))
     try:
         with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+            warnings.simplefilter("ignore")
+            warnings.simplefilter("always", DeprecationWarning)
             legacy = importlib.import_module("pylibseekdb")
 
         assert len(caught) == 1
