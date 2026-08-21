@@ -67,7 +67,10 @@ jobs:
               'lib/tests/*.h' \
               'python/src/*.cc' \
               'python/src/*.cpp' \
-              'python/src/*.h'
+              'python/src/*.h' \
+              'js/src/*.cc' \
+              'js/src/*.cpp' \
+              'js/src/*.h'
           )
           if [ "${#files[@]}" -eq 0 ]; then
             echo "No clang-format-managed files changed."
@@ -328,6 +331,45 @@ jobs:
       - &run-tests
         name: Run tests
         run: ctest --test-dir build --output-on-failure
+
+  node-test:
+    name: Node.js binding build and test (Node ${{ matrix.node-version }})
+    needs: prepare-seekdb
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        node-version: ['18', '20', '22']
+
+    steps:
+      - *checkout-with-submodules
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - *download-seekdb-binary
+      - *set-seekdb-bin
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DSEEKDB_BIN=${{ env.SEEKDB_BIN }}
+
+      - *build-driver
+
+      - name: Build Node.js binding
+        run: |
+          set -euo pipefail
+          cd js
+          npm install --no-audit --no-fund
+          npm run build
+
+      - name: Run Node.js binding tests
+        run: |
+          set -euo pipefail
+          cd js
+          npm test
 
   asan-ubsan-test:
     name: ASan/UBSan build and test

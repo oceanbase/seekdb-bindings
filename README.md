@@ -13,6 +13,7 @@ seekdb-bindings/
 │   ├── src/                    library + CLI sources
 │   └── tests/                  gtest cases
 ├── python/                     nanobind module + cibuildwheel config
+├── js/                         JS bindings (node-addon-api + node-gyp), for Node/Bun/Deno
 ├── scripts/                    wheel build, seekdb manylinux build, verify-wheel, etc.
 └── deps/                       vendored mariadb-connector-c, googletest
 ```
@@ -49,6 +50,10 @@ After configuration (per-platform commands below), choose a `make` target from i
 | `make` | everything above |
 
 `build/seekdb` (a copy of `$SEEKDB_BIN`) ships alongside the library.
+
+The JS bindings in `js/` are **not** wired into this CMake build; they
+are built standalone with node-gyp against the prebuilt `libseekdb` (see
+[JS bindings](#js-bindings)).
 
 ### Linux
 
@@ -354,3 +359,81 @@ The preview wheel does not contain a `pylibseekdb` namespace. When `seekdb
 pure-Python `pylibseekdb 1.4.0` compatibility release. It depends on
 `seekdb==1.4.0`, preserves only the public top-level import, and emits a
 `DeprecationWarning`. Publish `seekdb 1.4.0` before that compatibility package.
+
+## JS bindings
+
+`js/` contains JavaScript bindings built with [node-addon-api](https://github.com/nodejs/node-addon-api)
+and node-gyp, modeled on the Python bindings above. The addon links `libseekdb`
+dynamically and ships the `seekdb` server binary inside the package, matching
+the Python wheel deployment layout. The same N-API addon runs under Node.js
+and Bun; Deno 2 loads it through npm packages (`nodeModulesDir: "auto"` plus
+the `--allow-ffi` permission).
+
+### Platform support
+
+| Platform      | Supported |
+| ------------- | --------- |
+| Linux x86_64  | yes       |
+| Linux aarch64 | yes       |
+| macOS arm64   | yes       |
+| Windows       | no        |
+
+Requires Node.js >= 16 (N-API version 8). CI baseline: Node LTS 18 / 20 / 22.
+
+### Build
+
+The Node bindings are **not** part of the top-level CMake build. Build the C
+SDK first (see [Build](#build)), then build the addon standalone:
+
+```sh
+cd js
+npm install          # runs node-gyp rebuild; links libseekdb from ../build
+```
+
+Point `SEEKDB_LIB_DIR` at another build directory if needed:
+
+```sh
+SEEKDB_LIB_DIR=/path/to/seekdb/build npm install
+```
+
+The `seekdb` server binary is auto-discovered next to `libseekdb` at runtime,
+so copy both next to the built addon before running:
+
+```sh
+cp ../build/libseekdb.* ../build/seekdb build/Release/
+```
+
+### Usage
+
+```js
+const seekdb = require('seekdb-js');
+
+// Async API (Promise-based)
+const instance = await seekdb.open('./seekdb.db');
+const connection = await instance.connect('test');
+const cursor = connection.cursor();
+await cursor.execute('create table t(c1 int, c2 varchar(64))');
+await cursor.execute('insert into t values (1, "hello")');
+await connection.commit();
+await cursor.execute('select c1, c2 from t');
+const rows = await cursor.fetchAll();
+console.log(rows); // [[1, "hello"]]
+await instance.close();
+```
+
+The API is async-only: every blocking call (`open`, `close`, `connect`, transaction
+calls, `execute`, `fetchOne`, `fetchAll`) returns a Promise and runs off the event
+loop. Only pure in-memory accessors (`cursor()`, `closed`, `dbDir`) are synchronous.
+See `js/README.md` for the value-type mapping, error handling, and the complete
+API list, and `js/lib/seekdb.d.ts` for TypeScript signatures.
+
+### Tests
+
+```bash
+cd js
+npm test
+```
+
+Tests use Node's built-in `node:test` runner and require the `seekdb` server
+binary next to the addon (copied as above).
+
