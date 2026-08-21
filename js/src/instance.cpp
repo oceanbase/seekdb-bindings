@@ -180,8 +180,8 @@ class ConnectionOptionsWorker : public Napi::AsyncWorker {
 
 class CloseWorker : public Napi::AsyncWorker {
   public:
-    CloseWorker(Napi::Env env, Napi::Promise::Deferred deferred, std::shared_ptr<InstanceState> instance,
-                std::string db_dir, bool erase)
+    CloseWorker(Napi::Env env, Napi::Promise::Deferred deferred,
+                std::shared_ptr<InstanceState> instance, std::string db_dir, bool erase)
         : Napi::AsyncWorker(env), deferred_(deferred), instance_(std::move(instance)),
           db_dir_(std::move(db_dir)), erase_(erase)
     {
@@ -223,15 +223,15 @@ class CloseWorker : public Napi::AsyncWorker {
 
 void SeekdbInstance::Init(Napi::Env env, Napi::Object exports)
 {
-    Napi::Function func = DefineClass(
-        env, "SeekdbInstance",
-        {
-            InstanceMethod("connect", &SeekdbInstance::Connect),
-            InstanceMethod("connectionOptions", &SeekdbInstance::ConnectionOptions),
-            InstanceMethod("close", &SeekdbInstance::Close),
-            InstanceAccessor("closed", &SeekdbInstance::GetClosed, nullptr),
-            InstanceAccessor("dbDir", &SeekdbInstance::GetDbDir, nullptr),
-        });
+    Napi::Function func =
+        DefineClass(env, "SeekdbInstance",
+                    {
+                        InstanceMethod("connect", &SeekdbInstance::Connect),
+                        InstanceMethod("connectionOptions", &SeekdbInstance::ConnectionOptions),
+                        InstanceMethod("close", &SeekdbInstance::Close),
+                        InstanceAccessor("closed", &SeekdbInstance::GetClosed, nullptr),
+                        InstanceAccessor("dbDir", &SeekdbInstance::GetDbDir, nullptr),
+                    });
     constructor = Napi::Persistent(func);
     exports.Set("SeekdbInstance", func);
 }
@@ -257,11 +257,10 @@ void SeekdbInstance::Adopt(std::string db_dir, std::shared_ptr<InstanceState> in
 Napi::Value SeekdbInstance::Connect(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
-    std::string database = info.Length() > 0 && info[0].IsString()
-                               ? info[0].As<Napi::String>().Utf8Value()
-                               : "test";
-    bool autocommit = info.Length() > 1 && info[1].IsBoolean() ? info[1].As<Napi::Boolean>().Value()
-                                                               : false;
+    std::string database =
+        info.Length() > 0 && info[0].IsString() ? info[0].As<Napi::String>().Utf8Value() : "test";
+    bool autocommit =
+        info.Length() > 1 && info[1].IsBoolean() ? info[1].As<Napi::Boolean>().Value() : false;
     std::shared_ptr<InstanceState> instance;
     {
         std::lock_guard<std::mutex> lock(mutex_);

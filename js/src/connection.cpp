@@ -11,10 +11,7 @@ ConnectionState::ConnectionState(SeekdbConnection c, std::shared_ptr<InstanceSta
 {
 }
 
-ConnectionState::~ConnectionState()
-{
-    reset();
-}
+ConnectionState::~ConnectionState() { reset(); }
 
 void ConnectionState::reset()
 {
@@ -92,8 +89,8 @@ class TrxWorker : public Napi::AsyncWorker {
   public:
     enum class Op { Begin, Commit, Rollback };
 
-    TrxWorker(Napi::Env env, Napi::Promise::Deferred deferred, std::shared_ptr<ConnectionState> conn,
-              Op op)
+    TrxWorker(Napi::Env env, Napi::Promise::Deferred deferred,
+              std::shared_ptr<ConnectionState> conn, Op op)
         : Napi::AsyncWorker(env), deferred_(deferred), conn_(std::move(conn)), op_(op)
     {
     }
@@ -179,8 +176,8 @@ Napi::Value MakeConnectionAsync(Napi::Env env, std::shared_ptr<InstanceState> in
                                 std::string database, bool autocommit)
 {
     auto deferred = Napi::Promise::Deferred::New(env);
-    auto *worker = new ConnectWorker(env, deferred, std::move(instance), std::move(database),
-                                     autocommit);
+    auto *worker =
+        new ConnectWorker(env, deferred, std::move(instance), std::move(database), autocommit);
     worker->Queue();
     return deferred.Promise();
 }
@@ -207,16 +204,16 @@ std::shared_ptr<ConnectionState> Connection::require_open(Napi::Env env)
 
 void Connection::Init(Napi::Env env, Napi::Object exports)
 {
-    Napi::Function func = DefineClass(
-        env, "Connection",
-        {
-            InstanceMethod("cursor", &Connection::Cursor),
-            InstanceMethod("begin", &Connection::Begin),
-            InstanceMethod("commit", &Connection::Commit),
-            InstanceMethod("rollback", &Connection::Rollback),
-            InstanceMethod("close", &Connection::Close),
-            InstanceAccessor("closed", &Connection::GetClosed, nullptr),
-        });
+    Napi::Function func =
+        DefineClass(env, "Connection",
+                    {
+                        InstanceMethod("cursor", &Connection::Cursor),
+                        InstanceMethod("begin", &Connection::Begin),
+                        InstanceMethod("commit", &Connection::Commit),
+                        InstanceMethod("rollback", &Connection::Rollback),
+                        InstanceMethod("close", &Connection::Close),
+                        InstanceAccessor("closed", &Connection::GetClosed, nullptr),
+                    });
     constructor = Napi::Persistent(func);
     exports.Set("Connection", func);
 }

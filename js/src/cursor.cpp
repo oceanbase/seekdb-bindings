@@ -6,21 +6,17 @@ namespace seekdb {
 // CursorState
 // ---------------------------------------------------------------------------
 
-CursorState::CursorState(std::shared_ptr<ConnectionState> conn) : conn_(std::move(conn))
-{
-}
+CursorState::CursorState(std::shared_ptr<ConnectionState> conn) : conn_(std::move(conn)) {}
 
-CursorState::~CursorState()
-{
-    free_result();
-}
+CursorState::~CursorState() { free_result(); }
 
 int64_t CursorState::execute(const std::string &sql)
 {
     if (!conn_ || !conn_->raw())
         throw SeekdbErrorC(SEEKDB_INVALID_ARGUMENT, "Cursor.execute: no connection");
     free_result();
-    const int rc = seekdb_query(conn_->raw(), sql.c_str(), static_cast<int64_t>(sql.size()), &result_);
+    const int rc =
+        seekdb_query(conn_->raw(), sql.c_str(), static_cast<int64_t>(sql.size()), &result_);
     if (rc != SEEKDB_SUCCESS) {
         int srv_errno = 0;
         const char *srv_msg = nullptr;
@@ -99,7 +95,10 @@ class ExecuteWorker : public Napi::AsyncWorker {
         }
     }
 
-    void OnOK() override { deferred_.Resolve(Napi::Number::New(Env(), static_cast<double>(affected_))); }
+    void OnOK() override
+    {
+        deferred_.Resolve(Napi::Number::New(Env(), static_cast<double>(affected_)));
+    }
 
     void OnError(const Napi::Error &e) override
     {
@@ -241,15 +240,14 @@ std::shared_ptr<CursorState> Cursor::require_open(Napi::Env env)
 
 void Cursor::Init(Napi::Env env, Napi::Object exports)
 {
-    Napi::Function func = DefineClass(
-        env, "Cursor",
-        {
-            InstanceMethod("execute", &Cursor::Execute),
-            InstanceMethod("fetchOne", &Cursor::FetchOne),
-            InstanceMethod("fetchAll", &Cursor::FetchAll),
-            InstanceMethod("close", &Cursor::Close),
-            InstanceAccessor("closed", &Cursor::GetClosed, nullptr),
-        });
+    Napi::Function func = DefineClass(env, "Cursor",
+                                      {
+                                          InstanceMethod("execute", &Cursor::Execute),
+                                          InstanceMethod("fetchOne", &Cursor::FetchOne),
+                                          InstanceMethod("fetchAll", &Cursor::FetchAll),
+                                          InstanceMethod("close", &Cursor::Close),
+                                          InstanceAccessor("closed", &Cursor::GetClosed, nullptr),
+                                      });
     constructor = Napi::Persistent(func);
     exports.Set("Cursor", func);
 }

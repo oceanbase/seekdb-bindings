@@ -147,7 +147,9 @@ class SeekdbInstance : public Napi::ObjectWrap<SeekdbInstance> {
   public:
     // ObjectWrap's ConstructorCallbackWrapper does `new T(callbackInfo)`,
     // so the constructor must be reachable from the base class template.
-    explicit SeekdbInstance(const Napi::CallbackInfo &info) : Napi::ObjectWrap<SeekdbInstance>(info) {}
+    explicit SeekdbInstance(const Napi::CallbackInfo &info) : Napi::ObjectWrap<SeekdbInstance>(info)
+    {
+    }
     static Napi::FunctionReference constructor;
 
     static void Init(Napi::Env env, Napi::Object exports);
@@ -156,7 +158,6 @@ class SeekdbInstance : public Napi::ObjectWrap<SeekdbInstance> {
     void Adopt(std::string db_dir, std::shared_ptr<InstanceState> instance);
 
   private:
-
     Napi::Value Connect(const Napi::CallbackInfo &info);
     Napi::Value ConnectionOptions(const Napi::CallbackInfo &info);
     Napi::Value Close(const Napi::CallbackInfo &info);
@@ -177,7 +178,6 @@ class Connection : public Napi::ObjectWrap<Connection> {
     void Adopt(std::shared_ptr<ConnectionState> state);
 
   private:
-
     std::shared_ptr<ConnectionState> require_open(Napi::Env env);
 
     Napi::Value Cursor(const Napi::CallbackInfo &info);
@@ -200,7 +200,6 @@ class Cursor : public Napi::ObjectWrap<Cursor> {
     void Adopt(std::shared_ptr<CursorState> state);
 
   private:
-
     std::shared_ptr<CursorState> require_open(Napi::Env env);
 
     Napi::Value Execute(const Napi::CallbackInfo &info);

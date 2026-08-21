@@ -19,8 +19,9 @@ void LastError(SeekdbConnection conn, int rc, int *out_errno, std::string *out_m
     if (conn)
         seekdb_last_error(conn, &srv_errno, &srv_msg);
     *out_errno = srv_errno;
-    *out_msg = (srv_msg && *srv_msg) ? srv_msg
-                                     : std::string("seekdb call failed (rc=") + std::to_string(rc) + ")";
+    *out_msg = (srv_msg && *srv_msg)
+                   ? srv_msg
+                   : std::string("seekdb call failed (rc=") + std::to_string(rc) + ")";
 }
 
 } // namespace seekdb

@@ -345,6 +345,8 @@ jobs:
     steps:
       - *checkout-with-submodules
 
+      - *setup-python
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
