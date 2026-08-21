@@ -51,6 +51,22 @@ const seekdb = require('../lib/index.js');
 const dbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seekdb-node-test-'));
 
 after(async () => {
+  // The seekdb server process spawned by libseekdb shuts down asynchronously
+  // after the last instance close; until then it may still be writing to
+  // <dbDir>/log. Retry the removal so the Linux CI runner does not hit
+  // ENOTEMPTY while the server is flushing its final log lines.
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      fs.rmSync(dbDir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if (err.code !== 'ENOTEMPTY' && err.code !== 'EBUSY' && err.code !== 'EAGAIN') {
+        throw err;
+      }
+      await sleep(100);
+    }
+  }
   fs.rmSync(dbDir, { recursive: true, force: true });
 });
 
