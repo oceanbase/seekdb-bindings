@@ -234,6 +234,10 @@ void SeekdbInstance::Init(Napi::Env env, Napi::Object exports)
                     });
     constructor = Napi::Persistent(func);
     exports.Set("SeekdbInstance", func);
+    // Reset the module-static constructor when the env is torn down. Without
+    // this the static FunctionReference is destroyed after V8 has already
+    // shut down, which SIGSEGVs on exit (Node 18/20).
+    env.AddCleanupHook([]() { SeekdbInstance::constructor.Reset(); });
 }
 
 Napi::Value SeekdbInstance::Open(const Napi::CallbackInfo &info)
