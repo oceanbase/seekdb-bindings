@@ -131,7 +131,13 @@ jobs:
           cd "$SEEKDB_DIR"
           # These packaging/test tools are not needed to build the seekdb target,
           # and their artifacts are not available to the GitHub runner.
-          sed -i -E '/^[^#].*(target=(obshell|obdeploy)|(lib)?obclient-)/d' deps/init/oceanbase.el9.x86_64.deps
+          DEP_PROFILE=deps/init/oceanbase.el9.x86_64.deps
+          UNAVAILABLE_TOOLS='^[^#]*(target=(obshell|obdeploy)|(lib)?obclient-)'
+          sed -i -E "/$UNAVAILABLE_TOOLS/d" "$DEP_PROFILE"
+          if grep -Eq "$UNAVAILABLE_TOOLS" "$DEP_PROFILE"; then
+            echo "unavailable seekdb tools remain in $DEP_PROFILE" >&2
+            exit 1
+          fi
           build_jobs=$(nproc)
           if [ "$build_jobs" -gt 3 ]; then
             build_jobs=3
