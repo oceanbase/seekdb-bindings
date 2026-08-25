@@ -47,13 +47,13 @@ typedef struct {
 /* Open a seekdb instance rooted at db_dir.
  *
  * parameters is an optional NULL-terminated array of key/value pairs:
- *   {"port", "3306", "memory_limit", "10G", "syslog_max_file", "1000", NULL}
+ *   {"port", "3306", "memory_budget", "10G", "syslog_max_file", "1000", NULL}
  *
  * Driver-reserved keys (consumed by libseekdb, not forwarded to the server):
  *   port — TCP port for connect; omit or "0" for local transport (UDS/pipe).
  *
  * All other keys are seekdb server parameters, passed as --parameter on first
- * init only. On first init the driver always seeds memory_limit=1G and
+ * init only. On first init the driver always seeds memory_budget=1G and
  * log_disk_size=2G unless the caller overrides them; additional server keys
  * may also be supplied. On restart, persisted values are kept (issue #26). */
 int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle);

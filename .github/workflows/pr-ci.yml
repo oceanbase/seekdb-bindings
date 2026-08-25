@@ -27,6 +27,7 @@ on:
 
 env:
   BUILD_TYPE: Debug
+  SEEKDB_BUILD_TYPE: release
   TEST_TARGET: seekdb_tests
   SEEKDB_ARTIFACT: seekdb-binary
 
@@ -82,16 +83,14 @@ jobs:
       contents: read
 
     steps:
-      - name: Normalize build type
+      - name: Validate seekdb build type
         shell: bash
         run: |
           set -euo pipefail
-          SEEKDB_BUILD_TYPE="${BUILD_TYPE,,}"
           case "$SEEKDB_BUILD_TYPE" in
             release|debug) ;;
-            *) echo "unsupported BUILD_TYPE: $BUILD_TYPE" >&2; exit 1 ;;
+            *) echo "unsupported SEEKDB_BUILD_TYPE: $SEEKDB_BUILD_TYPE" >&2; exit 1 ;;
           esac
-          echo "SEEKDB_BUILD_TYPE=$SEEKDB_BUILD_TYPE" >> "$GITHUB_ENV"
 
       - name: Restore cached seekdb binary
         id: seekdb_cache
@@ -130,6 +129,15 @@ jobs:
           rm -rf "$SEEKDB_DIR"
           git clone --depth 1 --branch master https://github.com/oceanbase/seekdb.git "$SEEKDB_DIR"
           cd "$SEEKDB_DIR"
+          # These packaging/test tools are not needed to build the seekdb target,
+          # and their artifacts are not available to the GitHub runner.
+          DEP_PROFILE=deps/init/oceanbase.el9.x86_64.deps
+          UNAVAILABLE_TOOLS='^[^#]*(target=(obshell|obdeploy)|(lib)?obclient-)'
+          sed -i -E "/$UNAVAILABLE_TOOLS/d" "$DEP_PROFILE"
+          if grep -Eq "$UNAVAILABLE_TOOLS" "$DEP_PROFILE"; then
+            echo "unavailable seekdb tools remain in $DEP_PROFILE" >&2
+            exit 1
+          fi
           build_jobs=$(nproc)
           if [ "$build_jobs" -gt 3 ]; then
             build_jobs=3
