@@ -93,25 +93,12 @@ jobs:
           esac
           echo "SEEKDB_BUILD_TYPE=$SEEKDB_BUILD_TYPE" >> "$GITHUB_ENV"
 
-      - name: Resolve seekdb revision
-        id: seekdb_revision
-        shell: bash
-        run: |
-          set -euo pipefail
-          SEEKDB_REVISION=$(git ls-remote https://github.com/oceanbase/seekdb.git refs/heads/master | awk '{print $1}')
-          if [[ ! "$SEEKDB_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "failed to resolve seekdb master revision: $SEEKDB_REVISION" >&2
-            exit 1
-          fi
-          echo "sha=$SEEKDB_REVISION" >> "$GITHUB_OUTPUT"
-          echo "SEEKDB_REVISION=$SEEKDB_REVISION" >> "$GITHUB_ENV"
-
       - name: Restore cached seekdb binary
         id: seekdb_cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/seekdb-binary-cache
-          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}-${{ steps.seekdb_revision.outputs.sha }}
+          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
 
       - name: Free Disk Space
         if: steps.seekdb_cache.outputs.cache-hit != 'true'
@@ -141,10 +128,7 @@ jobs:
           set -euo pipefail
           SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
           rm -rf "$SEEKDB_DIR"
-          git init "$SEEKDB_DIR"
-          git -C "$SEEKDB_DIR" remote add origin https://github.com/oceanbase/seekdb.git
-          git -C "$SEEKDB_DIR" fetch --depth 1 origin "$SEEKDB_REVISION"
-          git -C "$SEEKDB_DIR" checkout --detach "$SEEKDB_REVISION"
+          git clone --depth 1 --branch master https://github.com/oceanbase/seekdb.git "$SEEKDB_DIR"
           cd "$SEEKDB_DIR"
           build_jobs=$(nproc)
           if [ "$build_jobs" -gt 3 ]; then
@@ -190,7 +174,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/seekdb-binary-cache
-          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}-${{ steps.seekdb_revision.outputs.sha }}
+          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
 
       - name: Upload seekdb binary
         uses: actions/upload-artifact@v4
