@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import decimal
 import io
 import json
 
 import pymysql.converters
+import pylibseekdb
 
 from pylibseekdb._migration import (
     DbObject,
@@ -16,9 +18,12 @@ from pylibseekdb._migration import (
     SqlParseError,
     UnsupportedObject,
     _create_database_if_missing,
+    _object_comment,
+    dump_main,
     iter_sql_statements,
     order_views,
     parse_metadata_line,
+    prune_unsupported_views,
     quote_identifier,
     serialize_value,
     strip_view_definer,
@@ -52,6 +57,8 @@ def test_serialize_values():
     connection = EscapingConnection()
     assert serialize_value(connection, None) == "NULL"
     assert serialize_value(connection, b"\x00\n'\xff") == "0x000A27FF"
+    assert serialize_value(connection, b"") == "X''"
+    assert serialize_value(connection, memoryview(b"")) == "X''"
     assert serialize_value(connection, memoryview(b"\x01\x02")) == "0x0102"
     assert serialize_value(connection, True) == "1"
     assert serialize_value(connection, decimal.Decimal("12.340")) == "12.340"
@@ -90,7 +97,9 @@ def test_sql_stream_parser_reports_unterminated_input():
 
 def test_metadata_comments():
     metadata = DumpMetadata()
+    parse_metadata_line("-- seekdb-dump-format: 1", metadata)
     parse_metadata_line("-- seekdb-dump-incomplete: true", metadata)
+    parse_metadata_line("-- seekdb-dump-complete: true", metadata)
     skipped = {
         "kind": "TRIGGER",
         "database": "app",
@@ -104,7 +113,9 @@ def test_metadata_comments():
         '-- seekdb-dump-table: {"database":"app","rows":3,"table":"t"}',
         metadata,
     )
+    assert metadata.format_version == 1
     assert metadata.incomplete
+    assert metadata.complete
     assert metadata.skipped == [UnsupportedObject(**skipped)]
     assert metadata.expected_rows == {("app", "t"): 3}
 
@@ -127,6 +138,56 @@ def test_view_dependency_order():
     assert order_views(inventory) == [first, second, third]
 
 
+def test_prune_unsupported_views_transitively():
+    direct = DbObject("app", "direct", "VIEW")
+    indirect = DbObject("app", "indirect", "VIEW")
+    safe = DbObject("app", "safe", "VIEW")
+    views, dependencies, unsupported = prune_unsupported_views(
+        [direct, indirect, safe],
+        {
+            ("app", "direct"): set(),
+            ("app", "indirect"): {("app", "direct")},
+            ("app", "safe"): set(),
+        },
+        {("app", "direct"): {"outside"}},
+    )
+    assert views == [safe]
+    assert dependencies == {("app", "safe"): set()}
+    assert {(item.database, item.name) for item in unsupported} == {
+        ("app", "direct"),
+        ("app", "indirect"),
+    }
+
+
+def test_object_comments_cannot_emit_sql():
+    malicious_name = "evil\n; SELECT 424242; -- comment"
+    comment = _object_comment("Table", "app", malicious_name)
+    assert comment.count("\n") == 1
+    assert "\\n" in comment
+    sql = comment + f"CREATE TABLE {quote_identifier(malicious_name)} (`id` INT);\n"
+    statements = list(iter_sql_statements(io.StringIO(sql)))
+    assert len(statements) == 1
+    assert "SELECT 424242" in statements[0][1]
+
+
+def test_seekdb_error_is_reported_without_traceback():
+    original_open = pylibseekdb.open
+
+    def fail_open(_db_dir):
+        raise pylibseekdb.SeekdbError("forced startup failure")
+
+    pylibseekdb.open = fail_open
+    stderr = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(stderr):
+            assert dump_main(["unused.db"]) == 1
+    finally:
+        pylibseekdb.open = original_open
+    output = stderr.getvalue()
+    assert "ERROR: forced startup failure" in output
+    assert "Traceback" not in output
+
+
 def main():
     test_identifiers_and_ddl_rewrites()
     test_serialize_values()
@@ -134,6 +195,9 @@ def main():
     test_sql_stream_parser_reports_unterminated_input()
     test_metadata_comments()
     test_view_dependency_order()
+    test_prune_unsupported_views_transitively()
+    test_object_comments_cannot_emit_sql()
+    test_seekdb_error_is_reported_without_traceback()
     print("migration tests passed")
 
 

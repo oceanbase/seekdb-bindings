@@ -77,7 +77,9 @@ class DumpInventory:
 
 @dataclasses.dataclass
 class DumpMetadata:
+    format_version: int | None = None
     incomplete: bool = False
+    complete: bool = False
     skipped: list[UnsupportedObject] = dataclasses.field(default_factory=list)
     expected_rows: dict[tuple[str, str], int] = dataclasses.field(default_factory=dict)
 
@@ -185,6 +187,48 @@ def _fetch_unsupported_schema_objects(
     return unsupported
 
 
+def prune_unsupported_views(
+    views: list[DbObject],
+    view_dependencies: dict[tuple[str, str], set[tuple[str, str]]],
+    external_dependencies: dict[tuple[str, str], set[str]],
+) -> tuple[
+    list[DbObject],
+    dict[tuple[str, str], set[tuple[str, str]]],
+    list[UnsupportedObject],
+]:
+    skipped: dict[tuple[str, str], str] = {}
+    for key, databases in external_dependencies.items():
+        names = ", ".join(repr(name) for name in sorted(databases, key=str.casefold))
+        skipped[key] = f"depends on unselected database(s): {names}"
+
+    changed = True
+    while changed:
+        changed = False
+        for key, dependencies in view_dependencies.items():
+            if key in skipped:
+                continue
+            blocked = sorted(dependency for dependency in dependencies if dependency in skipped)
+            if blocked:
+                names = ", ".join(f"{database}.{name}" for database, name in blocked)
+                skipped[key] = f"depends on skipped view(s): {names}"
+                changed = True
+
+    exported_views = [
+        view for view in views if (view.database, view.name) not in skipped
+    ]
+    exported_keys = {(view.database, view.name) for view in exported_views}
+    exported_dependencies = {
+        key: {dependency for dependency in dependencies if dependency in exported_keys}
+        for key, dependencies in view_dependencies.items()
+        if key in exported_keys
+    }
+    unsupported = [
+        UnsupportedObject("VIEW", database, name, reason)
+        for (database, name), reason in skipped.items()
+    ]
+    return exported_views, exported_dependencies, unsupported
+
+
 def inspect_dump(cursor: Cursor, requested_databases: list[str]) -> DumpInventory:
     available = fetch_scalar_rows(cursor, "SHOW DATABASES")
     user_databases = sorted(name for name in available if not is_system_database(name))
@@ -228,6 +272,7 @@ def inspect_dump(cursor: Cursor, requested_databases: list[str]) -> DumpInventor
 
     view_keys = {(view.database, view.name) for view in views}
     view_dependencies = {key: set() for key in view_keys}
+    external_dependencies: dict[tuple[str, str], set[str]] = {}
     if views:
         placeholders = _placeholders(databases)
         try:
@@ -252,14 +297,12 @@ def inspect_dump(cursor: Cursor, requested_databases: list[str]) -> DumpInventor
                 not is_system_database(dependency[0])
                 and dependency[0].casefold() not in selected_databases
             ):
-                unsupported.append(
-                    UnsupportedObject(
-                        "VIEW",
-                        view_key[0],
-                        view_key[1],
-                        f"depends on database {dependency[0]!r}, which is not selected",
-                    )
-                )
+                external_dependencies.setdefault(view_key, set()).add(dependency[0])
+
+    views, view_dependencies, unsupported_views = prune_unsupported_views(
+        views, view_dependencies, external_dependencies
+    )
+    unsupported.extend(unsupported_views)
 
     return DumpInventory(
         databases=databases,
@@ -288,7 +331,14 @@ def order_views(inventory: DumpInventory) -> list[DbObject]:
 
 
 def _json_comment(prefix: str, payload: dict[str, Any]) -> str:
-    return f"-- seekdb-dump-{prefix}: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}\n"
+    return f"-- seekdb-dump-{prefix}: {json.dumps(payload, ensure_ascii=True, sort_keys=True)}\n"
+
+
+def _object_comment(kind: str, database: str, name: str | None = None) -> str:
+    payload = {"kind": kind, "database": database}
+    if name is not None:
+        payload["name"] = name
+    return _json_comment("object", payload)
 
 
 def write_dump_header(output: TextIO, unsupported: list[UnsupportedObject]) -> None:
@@ -309,16 +359,20 @@ def write_dump_header(output: TextIO, unsupported: list[UnsupportedObject]) -> N
     output.write("SET NAMES utf8mb4;\n")
     output.write("SET @OLD_SQL_MODE=@@SQL_MODE;\n")
     output.write("SET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n")
+    output.write("SET @OLD_TIME_ZONE=@@TIME_ZONE;\n")
+    output.write("SET TIME_ZONE='+00:00';\n")
     output.write("SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS;\n")
     output.write("SET FOREIGN_KEY_CHECKS=0;\n\n")
 
 
 def write_dump_footer(output: TextIO) -> None:
     output.write("\nSET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;\n")
+    output.write("SET TIME_ZONE=@OLD_TIME_ZONE;\n")
     output.write("SET SQL_MODE=@OLD_SQL_MODE;\n")
     output.write("SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT;\n")
     output.write("SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS;\n")
     output.write("SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION;\n")
+    output.write("-- seekdb-dump-complete: true\n")
 
 
 def _show_create(cursor: Cursor, kind: str, database: str, name: str | None = None) -> str:
@@ -357,7 +411,8 @@ def serialize_value(connection: pymysql.Connection, value: Any) -> str:
     if value is None:
         return "NULL"
     if isinstance(value, (bytes, bytearray, memoryview)):
-        return "0x" + bytes(value).hex().upper()
+        raw = bytes(value)
+        return "X''" if not raw else "0x" + raw.hex().upper()
     if isinstance(value, bool):
         return "1" if value else "0"
     if isinstance(
@@ -441,17 +496,17 @@ def dump_database(connection: pymysql.Connection, output: TextIO, inventory: Dum
     with connection.cursor(Cursor) as cursor:
         for database in inventory.databases:
             ddl = _create_database_if_missing(_show_create(cursor, "DATABASE", database))
-            output.write(f"\n-- Database: {quote_identifier(database)}\n{ddl};\n")
+            output.write(f"\n{_object_comment('Database', database)}{ddl};\n")
 
         for table in inventory.tables:
             ddl = _show_create(cursor, "TABLE", table.database, table.name)
             output.write(
-                f"\n-- Table: {qualified_name(table.database, table.name)}\n"
+                f"\n{_object_comment('Table', table.database, table.name)}"
                 f"USE {quote_identifier(table.database)};\n{ddl};\n"
             )
 
     for table in inventory.tables:
-        output.write(f"\n-- Data: {qualified_name(table.database, table.name)}\n")
+        output.write(f"\n{_object_comment('Data', table.database, table.name)}")
         row_count = _dump_table_data(connection, output, table)
         output.write(
             _json_comment(
@@ -464,7 +519,7 @@ def dump_database(connection: pymysql.Connection, output: TextIO, inventory: Dum
         for view in order_views(inventory):
             ddl = strip_view_definer(_show_create(cursor, "VIEW", view.database, view.name))
             output.write(
-                f"\n-- View: {qualified_name(view.database, view.name)}\n"
+                f"\n{_object_comment('View', view.database, view.name)}"
                 f"USE {quote_identifier(view.database)};\n{ddl};\n"
             )
     write_dump_footer(output)
@@ -524,6 +579,7 @@ def run_dump(args: argparse.Namespace) -> int:
             report_unsupported(inventory.unsupported, error=False)
 
         with connection.cursor(Cursor) as cursor:
+            cursor.execute("SET SESSION time_zone='+00:00'")
             cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             cursor.execute("START TRANSACTION WITH CONSISTENT SNAPSHOT")
         try:
@@ -543,10 +599,20 @@ def parse_metadata_line(line: str, metadata: DumpMetadata) -> None:
         return
     key, raw_value = match.groups()
     try:
-        if key == "incomplete":
+        if key == "format":
+            metadata.format_version = int(raw_value)
+            if metadata.format_version != FORMAT_VERSION:
+                raise MigrationError(
+                    f"unsupported seekdb dump format {metadata.format_version}"
+                )
+        elif key == "incomplete":
             if raw_value.casefold() not in {"true", "false"}:
                 raise ValueError("expected true or false")
             metadata.incomplete = raw_value.casefold() == "true"
+        elif key == "complete":
+            if raw_value.casefold() not in {"true", "false"}:
+                raise ValueError("expected true or false")
+            metadata.complete = raw_value.casefold() == "true"
         elif key == "skipped":
             value = json.loads(raw_value)
             metadata.skipped.append(UnsupportedObject(**value))
@@ -727,6 +793,10 @@ def run_restore(args: argparse.Namespace) -> int:
                         raise MigrationError(
                             f"line {line}: {statement_summary(statement)}: {exc}"
                         ) from exc
+            if metadata.format_version is not None and not metadata.complete:
+                raise MigrationError(
+                    "seekdb dump is incomplete or truncated: end marker not found"
+                )
             validate_row_counts(connection, metadata)
     finally:
         if should_close:
@@ -787,7 +857,7 @@ def cli_main(
         with contextlib.suppress(OSError):
             sys.stdout.close()
         return 1
-    except (MigrationError, OSError, pymysql.MySQLError) as exc:
+    except (MigrationError, OSError, pymysql.MySQLError, pylibseekdb.SeekdbError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
