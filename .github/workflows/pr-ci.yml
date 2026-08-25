@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - pylibseekdb
     paths-ignore:
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
@@ -86,11 +87,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SEEKDB_BUILD_TYPE="${BUILD_TYPE,,}"
-          case "$SEEKDB_BUILD_TYPE" in
+          BINDINGS_BUILD_TYPE="${BUILD_TYPE,,}"
+          case "$BINDINGS_BUILD_TYPE" in
             release|debug) ;;
             *) echo "unsupported BUILD_TYPE: $BUILD_TYPE" >&2; exit 1 ;;
           esac
+          # The bindings retain their requested Debug/Release configuration,
+          # but upstream seekdb's build.sh only supports release and rpm.
+          SEEKDB_BUILD_TYPE=release
           echo "SEEKDB_BUILD_TYPE=$SEEKDB_BUILD_TYPE" >> "$GITHUB_ENV"
 
       - name: Restore cached seekdb binary
@@ -243,11 +247,13 @@ jobs:
         name: Build Python binding
         run: cmake --build build --target pylibseekdb --parallel
 
-      - name: Verify Python external driver integration
+      - name: Verify Python migration and external driver integration
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --no-build-isolation ./python
+          python python/tests/migration_test.py
+          python python/tests/migration_integration_test.py
           python python/tests/connection_options_test.py
 
       - &verify-python-binding-contract

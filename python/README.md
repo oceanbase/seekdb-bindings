@@ -38,6 +38,43 @@ Built on the proven OceanBase SQL engine. Works as an embedded library, a single
 pip install pylibseekdb
 ```
 
+## Logical version migration
+
+`pylibseekdb` installs `seekdb-dump` and `seekdb-restore` for migrating an
+embedded database without opening an old data directory with a new runtime.
+Stop all application writes and DDL, then create the dump while the old wheel
+is still installed:
+
+```bash
+seekdb-dump ./old.db -o backup.sql
+```
+
+After installing the new wheel, restore into a new or otherwise empty instance:
+
+```bash
+seekdb-restore ./new.db backup.sql
+```
+
+The dump is mysql-compatible SQL, so stdout, stdin, and external compression
+can be used:
+
+```bash
+seekdb-dump ./old.db | gzip > backup.sql.gz
+gzip -dc backup.sql.gz | seekdb-restore ./new.db
+```
+
+By default all user databases are included. Repeat `--database NAME` to select
+specific databases. System databases, users, and grants are never exported.
+Tables, their data and indexes, and ordinary views are supported. Triggers,
+stored routines, events, materialized views, and unknown object types are
+reported before any SQL is written and make the command fail. To deliberately
+create a partial dump, use `--ignore-unsupported`. Restore warns with the
+skipped-object list and continues without those objects.
+
+`seekdb-restore` refuses a target containing any user table or view. A failed
+restore can contain already-applied DDL, so discard that target and retry with
+an empty instance.
+
 ### Requirements
 
 - CPython >= 3.11
@@ -123,11 +160,11 @@ Use the object methods for additional instances.
 
 ### Connect with PyMySQL
 
-`connection_options()` returns endpoint and authentication arguments
-shared by Python MySQL-protocol drivers. Install the driver separately:
+`connection_options()` returns endpoint and authentication arguments shared by
+Python MySQL-protocol drivers. PyMySQL is installed with `pylibseekdb`:
 
 ```bash
-pip install PyMySQL
+pip install pylibseekdb
 ```
 
 ```python
