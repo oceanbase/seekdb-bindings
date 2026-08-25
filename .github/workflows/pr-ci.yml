@@ -27,6 +27,7 @@ on:
 
 env:
   BUILD_TYPE: Debug
+  SEEKDB_BUILD_TYPE: release
   TEST_TARGET: seekdb_tests
   SEEKDB_ARTIFACT: seekdb-binary
 
@@ -82,16 +83,14 @@ jobs:
       contents: read
 
     steps:
-      - name: Normalize build type
+      - name: Validate seekdb build type
         shell: bash
         run: |
           set -euo pipefail
-          SEEKDB_BUILD_TYPE="${BUILD_TYPE,,}"
           case "$SEEKDB_BUILD_TYPE" in
             release|debug) ;;
-            *) echo "unsupported BUILD_TYPE: $BUILD_TYPE" >&2; exit 1 ;;
+            *) echo "unsupported SEEKDB_BUILD_TYPE: $SEEKDB_BUILD_TYPE" >&2; exit 1 ;;
           esac
-          echo "SEEKDB_BUILD_TYPE=$SEEKDB_BUILD_TYPE" >> "$GITHUB_ENV"
 
       - name: Restore cached seekdb binary
         id: seekdb_cache
