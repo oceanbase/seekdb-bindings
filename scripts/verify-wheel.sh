@@ -3,9 +3,19 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_PY="${SEEKDB_TEST_PY:-$REPO_ROOT/python/tests/connection_options_test.py}"
+MIGRATION_TEST_PY="$REPO_ROOT/python/tests/migration_test.py"
+MIGRATION_INTEGRATION_TEST_PY="$REPO_ROOT/python/tests/migration_integration_test.py"
 
 if [ ! -f "$TEST_PY" ]; then
   echo "error: wheel test script not found: $TEST_PY" >&2
+  exit 1
+fi
+if [ ! -f "$MIGRATION_TEST_PY" ]; then
+  echo "error: migration test script not found: $MIGRATION_TEST_PY" >&2
+  exit 1
+fi
+if [ ! -f "$MIGRATION_INTEGRATION_TEST_PY" ]; then
+  echo "error: migration integration test script not found: $MIGRATION_INTEGRATION_TEST_PY" >&2
   exit 1
 fi
 
@@ -46,7 +56,10 @@ verify_one_wheel() (
   python -m pip install -q "$wheel" PyMySQL aiomysql
 
   mkdir -p "$tmp/work"
-  (cd "$tmp/work" && python "$TEST_PY")
+  (cd "$tmp/work" && \
+    python "$MIGRATION_TEST_PY" && \
+    python "$MIGRATION_INTEGRATION_TEST_PY" && \
+    python "$TEST_PY")
 )
 
 if [ "$#" -eq 0 ]; then

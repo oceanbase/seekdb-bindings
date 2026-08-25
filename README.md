@@ -241,6 +241,23 @@ build/seekdb_cli [db_dir]
 
 `db_dir` defaults to `./seekdb.db` (created if missing). The seekdb binary is auto-discovered next to `libseekdb`.
 
+## Migrate an embedded database
+
+The Python wheel installs logical dump and restore commands. Keep the old wheel
+installed while dumping, stop application writes and DDL, then restore with the
+new wheel into an empty instance:
+
+```sh
+seekdb-dump ./old.db -o backup.sql
+seekdb-restore ./new.db backup.sql
+```
+
+The output is mysql-compatible SQL and supports pipelines such as
+`seekdb-dump ./old.db | gzip > backup.sql.gz`. Tables, indexes, data, and views
+are exported. Unsupported objects are printed before output and fail the dump;
+`--ignore-unsupported` creates an explicitly incomplete dump. Restore prints
+the skipped-object list as a warning and continues with the supported objects.
+
 ## Prepare Python environment
 
 `make pylibseekdb` and `make wheel` need a Python toolchain. Use a venv to keep `nanobind` (required by `make pylibseekdb` at configure time) and `cibuildwheel` (required by `make wheel`) out of the system Python.

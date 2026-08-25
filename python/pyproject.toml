@@ -15,6 +15,7 @@ authors = [
 maintainers = [
     { name = "OceanBase", email = "open_oceanbase@oceanbase.com" },
 ]
+dependencies = ["PyMySQL>=1.1"]
 keywords = ["seekdb", "vector", "database", "search", "AI", "embeddings", "hybrid-search"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -37,6 +38,10 @@ Repository = "https://github.com/oceanbase/seekdb-bindings"
 Documentation = "https://docs.seekdb.ai/"
 "Bug Tracker" = "https://github.com/oceanbase/seekdb/issues"
 
+[project.scripts]
+seekdb-dump = "pylibseekdb.dump:main"
+seekdb-restore = "pylibseekdb.restore:main"
+
 [tool.scikit-build]
 minimum-version = "build-system.requires"
 cmake.source-dir = "."
@@ -52,7 +57,11 @@ skip   = "*-musllinux_* *-win_*"
 build-verbosity = 1
 # {package} is the cibuildwheel package source dir (python/), not site-packages.
 test-requires = ["PyMySQL", "aiomysql"]
-test-command = "python {package}/tests/connection_options_test.py"
+test-command = [
+    "python {package}/tests/migration_test.py",
+    "python {package}/tests/migration_integration_test.py",
+    "python {package}/tests/connection_options_test.py",
+]
 
 environment = { PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/" }
 
