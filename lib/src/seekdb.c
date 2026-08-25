@@ -449,7 +449,7 @@ static int resolve_bin_path(char *buf, size_t buflen)
     return SEEKDB_SUCCESS;
 }
 
-static const char *default_parameters[] = {"memory_limit", "1G", "log_disk_size", "2G", NULL};
+static const char *default_parameters[] = {"memory_budget", "1G", "log_disk_size", "2G", NULL};
 
 static int count_null_terminated(const char *const *arr)
 {
@@ -741,7 +741,7 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     /* seekdb writes its data files under <db_dir>/store/sstable only after it
      * has bootstrapped this data directory, so a non-empty store/sstable means
      * we're restarting an existing instance rather than initializing a fresh
-     * one. We seed the default parameters (memory_limit, log_disk_size) ONLY on
+     * one. We seed the default parameters (memory_budget, log_disk_size) ONLY on
      * first init; on restart we must not pass --parameter, otherwise the command
      * line would clobber values the user changed and seekdb persisted (issue #26).
      *

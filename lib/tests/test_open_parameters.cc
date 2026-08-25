@@ -109,7 +109,7 @@ class OpenParameters : public ::testing::Test {
 
 TEST_F(OpenParameters, RejectsOddParameterCount)
 {
-    const char *bad[] = {"memory_limit", "10G", "only_key", NULL};
+    const char *bad[] = {"memory_budget", "10G", "only_key", NULL};
     SeekdbHandle h = nullptr;
     EXPECT_EQ(seekdb_open(db_dir_.c_str(), bad, &h), SEEKDB_INVALID_ARGUMENT);
     EXPECT_EQ(h, nullptr);
@@ -185,10 +185,10 @@ TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, nullptr, true, &c), SEEKDB_SUCCESS);
 
-    const std::string memory_limit = read_parameter(c, "memory_limit");
-    ASSERT_FALSE(memory_limit.empty()) << "could not read memory_limit";
-    EXPECT_NE(memory_limit.find("1G"), std::string::npos)
-        << "expected default memory_limit=1G when only port is provided, got '" << memory_limit
+    const std::string memory_budget = read_parameter(c, "memory_budget");
+    ASSERT_FALSE(memory_budget.empty()) << "could not read memory_budget";
+    EXPECT_NE(memory_budget.find("1G"), std::string::npos)
+        << "expected default memory_budget=1G when only port is provided, got '" << memory_budget
         << "'";
 
     seekdb_disconnect(c);
@@ -197,7 +197,7 @@ TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
 
 TEST_F(OpenParameters, PartialUserParametersStillSeedDefaults)
 {
-    const char *parameters[] = {"memory_limit", "10G", NULL};
+    const char *parameters[] = {"memory_budget", "10G", NULL};
 
     SeekdbHandle h = nullptr;
     ASSERT_EQ(seekdb_open(db_dir_.c_str(), parameters, &h), SEEKDB_SUCCESS);
@@ -208,10 +208,10 @@ TEST_F(OpenParameters, PartialUserParametersStillSeedDefaults)
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, nullptr, true, &c), SEEKDB_SUCCESS);
 
-    const std::string memory_limit = read_parameter(c, "memory_limit");
-    ASSERT_FALSE(memory_limit.empty()) << "could not read memory_limit";
-    EXPECT_NE(memory_limit.find("10G"), std::string::npos)
-        << "expected user memory_limit=10G, got '" << memory_limit << "'";
+    const std::string memory_budget = read_parameter(c, "memory_budget");
+    ASSERT_FALSE(memory_budget.empty()) << "could not read memory_budget";
+    EXPECT_NE(memory_budget.find("10G"), std::string::npos)
+        << "expected user memory_budget=10G, got '" << memory_budget << "'";
 
     const std::string log_disk_size = read_parameter(c, "log_disk_size");
     ASSERT_FALSE(log_disk_size.empty()) << "could not read log_disk_size";
@@ -224,7 +224,7 @@ TEST_F(OpenParameters, PartialUserParametersStillSeedDefaults)
 
 TEST_F(OpenParameters, SeedsUserProvidedParametersOnFirstInit)
 {
-    const char *parameters[] = {"memory_limit", "10G", "log_disk_size", "4G", NULL};
+    const char *parameters[] = {"memory_budget", "10G", "log_disk_size", "4G", NULL};
 
     SeekdbHandle h = nullptr;
     ASSERT_EQ(seekdb_open(db_dir_.c_str(), parameters, &h), SEEKDB_SUCCESS);
@@ -235,10 +235,10 @@ TEST_F(OpenParameters, SeedsUserProvidedParametersOnFirstInit)
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, nullptr, true, &c), SEEKDB_SUCCESS);
 
-    const std::string memory_limit = read_parameter(c, "memory_limit");
-    ASSERT_FALSE(memory_limit.empty()) << "could not read memory_limit";
-    EXPECT_NE(memory_limit.find("10G"), std::string::npos)
-        << "expected memory_limit to include 10G, got '" << memory_limit << "'";
+    const std::string memory_budget = read_parameter(c, "memory_budget");
+    ASSERT_FALSE(memory_budget.empty()) << "could not read memory_budget";
+    EXPECT_NE(memory_budget.find("10G"), std::string::npos)
+        << "expected memory_budget to include 10G, got '" << memory_budget << "'";
 
     const std::string log_disk_size = read_parameter(c, "log_disk_size");
     ASSERT_FALSE(log_disk_size.empty()) << "could not read log_disk_size";
