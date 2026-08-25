@@ -129,6 +129,9 @@ jobs:
           rm -rf "$SEEKDB_DIR"
           git clone --depth 1 --branch master https://github.com/oceanbase/seekdb.git "$SEEKDB_DIR"
           cd "$SEEKDB_DIR"
+          # These packaging/test tools are not needed to build the seekdb target,
+          # and their repositories are only reachable from the internal network.
+          sed -i -E '/^[^#].*target=(obshell|obdeploy)$/d' deps/init/oceanbase.el9.x86_64.deps
           build_jobs=$(nproc)
           if [ "$build_jobs" -gt 3 ]; then
             build_jobs=3
