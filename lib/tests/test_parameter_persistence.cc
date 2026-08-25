@@ -2,15 +2,15 @@
 // a restart and not be clobbered by the defaults the driver seeds on first
 // init.
 //
-// seekdb_open seeds `--parameter memory_limit=1G --parameter log_disk_size=2G`
+// seekdb_open seeds `--parameter memory_budget=1G --parameter log_disk_size=2G`
 // only when the data dir is fresh (store/sstable empty). On a restart it must
 // NOT pass --parameter, otherwise the command line overrides whatever the user
 // changed and seekdb persisted. This test:
 //
-//   1. opens a fresh db_dir (first init seeds memory_limit=1G),
-//   2. changes memory_limit via ALTER SYSTEM SET and confirms it took effect,
+//   1. opens a fresh db_dir (first init seeds memory_budget=1G),
+//   2. changes memory_budget via ALTER SYSTEM SET and confirms it took effect,
 //   3. fully shuts the server down,
-//   4. re-opens (restart path) and asserts memory_limit is still the changed
+//   4. re-opens (restart path) and asserts memory_budget is still the changed
 //      value — not reset back to the seeded default.
 //
 // Env:
@@ -99,7 +99,7 @@ std::string read_parameter(SeekdbConnection c, const std::string &name)
 // Drop the client handle (releases the SH clients lock), then hard-kill the
 // spawned daemon and reap it, so the next seekdb_open is forced down the spawn
 // (restart) path. seekdb does not stop on SIGTERM, so we SIGKILL (graceful=0);
-// the memory_limit change is already persisted by the time we get here (we let
+// the memory_budget change is already persisted by the time we get here (we let
 // it settle before shutting down), so a hard kill is safe for this test.
 void shutdown_server(SeekdbHandle h, int64_t pid)
 {
@@ -135,10 +135,10 @@ class ParameterPersistence : public ::testing::Test {
     }
 };
 
-TEST_F(ParameterPersistence, ChangedMemoryLimitSurvivesRestart)
+TEST_F(ParameterPersistence, ChangedMemoryBudgetSurvivesRestart)
 {
     // --- first init: store/sstable is empty, so the driver seeds the default
-    //     --parameter memory_limit=1G ---
+    //     --parameter memory_budget=1G ---
     SeekdbHandle h1 = nullptr;
     ASSERT_EQ(seekdb_open(db_dir_.c_str(), NULL, &h1), SEEKDB_SUCCESS);
     ASSERT_NE(h1, nullptr);
@@ -154,23 +154,23 @@ TEST_F(ParameterPersistence, ChangedMemoryLimitSurvivesRestart)
     SeekdbConnection c1 = nullptr;
     ASSERT_EQ(seekdb_connect(h1, nullptr, true, &c1), SEEKDB_SUCCESS);
 
-    const std::string seeded = read_parameter(c1, "memory_limit");
-    ASSERT_FALSE(seeded.empty()) << "could not read memory_limit after first init";
+    const std::string seeded = read_parameter(c1, "memory_budget");
+    ASSERT_FALSE(seeded.empty()) << "could not read memory_budget after first init";
 
     // Change it to a non-default value. '2G' differs from the seeded 1G, so a
     // restart that wrongly re-seeds 1G would be detectable.
-    const char *alter = "ALTER SYSTEM SET memory_limit = '2G'";
+    const char *alter = "ALTER SYSTEM SET memory_budget = '2G'";
     SeekdbResult r = nullptr;
     ASSERT_EQ(seekdb_query(c1, alter, (int64_t)std::strlen(alter), &r), SEEKDB_SUCCESS)
-        << "ALTER SYSTEM SET memory_limit failed";
+        << "ALTER SYSTEM SET memory_budget failed";
     if (r)
         seekdb_result_free(r);
 
     // Let the server apply + persist the change before we shut it down.
     std::this_thread::sleep_for(5s);
-    const std::string changed = read_parameter(c1, "memory_limit");
-    ASSERT_FALSE(changed.empty()) << "could not read memory_limit after ALTER";
-    ASSERT_NE(changed, seeded) << "ALTER SYSTEM SET did not change memory_limit (still '" << seeded
+    const std::string changed = read_parameter(c1, "memory_budget");
+    ASSERT_FALSE(changed.empty()) << "could not read memory_budget after ALTER";
+    ASSERT_NE(changed, seeded) << "ALTER SYSTEM SET did not change memory_budget (still '" << seeded
                                << "')";
 
     seekdb_disconnect(c1);
@@ -189,12 +189,12 @@ TEST_F(ParameterPersistence, ChangedMemoryLimitSurvivesRestart)
     SeekdbConnection c2 = nullptr;
     ASSERT_EQ(seekdb_connect(h2, nullptr, true, &c2), SEEKDB_SUCCESS);
 
-    const std::string after_restart = read_parameter(c2, "memory_limit");
+    const std::string after_restart = read_parameter(c2, "memory_budget");
     EXPECT_EQ(after_restart, changed)
-        << "memory_limit changed across restart: persisted '" << changed << "' but read '"
+        << "memory_budget changed across restart: persisted '" << changed << "' but read '"
         << after_restart << "' after restart";
     EXPECT_NE(after_restart, seeded)
-        << "memory_limit was reset to the seeded default '" << seeded
+        << "memory_budget was reset to the seeded default '" << seeded
         << "' on restart — driver clobbered the persisted value (issue #26)";
 
     seekdb_disconnect(c2);
