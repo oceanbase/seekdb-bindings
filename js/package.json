@@ -1,0 +1,44 @@
+{
+  "name": "seekdb-js",
+  "version": "1.4.0.dev1",
+  "description": "JavaScript (Node.js / Bun / Deno) bindings for the seekdb C client library",
+  "main": "lib/index.js",
+  "types": "lib/seekdb.d.ts",
+  "gypfile": true,
+  "binary": {
+    "napi_versions": [
+      8
+    ]
+  },
+  "files": [
+    "lib/",
+    "src/",
+    "binding.gyp",
+    "README.md"
+  ],
+  "scripts": {
+    "install": "SEEKDB_LIB_DIR=${SEEKDB_LIB_DIR:-../build} node-gyp rebuild",
+    "build": "SEEKDB_LIB_DIR=${SEEKDB_LIB_DIR:-../build} node-gyp rebuild",
+    "clean": "node-gyp clean",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "keywords": [
+    "seekdb",
+    "vector",
+    "database",
+    "search",
+    "AI",
+    "embeddings",
+    "hybrid-search"
+  ],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "node-addon-api": "^8.3.1"
+  },
+  "devDependencies": {
+    "node-gyp": "^11.0.0"
+  }
+}
