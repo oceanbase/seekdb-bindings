@@ -47,10 +47,11 @@ typedef struct {
 /* Open a seekdb instance rooted at db_dir.
  *
  * parameters is an optional NULL-terminated array of key/value pairs:
- *   {"port", "3306", "memory_budget", "10G", "syslog_max_file", "1000", NULL}
+ *   {"port", "0", "memory_budget", "10G", "syslog_max_file", "1000", NULL}
  *
  * Driver-reserved keys (consumed by libseekdb, not forwarded to the server):
- *   port — TCP port for connect; omit or "0" for local transport (UDS/pipe).
+ *   port — optional compatibility key; only "0" is accepted. Embedded seekdb
+ *          always requests an automatically assigned TCP port.
  *
  * All other keys are seekdb server parameters, passed as --parameter on first
  * init only. On first init the driver always seeds memory_budget=1G and
@@ -61,11 +62,9 @@ int seekdb_close(SeekdbHandle handle);
 
 /* Return the MySQL-protocol connection options for an open handle.
  *
- * transport is "tcp", "unix_socket", or "named_pipe". TCP exposes only port;
- * clients use their default local host. Local transports expose endpoint as a
- * Unix socket path or full Windows named-pipe path. user is always "root".
- * On POSIX, the Unix socket endpoint is a per-handle alias under /tmp and is
- * usable only while the handle remains open.
+ * transport is "tcp", endpoint is the verified host "127.0.0.1", port is the
+ * auto-assigned server port, and user is "root". The local Unix socket or
+ * Windows named pipe is used only for port and server-identity discovery.
  * transport, endpoint, and user are borrowed and remain valid until
  * seekdb_close(handle). */
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);

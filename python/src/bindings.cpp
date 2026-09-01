@@ -336,7 +336,7 @@ class SeekdbInstance {
     {
         std::string transport;
         unsigned int port = 0;
-        std::string endpoint;
+        std::string host;
         std::string user;
 
         {
@@ -348,7 +348,7 @@ class SeekdbInstance {
                 transport = options.transport;
             port = options.port;
             if (options.endpoint)
-                endpoint = options.endpoint;
+                host = options.endpoint;
             if (options.user)
                 user = options.user;
         }
@@ -356,13 +356,10 @@ class SeekdbInstance {
         nb::dict result;
         result["user"] = user;
         if (transport == SEEKDB_CONNECTION_TRANSPORT_TCP) {
+            if (host.empty() || port == 0)
+                throw std::runtime_error("seekdb returned an invalid TCP endpoint");
+            result["host"] = host;
             result["port"] = port;
-        }
-        else if (transport == SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET) {
-            result["unix_socket"] = endpoint;
-        }
-        else if (transport == SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE) {
-            throw std::runtime_error("Windows named-pipe Python clients are not supported");
         }
         else {
             throw std::runtime_error("unknown seekdb connection transport: " +

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -19,8 +20,12 @@
 
 #include <mysql.h>
 
-#define WAIT_INTERVAL_US (200 * 1000)   /* 200 ms between try_connect polls */
+#define WAIT_INTERVAL_US (200 * 1000)   /* 200 ms between discovery polls */
 #define REAPER_INTERVAL_US (500 * 1000) /* 500 ms between reaper wakeups */
+#define READY_TIMEOUT_MS (180ULL * 1000ULL)
+#define PROBE_IO_TIMEOUT_SECONDS 1U
+#define PROBE_PHASE_BUDGET_MS (10ULL * 1000ULL)
+#define PROBE_FULL_BUDGET_MS (2ULL * PROBE_PHASE_BUDGET_MS)
 
 #if defined(__GNUC__) || defined(__clang__)
 #define MAYBE_UNUSED __attribute__((unused))
@@ -142,6 +147,55 @@ static void start_reaper_once_cb(void)
 MAYBE_UNUSED
 static void start_reaper(void) { pthread_once(&g_reaper_once, start_reaper_once_cb); }
 #endif
+
+static uint64_t monotonic_time_ms(void)
+{
+#ifdef _WIN32
+    return (uint64_t)GetTickCount64();
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return 0;
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+#endif
+}
+
+static bool deadline_reached(uint64_t deadline_ms) { return monotonic_time_ms() >= deadline_ms; }
+
+static bool deadline_has_budget(uint64_t deadline_ms, uint64_t budget_ms)
+{
+    const uint64_t now_ms = monotonic_time_ms();
+    return now_ms < deadline_ms && deadline_ms - now_ms >= budget_ms;
+}
+
+static void sleep_until_next_probe(uint64_t deadline_ms)
+{
+    const uint64_t now_ms = monotonic_time_ms();
+    if (now_ms >= deadline_ms)
+        return;
+    const uint64_t remaining_us = (deadline_ms - now_ms) * 1000ULL;
+    const unsigned sleep_interval_us =
+        remaining_us < WAIT_INTERVAL_US ? (unsigned)remaining_us : WAIT_INTERVAL_US;
+    if (sleep_interval_us > 0)
+        sleep_us(sleep_interval_us);
+}
+
+/* Acquire a lifecycle lock without allowing an OS-level blocking lock call to
+ * escape the seekdb_open readiness deadline. The same 200 ms cadence is used
+ * for locks and readiness probes. */
+static int acquire_lock_until_deadline(Flock *lock, FlockMode mode, uint64_t deadline_ms,
+                                       const char *lock_name)
+{
+    for (;;) {
+        if (deadline_reached(deadline_ms)) {
+            tlog("seekdb_open: timed out acquiring %s\n", lock_name);
+            return 0;
+        }
+        if (flock_try_acquire(lock, mode))
+            return 1;
+        sleep_until_next_probe(deadline_ms);
+    }
+}
 
 static char *xstrdup(const char *s)
 {
@@ -317,116 +371,267 @@ static int read_pipe_name(SeekdbHandleImpl *h)
 }
 #endif
 
-static int try_connect(SeekdbHandleImpl *h)
-{
-    /* The SQL listener can accept SELECT 1 before the server finishes starting
-     * its service and refreshing system views. A positive START_SERVICE_TIME
-     * is the server's explicit signal that it is ready to serve. */
-    static const char ready_sql[] =
-        "SELECT 1 FROM oceanbase.V$OB_SERVER_STAT WHERE START_SERVICE_TIME > 0 LIMIT 1";
+typedef enum {
+    PROBE_LOCAL_NOT_FOUND = 0,
+    PROBE_LOCAL_REACHED_UNVERIFIED = 1,
+    PROBE_VERIFIED = 2,
+} ProbeResult;
 
+static void clear_discovered_server(SeekdbHandleImpl *h)
+{
+    h->host[0] = '\0';
+    h->port = 0;
+    h->server_uuid[0] = '\0';
+}
+
+static MYSQL *init_probe_mysql(void)
+{
     MYSQL *m = mysql_init(NULL);
     if (!m)
-        return 0;
+        return NULL;
 
-    /* Disable TLS — seekdb's local listeners don't speak TLS. libmariadb 3.4
-     * keeps MYSQL_OPT_SSL_ENFORCE for compat (marked deprecated, still honored). */
+    /* Embedded seekdb's local and loopback listeners do not speak TLS. */
     char no_ssl = 0;
+    unsigned int timeout_seconds = PROBE_IO_TIMEOUT_SECONDS;
     mysql_options(m, MYSQL_OPT_SSL_ENFORCE, &no_ssl);
     mysql_options(m, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &no_ssl);
     mysql_options(m, MYSQL_SET_CHARSET_NAME, "utf8mb4");
+    mysql_options(m, MYSQL_OPT_CONNECT_TIMEOUT, &timeout_seconds);
+    mysql_options(m, MYSQL_OPT_READ_TIMEOUT, &timeout_seconds);
+    mysql_options(m, MYSQL_OPT_WRITE_TIMEOUT, &timeout_seconds);
+    return m;
+}
 
-    const bool use_tcp = h->port != 0;
-#ifdef _WIN32
-    if (!use_tcp) {
-        if (!read_pipe_name(h)) {
-            tlog("try_connect: %s not readable yet\n", h->pipe_file_path);
-            mysql_close(m);
+static int parse_discovered_port(const char *data, size_t len, unsigned int *out_port)
+{
+    if (!data || !out_port || len == 0 || len > 5)
+        return 0;
+
+    unsigned int port = 0;
+    for (size_t i = 0; i < len; ++i) {
+        if (data[i] < '0' || data[i] > '9')
             return 0;
-        }
-        mysql_options(m, MYSQL_OPT_NAMED_PIPE, NULL);
+        port = port * 10U + (unsigned int)(data[i] - '0');
     }
-#endif
-    if (mysql_real_connect(m,
-                           use_tcp ? h->host :
+    if (port == 0 || port > 65535U)
+        return 0;
+    *out_port = port;
+    return 1;
+}
+
+static int copy_discovered_uuid(const char *data, size_t len, char *out_uuid, size_t out_len)
+{
+    if (!data || !out_uuid || len == 0 || len >= out_len || memchr(data, '\0', len) != NULL)
+        return 0;
+    memcpy(out_uuid, data, len);
+    out_uuid[len] = '\0';
+    return 1;
+}
+
+/* Always discover readiness and identity through the db_dir-local endpoint.
+ * A successful local mysql_real_connect means an instance owns this db_dir,
+ * even if its discovery row is not ready or is malformed. */
+static ProbeResult discover_local_server(SeekdbHandleImpl *h, unsigned int *out_port,
+                                         char *out_uuid, size_t out_uuid_len)
+{
+    static const char discovery_sql[] =
+        "SELECT mysql_port() AS port, @@server_uuid AS server_uuid "
+        "FROM oceanbase.V$OB_SERVER_STAT WHERE START_SERVICE_TIME > 0 LIMIT 1";
+
+    MYSQL *m = init_probe_mysql();
+    if (!m) {
+        tlog("discover_local_server: mysql_init failed\n");
+        return PROBE_LOCAL_REACHED_UNVERIFIED;
+    }
+
 #ifdef _WIN32
-                                   ".",
-#else
-                                   NULL,
+    if (!read_pipe_name(h)) {
+        tlog("discover_local_server: %s not readable yet\n", h->pipe_file_path);
+        mysql_close(m);
+        return PROBE_LOCAL_NOT_FOUND;
+    }
+    mysql_options(m, MYSQL_OPT_NAMED_PIPE, NULL);
 #endif
-                           "root@sys", "", NULL, use_tcp ? (unsigned int)h->port : 0,
-                           use_tcp ? NULL :
+
+    if (!mysql_real_connect(m,
 #ifdef _WIN32
-                                   h->pipe_name,
+                            ".",
 #else
-                                   h->sock_path,
+                            NULL,
 #endif
-                           0)) {
-        if (mysql_real_query(m, ready_sql, (unsigned long)(sizeof(ready_sql) - 1)) == 0) {
-            MYSQL_RES *r = mysql_store_result(m);
-            if (r) {
-                bool ready = mysql_num_rows(r) > 0;
-                mysql_free_result(r);
-                if (ready) {
-                    tlog("try_connect: server is ready to serve\n");
-                    mysql_close(m);
-                    return 1;
-                }
-                tlog("try_connect: server has not started service yet\n");
-            }
-            else {
-                tlog("try_connect: store_result failed: %s\n", mysql_error(m));
-            }
+                            "root@sys", "", NULL, 0,
+#ifdef _WIN32
+                            h->pipe_name,
+#else
+                            h->sock_path,
+#endif
+                            0)) {
+#ifdef _WIN32
+        tlog("discover_local_server: db_dir=%s pipe=\\\\.\\pipe\\%s errno=%u: %s\n", h->db_dir,
+             h->pipe_name, mysql_errno(m), mysql_error(m));
+#else
+        tlog("discover_local_server: db_dir=%s sock_path=%s errno=%u: %s\n", h->db_dir,
+             h->sock_path, mysql_errno(m), mysql_error(m));
+#endif
+        mysql_close(m);
+        return PROBE_LOCAL_NOT_FOUND;
+    }
+
+    ProbeResult result = PROBE_LOCAL_REACHED_UNVERIFIED;
+    if (mysql_real_query(m, discovery_sql, (unsigned long)(sizeof(discovery_sql) - 1)) != 0) {
+        tlog("discover_local_server: discovery query failed: %s\n", mysql_error(m));
+        goto done;
+    }
+
+    MYSQL_RES *r = mysql_store_result(m);
+    if (!r) {
+        tlog("discover_local_server: store_result failed: %s\n", mysql_error(m));
+        goto done;
+    }
+
+    if (mysql_num_fields(r) != 2 || mysql_num_rows(r) != 1) {
+        tlog(
+            "discover_local_server: expected exactly one two-column row, got fields=%u rows=%llu\n",
+            mysql_num_fields(r), (unsigned long long)mysql_num_rows(r));
+        mysql_free_result(r);
+        goto done;
+    }
+
+    MYSQL_ROW row = mysql_fetch_row(r);
+    unsigned long *lengths = row ? mysql_fetch_lengths(r) : NULL;
+    if (!row || !lengths || !parse_discovered_port(row[0], (size_t)lengths[0], out_port) ||
+        !copy_discovered_uuid(row[1], (size_t)lengths[1], out_uuid, out_uuid_len)) {
+        tlog("discover_local_server: invalid port or empty/oversized server UUID\n");
+        mysql_free_result(r);
+        goto done;
+    }
+
+    result = PROBE_VERIFIED; /* locally discovered; TCP identity is checked by the caller */
+    mysql_free_result(r);
+
+done:
+    mysql_close(m);
+    return result;
+}
+
+static int verify_tcp_server(unsigned int port, const char *expected_uuid)
+{
+    static const char identity_sql[] = "SELECT @@server_uuid AS server_uuid";
+    MYSQL *m = init_probe_mysql();
+    if (!m) {
+        tlog("verify_tcp_server: mysql_init failed\n");
+        return 0;
+    }
+
+    int verified = 0;
+    if (!mysql_real_connect(m, "127.0.0.1", "root@sys", "", NULL, port, NULL, 0)) {
+        tlog("verify_tcp_server: 127.0.0.1:%u connect failed: errno=%u: %s\n", port, mysql_errno(m),
+             mysql_error(m));
+        goto done;
+    }
+    if (mysql_real_query(m, identity_sql, (unsigned long)(sizeof(identity_sql) - 1)) != 0) {
+        tlog("verify_tcp_server: identity query failed: %s\n", mysql_error(m));
+        goto done;
+    }
+
+    MYSQL_RES *r = mysql_store_result(m);
+    if (!r) {
+        tlog("verify_tcp_server: store_result failed: %s\n", mysql_error(m));
+        goto done;
+    }
+    if (mysql_num_fields(r) == 1 && mysql_num_rows(r) == 1) {
+        MYSQL_ROW row = mysql_fetch_row(r);
+        unsigned long *lengths = row ? mysql_fetch_lengths(r) : NULL;
+        const size_t expected_len = strlen(expected_uuid);
+        if (row && lengths && row[0] && lengths[0] > 0 && (size_t)lengths[0] == expected_len &&
+            memcmp(row[0], expected_uuid, expected_len) == 0) {
+            verified = 1;
         }
         else {
-            tlog("try_connect: readiness query failed: %s\n", mysql_error(m));
+            tlog("verify_tcp_server: server UUID is empty or does not match local discovery\n");
         }
     }
     else {
-        const unsigned int err = mysql_errno(m);
-        const char *msg = mysql_error(m);
-        if (use_tcp) {
-            tlog("try_connect failed: db_dir=%s, host=%s:%d, errno=%u: %s\n", h->db_dir, h->host,
-                 h->port, err, msg ? msg : "");
-        }
-        else {
-#ifdef _WIN32
-            tlog("try_connect failed: db_dir=%s, pipe=\\\\.\\pipe\\%s, errno=%u: %s\n", h->db_dir,
-                 h->pipe_name, err, msg ? msg : "");
-#else
-            tlog("try_connect failed: db_dir=%s, sock_path=%s, errno=%u: %s\n", h->db_dir,
-                 h->sock_path, err, msg ? msg : "");
-#endif
-        }
+        tlog("verify_tcp_server: expected exactly one UUID row, got fields=%u rows=%llu\n",
+             mysql_num_fields(r), (unsigned long long)mysql_num_rows(r));
     }
+    mysql_free_result(r);
+
+done:
     mysql_close(m);
-    return 0;
-    ;
+    return verified;
 }
 
-/* Poll until the spawned server is ready to serve or has died.
- *   Returns  0: server is ready (try_connect succeeded).
- *   Returns -1: server exited before becoming ready; reap_process
- *               performed the kernel-side reap and we then freed the
- *               Process struct (caller's `spawned` pointer is dangling).
- *   Otherwise: keeps polling — sleeps WAIT_INTERVAL_US between attempts. */
-static int wait_for_ready(SeekdbHandleImpl *h, Process *spawned)
+static ProbeResult probe_server(SeekdbHandleImpl *h, uint64_t deadline_ms)
+{
+    unsigned int candidate_port = 0;
+    char candidate_uuid[sizeof(h->server_uuid)] = {0};
+    clear_discovered_server(h);
+
+    /* Connect, handshake and the scalar query use several separately timed
+     * connector operations. Each has a one-second timeout; reserve a
+     * conservative ten-second phase budget and never begin late I/O. */
+    if (!deadline_has_budget(deadline_ms, PROBE_PHASE_BUDGET_MS)) {
+        tlog("probe_server: insufficient deadline budget for local discovery\n");
+        return PROBE_LOCAL_REACHED_UNVERIFIED;
+    }
+
+    ProbeResult result =
+        discover_local_server(h, &candidate_port, candidate_uuid, sizeof(candidate_uuid));
+    if (result != PROBE_VERIFIED)
+        return result;
+    if (!deadline_has_budget(deadline_ms, PROBE_PHASE_BUDGET_MS)) {
+        clear_discovered_server(h);
+        tlog("probe_server: insufficient deadline budget for TCP identity verification\n");
+        return PROBE_LOCAL_REACHED_UNVERIFIED;
+    }
+
+    if (!verify_tcp_server(candidate_port, candidate_uuid)) {
+        clear_discovered_server(h);
+        return PROBE_LOCAL_REACHED_UNVERIFIED;
+    }
+    if (deadline_reached(deadline_ms)) {
+        clear_discovered_server(h);
+        return PROBE_LOCAL_REACHED_UNVERIFIED;
+    }
+
+    snprintf(h->host, sizeof(h->host), "%s", "127.0.0.1");
+    h->port = (int)candidate_port;
+    snprintf(h->server_uuid, sizeof(h->server_uuid), "%s", candidate_uuid);
+    tlog("probe_server: verified server %s at %s:%d\n", h->server_uuid, h->host, h->port);
+    return PROBE_VERIFIED;
+}
+
+/* Poll local discovery followed by TCP identity verification until the server
+ * is ready, the process we spawned exits, or the shared deadline expires.
+ * Returns 0 on readiness, -1 when spawned was reaped/freed, and -2 on timeout. */
+static int wait_for_ready(SeekdbHandleImpl *h, Process *spawned, uint64_t deadline_ms)
 {
     for (;;) {
-        if (try_connect(h)) {
-            tlog("wait_for_ready: try_connect succeeded\n");
+        if (!deadline_has_budget(deadline_ms, PROBE_FULL_BUDGET_MS)) {
+            clear_discovered_server(h);
+            tlog("wait_for_ready: no deadline budget remains for another bounded probe\n");
+            return -2;
+        }
+
+        const ProbeResult probe = probe_server(h, deadline_ms);
+        if (deadline_reached(deadline_ms)) {
+            clear_discovered_server(h);
+            tlog("wait_for_ready: deadline reached during probe\n");
+            return -2;
+        }
+        if (probe == PROBE_VERIFIED) {
+            tlog("wait_for_ready: local discovery and TCP identity verification succeeded\n");
             return 0;
         }
-        tlog("wait_for_ready: cannot connect\n");
 
-        /* Our spawned server died before becoming ready — stop waiting. */
-        if (reap_process(spawned) == 1) {
+        if (spawned && reap_process(spawned) == 1) {
             tlog("spawned %lld died\n", (long long)spawned->pid);
             free(spawned);
             return -1;
         }
 
-        sleep_us(WAIT_INTERVAL_US);
+        sleep_until_next_probe(deadline_ms);
     }
 }
 
@@ -477,23 +682,11 @@ static int validate_parameters(const char *const *parameters)
             errno = 0;
             char *endp = NULL;
             const long v = strtol(parameters[i + 1], &endp, 10);
-            if (errno || !parameters[i + 1][0] || !endp || *endp != '\0' || v < 0 || v > 65535)
+            if (errno || !parameters[i + 1][0] || !endp || *endp != '\0' || v != 0)
                 return SEEKDB_INVALID_ARGUMENT;
         }
     }
     return SEEKDB_SUCCESS;
-}
-
-static int parse_port_parameter(const char *const *parameters)
-{
-    if (!parameters)
-        return 0;
-    const int n = count_null_terminated(parameters);
-    for (int i = 0; i < n; i += 2) {
-        if (is_driver_parameter(parameters[i]))
-            return (int)strtol(parameters[i + 1], NULL, 10);
-    }
-    return 0;
 }
 
 static bool is_default_parameter_key(const char *key)
@@ -634,8 +827,6 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         return param_rc;
     *out_handle = NULL;
 
-    const int port = parse_port_parameter(parameters);
-
     char bin_path[1024];
     if (resolve_bin_path(bin_path, sizeof(bin_path)) != SEEKDB_SUCCESS) {
         tlog("seekdb_open: cannot resolve seekdb binary "
@@ -659,6 +850,8 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     int argv_rc = SEEKDB_INTERNAL_ERROR;
     int64_t spawned_pid = 0;
     int wait_rc = -1;
+    uint64_t readiness_deadline_ms = 0;
+    ProbeResult probe = PROBE_LOCAL_NOT_FOUND;
 #ifdef _WIN32
     int pipe_n = 0;
 #endif
@@ -681,11 +874,6 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     }
 #endif
 
-    h->port = port;
-    if (port != 0) {
-        snprintf(h->host, sizeof(h->host), "127.0.0.1");
-    }
-
     if (ensure_dir(db_dir) != OK) {
         tlog("ensure_dir failed: %s\n", db_dir);
         goto cleanup;
@@ -697,7 +885,7 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     }
 
 #ifndef _WIN32
-    if (port == 0 && prepare_unix_socket_alias(h, run_dir) != SEEKDB_SUCCESS)
+    if (prepare_unix_socket_alias(h, run_dir) != SEEKDB_SUCCESS)
         goto cleanup;
 #endif
 
@@ -706,95 +894,142 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         goto cleanup;
     }
 
-    if (!flock_acquire(h->clients_lock, FLOCK_SHARED)) {
-        tlog("flock_acquire(seekdb.clients, SH) failed\n");
+    /* One shared deadline covers both lifecycle-lock waits, both local probes,
+     * process startup and TCP identity verification. */
+    readiness_deadline_ms = monotonic_time_ms() + READY_TIMEOUT_MS;
+    if (!acquire_lock_until_deadline(h->clients_lock, FLOCK_SHARED, readiness_deadline_ms,
+                                     "seekdb.clients SH")) {
         goto cleanup;
     }
     tlog("got seekdb.clients\n");
 
-    if (try_connect(h)) {
+    probe = probe_server(h, readiness_deadline_ms);
+    if (probe == PROBE_VERIFIED && !deadline_reached(readiness_deadline_ms)) {
         tlog("seekdb_open: fast-path success — server already serving\n");
         *out_handle = (SeekdbHandle)h;
         h = NULL;
         result = SEEKDB_SUCCESS;
         goto cleanup;
     }
-    tlog("tried to connect after getting client lock, but failed\n");
+    tlog("seekdb_open: initial local discovery did not verify a TCP endpoint\n");
 
     if (flock_open(h->startup_lock_path, &startup_lock) != OK) {
         tlog("flock_open failed: %s\n", h->startup_lock_path);
         goto cleanup;
     }
-    if (!flock_acquire(startup_lock, FLOCK_EXCLUSIVE)) {
-        tlog("flock_acquire(seekdb.startup, EX) failed\n");
+    if (!acquire_lock_until_deadline(startup_lock, FLOCK_EXCLUSIVE, readiness_deadline_ms,
+                                     "seekdb.startup EX")) {
         goto cleanup;
     }
     tlog("got startup lock\n");
 
-    base_dir_arg = concat_strings("--base-dir=", db_dir);
-    sstable_dir = concat_strings(db_dir, "/store/sstable");
-    if (!base_dir_arg || !sstable_dir) {
-        tlog("seekdb_open: allocation failed while building spawn paths for db_dir=%s\n", db_dir);
+    /* The opener that held startup EX may have finished while we waited. Always
+     * repeat local discovery after acquiring EX before deciding to spawn. */
+    probe = probe_server(h, readiness_deadline_ms);
+    if (probe == PROBE_VERIFIED && !deadline_reached(readiness_deadline_ms)) {
+        tlog("seekdb_open: post-lock local discovery verified the existing server\n");
+        *out_handle = (SeekdbHandle)h;
+        h = NULL;
+        result = SEEKDB_SUCCESS;
+        goto cleanup;
+    }
+    if (deadline_reached(readiness_deadline_ms)) {
+        clear_discovered_server(h);
+        tlog("seekdb_open: readiness deadline reached after post-lock probe\n");
         goto cleanup;
     }
 
-    /* seekdb writes its data files under <db_dir>/store/sstable only after it
-     * has bootstrapped this data directory, so a non-empty store/sstable means
-     * we're restarting an existing instance rather than initializing a fresh
-     * one. We seed the default parameters (memory_budget, log_disk_size) ONLY on
-     * first init; on restart we must not pass --parameter, otherwise the command
-     * line would clobber values the user changed and seekdb persisted (issue #26).
-     *
-     * store/sstable is used (rather than store/ or etc/) because it is the core
-     * storage-engine data directory and has been stable across seekdb versions,
-     * whereas the etc/ layout (e.g. seekdb.config.bin) has changed between
-     * releases. */
-    first_init = !dir_has_entries(sstable_dir);
-    tlog("seekdb_open: %s (sstable_dir=%s)\n",
-         first_init ? "first init — seeding parameters" : "restart — keeping persisted parameters",
-         sstable_dir);
+    if (probe == PROBE_LOCAL_NOT_FOUND) {
+        base_dir_arg = concat_strings("--base-dir=", db_dir);
+        sstable_dir = concat_strings(db_dir, "/store/sstable");
+        if (!base_dir_arg || !sstable_dir) {
+            tlog("seekdb_open: allocation failed while building spawn paths for db_dir=%s\n",
+                 db_dir);
+            goto cleanup;
+        }
 
-    argv_rc = build_spawn_argv(bin_path, base_dir_arg, parameters, first_init, &spawn_argv,
-                               &spawn_owned, &spawn_owned_n);
-    if (argv_rc != SEEKDB_SUCCESS) {
-        result = argv_rc;
-        goto cleanup;
-    }
+        /* seekdb writes its data files under <db_dir>/store/sstable only after it
+         * has bootstrapped this data directory, so a non-empty store/sstable means
+         * we're restarting an existing instance rather than initializing a fresh
+         * one. We seed the default parameters (memory_budget, log_disk_size) ONLY on
+         * first init; on restart we must not pass --parameter, otherwise the command
+         * line would clobber values the user changed and seekdb persisted (issue #26).
+         *
+         * store/sstable is used (rather than store/ or etc/) because it is the core
+         * storage-engine data directory and has been stable across seekdb versions,
+         * whereas the etc/ layout (e.g. seekdb.config.bin) has changed between
+         * releases. */
+        first_init = !dir_has_entries(sstable_dir);
+        tlog("seekdb_open: %s (sstable_dir=%s)\n",
+             first_init ? "first init — seeding parameters"
+                        : "restart — keeping persisted parameters",
+             sstable_dir);
 
-    if (spawn_process(bin_path, spawn_argv, &spawned) != OK) {
-        tlog("spawn process failed.");
-        goto cleanup;
-    }
-    free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
-    spawn_argv = NULL;
-    spawn_owned = NULL;
-    spawn_owned_n = 0;
+        argv_rc = build_spawn_argv(bin_path, base_dir_arg, parameters, first_init, &spawn_argv,
+                                   &spawn_owned, &spawn_owned_n);
+        if (argv_rc != SEEKDB_SUCCESS) {
+            result = argv_rc;
+            goto cleanup;
+        }
 
-    /* Mirror the Process fields onto the handle. wait_for_ready frees
-     * `spawned` on -1, so deref before the call. */
-    h->spawned_pid = spawned->pid;
+        if (!deadline_has_budget(readiness_deadline_ms, PROBE_FULL_BUDGET_MS)) {
+            tlog("seekdb_open: insufficient deadline budget to start a child\n");
+            goto cleanup;
+        }
+
+        if (spawn_process(bin_path, spawn_argv, &spawned) != OK) {
+            tlog("spawn process failed.");
+            goto cleanup;
+        }
+        free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
+        spawn_argv = NULL;
+        spawn_owned = NULL;
+        spawn_owned_n = 0;
+
+        /* Mirror the Process fields onto the handle. wait_for_ready frees
+         * `spawned` only when it reports that the process died. */
+        h->spawned_pid = spawned->pid;
 #ifdef _WIN32
-    h->spawned_handle = spawned->handle;
+        h->spawned_handle = spawned->handle;
 #endif
-    spawned_pid = spawned->pid;
-    tlog("ready to call wait_for_ready(spawned pid = %lld)\n", (long long)spawned_pid);
-    wait_rc = wait_for_ready(h, spawned);
+        spawned_pid = spawned->pid;
+        tlog("seekdb_open: spawned pid=%lld; waiting for verified TCP endpoint\n",
+             (long long)spawned_pid);
+    }
+    else {
+        /* A successful local connection proves a process already owns this
+         * db_dir. Never start a second process merely because discovery data or
+         * TCP identity verification is temporarily unavailable. */
+        tlog("seekdb_open: local endpoint is owned; retrying discovery without spawning\n");
+    }
 
-    tlog("spawned pid = %lld, released startup\n", (long long)spawned_pid);
+    wait_rc = wait_for_ready(h, spawned, readiness_deadline_ms);
+
+    tlog("seekdb_open: readiness wait finished; releasing startup lock\n");
     flock_close(startup_lock);
     startup_lock = NULL;
 
     if (wait_rc < 0) {
-        spawned = NULL; /* wait_for_ready reaped and freed it */
+        if (wait_rc == -1) {
+            spawned = NULL; /* wait_for_ready reaped and freed it */
+        }
+        else if (spawned) {
+            /* Preserve the baseline process bookkeeping without adding timeout
+             * termination or startup-lock ownership transfer. */
+            spawned_add(spawned);
+            spawned = NULL;
+        }
         tlog("seekdb: server not ready\n");
         goto cleanup;
     }
 
-    /* Register the spawned process with the background reaper so it
-     * gets reaped once the server exits. Start the reaper lazily. */
-    spawned_add(spawned);
-    spawned = NULL;
-    // start_reaper();
+    if (spawned) {
+        /* Register the spawned process with the baseline background reaper
+         * bookkeeping so it can be reaped once the server exits. */
+        spawned_add(spawned);
+        spawned = NULL;
+        // start_reaper();
+    }
 
     tlog("seekdb_open: success (spawned pid = %lld)\n", (long long)spawned_pid);
     *out_handle = (SeekdbHandle)h;
@@ -833,25 +1068,13 @@ int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_
 
     SeekdbHandleImpl *h = (SeekdbHandleImpl *)handle;
     memset(out_options, 0, sizeof(*out_options));
-    out_options->user = "root";
+    if (h->host[0] == '\0' || h->port <= 0 || h->port > 65535 || h->server_uuid[0] == '\0')
+        return SEEKDB_INTERNAL_ERROR;
 
-    if (h->port != 0) {
-        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_TCP;
-        out_options->port = (unsigned int)h->port;
-    }
-    else {
-#ifdef _WIN32
-        if (h->pipe_path[0] == '\0')
-            return SEEKDB_INTERNAL_ERROR;
-        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE;
-        out_options->endpoint = h->pipe_path;
-#else
-        if (!h->sock_path)
-            return SEEKDB_INTERNAL_ERROR;
-        out_options->transport = SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET;
-        out_options->endpoint = h->sock_path;
-#endif
-    }
+    out_options->transport = SEEKDB_CONNECTION_TRANSPORT_TCP;
+    out_options->endpoint = h->host;
+    out_options->port = (unsigned int)h->port;
+    out_options->user = "root";
 
     return SEEKDB_SUCCESS;
 }
@@ -866,21 +1089,11 @@ int seekdb_connect(SeekdbHandle handle, const char *database, bool autocommit,
     *out_connection = NULL;
 
     SeekdbHandleImpl *h = (SeekdbHandleImpl *)handle;
+    if (h->host[0] == '\0' || h->port <= 0 || h->port > 65535 || h->server_uuid[0] == '\0')
+        return SEEKDB_INTERNAL_ERROR;
 
-    const bool use_tcp = h->port != 0;
-    if (use_tcp) {
-        tlog("seekdb_connect: tcp=%s:%d db=%s autocommit=%d\n", h->host, h->port,
-             database ? database : "(null)", (int)autocommit);
-    }
-    else {
-#ifdef _WIN32
-        tlog("seekdb_connect: pipe=\\\\.\\pipe\\%s db=%s autocommit=%d\n", h->pipe_name,
-             database ? database : "(null)", (int)autocommit);
-#else
-        tlog("seekdb_connect: sock=%s db=%s autocommit=%d\n", h->sock_path,
-             database ? database : "(null)", (int)autocommit);
-#endif
-    }
+    tlog("seekdb_connect: tcp=%s:%d db=%s autocommit=%d\n", h->host, h->port,
+         database ? database : "(null)", (int)autocommit);
 
     SeekdbConnectionImpl *c = (SeekdbConnectionImpl *)calloc(1, sizeof(*c));
     if (!c)
@@ -892,45 +1105,17 @@ int seekdb_connect(SeekdbHandle handle, const char *database, bool autocommit,
         return SEEKDB_INTERNAL_ERROR;
     }
 
-    /* Disable SSL — see try_connect for the rationale. */
+    /* Disable SSL — see init_probe_mysql for the rationale. */
     {
         char no_ssl = 0;
         mysql_options(c->mysql, MYSQL_OPT_SSL_ENFORCE, &no_ssl);
         mysql_options(c->mysql, MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &no_ssl);
     }
     mysql_options(c->mysql, MYSQL_SET_CHARSET_NAME, "utf8mb4");
-#ifdef _WIN32
-    if (!use_tcp) {
-        mysql_options(c->mysql, MYSQL_OPT_NAMED_PIPE, NULL);
-    }
-#endif
 
-    if (!mysql_real_connect(c->mysql,
-                            use_tcp ? h->host :
-#ifdef _WIN32
-                                    ".",
-#else
-                                    NULL,
-#endif
-                            "root", "", database, use_tcp ? (unsigned int)h->port : 0,
-                            use_tcp ? NULL :
-#ifdef _WIN32
-                                    h->pipe_name,
-#else
-                                    h->sock_path,
-#endif
+    if (!mysql_real_connect(c->mysql, h->host, "root", "", database, (unsigned int)h->port, NULL,
                             0)) {
-        if (use_tcp) {
-            tlog("seekdb_connect failed: %s:%d: %s\n", h->host, h->port, mysql_error(c->mysql));
-        }
-        else {
-#ifdef _WIN32
-            tlog("seekdb_connect failed: \\\\.\\pipe\\%s: %s\n", h->pipe_name,
-                 mysql_error(c->mysql));
-#else
-            tlog("seekdb_connect failed: %s: %s\n", h->sock_path, mysql_error(c->mysql));
-#endif
-        }
+        tlog("seekdb_connect failed: %s:%d: %s\n", h->host, h->port, mysql_error(c->mysql));
         *out_connection = (SeekdbConnection)c;
         return SEEKDB_INTERNAL_ERROR;
     }

@@ -73,6 +73,26 @@ std::string read_parameter(SeekdbConnection c, const std::string &name)
     return out;
 }
 
+std::string read_string_scalar(SeekdbConnection c, const char *sql)
+{
+    SeekdbResult r = nullptr;
+    if (seekdb_query(c, sql, (int64_t)std::strlen(sql), &r) != SEEKDB_SUCCESS)
+        return "";
+
+    std::string out;
+    if (seekdb_result_next(r) == SEEKDB_SUCCESS) {
+        const char *data = nullptr;
+        size_t len = 0;
+        int is_null = 0;
+        if (seekdb_result_get_str(r, 0, &data, &len, &is_null) == SEEKDB_SUCCESS && !is_null &&
+            data) {
+            out.assign(data, len);
+        }
+    }
+    seekdb_result_free(r);
+    return out;
+}
+
 void shutdown_server(SeekdbHandle h, int64_t pid)
 {
     seekdb_close(h);
@@ -117,10 +137,14 @@ TEST_F(OpenParameters, RejectsOddParameterCount)
 
 TEST_F(OpenParameters, RejectsInvalidPort)
 {
-    const char *bad[] = {"port", "not-a-number", NULL};
-    SeekdbHandle h = nullptr;
-    EXPECT_EQ(seekdb_open(db_dir_.c_str(), bad, &h), SEEKDB_INVALID_ARGUMENT);
-    EXPECT_EQ(h, nullptr);
+    const char *invalid_values[] = {"not-a-number", "-1", "1", "3306", "65535", "65536"};
+    for (const char *value : invalid_values) {
+        const char *bad[] = {"port", value, NULL};
+        SeekdbHandle h = nullptr;
+        EXPECT_EQ(seekdb_open(db_dir_.c_str(), bad, &h), SEEKDB_INVALID_ARGUMENT)
+            << "port=" << value;
+        EXPECT_EQ(h, nullptr) << "port=" << value;
+    }
 }
 
 #ifndef _WIN32
@@ -152,11 +176,17 @@ TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
     EXPECT_TRUE(fs::is_directory(alias_dir));
     EXPECT_TRUE(fs::is_symlink(fs::path(alias_dir) / "run"));
     EXPECT_EQ(fs::canonical(fs::path(alias_dir) / "run"), fs::canonical(long_db_dir / "run"));
+    EXPECT_STREQ(impl->host, "127.0.0.1");
+    EXPECT_GT(impl->port, 0);
+    EXPECT_LE(impl->port, 65535);
+    EXPECT_NE(impl->server_uuid[0], '\0');
 
     SeekdbConnectionOptions options = {};
     ASSERT_EQ(seekdb_connection_options(h, &options), SEEKDB_SUCCESS);
+    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
     ASSERT_NE(options.endpoint, nullptr);
-    EXPECT_EQ(options.endpoint, alias_dir + "/run/sql.sock");
+    EXPECT_STREQ(options.endpoint, "127.0.0.1");
+    EXPECT_EQ(options.port, (unsigned int)impl->port);
 
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, "test", true, &c), SEEKDB_SUCCESS);
@@ -179,11 +209,32 @@ TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
     SeekdbHandle h = nullptr;
     ASSERT_EQ(seekdb_open(db_dir_.c_str(), parameters, &h), SEEKDB_SUCCESS);
     ASSERT_NE(h, nullptr);
-    const int64_t pid = ((SeekdbHandleImpl *)h)->spawned_pid;
+    auto *impl = (SeekdbHandleImpl *)h;
+    const int64_t pid = impl->spawned_pid;
     ASSERT_GT(pid, 0);
+    ASSERT_STREQ(impl->host, "127.0.0.1");
+    ASSERT_GT(impl->port, 0);
+    ASSERT_LE(impl->port, 65535);
+    ASSERT_NE(impl->server_uuid[0], '\0');
+
+    SeekdbConnectionOptions options = {};
+    ASSERT_EQ(seekdb_connection_options(h, &options), SEEKDB_SUCCESS);
+    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
+    EXPECT_STREQ(options.endpoint, "127.0.0.1");
+    EXPECT_EQ(options.port, (unsigned int)impl->port);
+    EXPECT_STREQ(options.user, "root");
 
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, nullptr, true, &c), SEEKDB_SUCCESS);
+
+    const std::string tcp_uuid = read_string_scalar(c, "SELECT @@server_uuid");
+    ASSERT_FALSE(tcp_uuid.empty());
+    EXPECT_EQ(tcp_uuid, impl->server_uuid);
+    const std::string expected_port = std::to_string(impl->port);
+    EXPECT_EQ(read_string_scalar(c, "SELECT mysql_port()"), expected_port);
+    EXPECT_EQ(read_string_scalar(c, "SELECT SQL_PORT FROM oceanbase.V$OB_SERVER_STAT "
+                                    "WHERE START_SERVICE_TIME > 0 LIMIT 1"),
+              expected_port);
 
     const std::string memory_budget = read_parameter(c, "memory_budget");
     ASSERT_FALSE(memory_budget.empty()) << "could not read memory_budget";

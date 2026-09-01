@@ -1,9 +1,13 @@
 #include <gtest/gtest.h>
 
+#include "port.h"
 #include "seekdb.h"
 #include "seekdb_internal.h"
 
+#include <chrono>
 #include <cstdio>
+#include <filesystem>
+#include <string>
 
 TEST(ConnectionOptions, RejectsNullArguments)
 {
@@ -17,44 +21,59 @@ TEST(ConnectionOptions, RejectsNullArguments)
 TEST(ConnectionOptions, ReturnsTcpPortAndUser)
 {
     SeekdbHandleImpl handle = {};
+    std::snprintf(handle.host, sizeof(handle.host), "127.0.0.1");
     handle.port = 3306;
+    std::snprintf(handle.server_uuid, sizeof(handle.server_uuid), "server-uuid");
     SeekdbConnectionOptions options = {};
 
     ASSERT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_SUCCESS);
     EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
     EXPECT_EQ(options.port, 3306U);
-    EXPECT_EQ(options.endpoint, nullptr);
+    ASSERT_NE(options.endpoint, nullptr);
+    EXPECT_STREQ(options.endpoint, "127.0.0.1");
     ASSERT_NE(options.user, nullptr);
     EXPECT_STREQ(options.user, "root");
 }
 
-#ifdef _WIN32
-TEST(ConnectionOptions, ReturnsNamedPipeEndpoint)
+TEST(ConnectionOptions, RejectsUndiscoveredServer)
 {
     SeekdbHandleImpl handle = {};
-    std::snprintf(handle.pipe_path, sizeof(handle.pipe_path), "\\\\.\\pipe\\seekdb-test");
     SeekdbConnectionOptions options = {};
 
-    ASSERT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_SUCCESS);
-    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE);
-    EXPECT_EQ(options.port, 0U);
-    ASSERT_NE(options.endpoint, nullptr);
-    EXPECT_STREQ(options.endpoint, "\\\\.\\pipe\\seekdb-test");
-    EXPECT_STREQ(options.user, "root");
+    EXPECT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_INTERNAL_ERROR);
 }
-#else
-TEST(ConnectionOptions, ReturnsUnixSocketEndpoint)
+
+TEST(ConnectionOptions, RejectsMissingVerifiedIdentity)
 {
     SeekdbHandleImpl handle = {};
-    char sock_path[] = "/tmp/seekdb/run/sql.sock";
-    handle.sock_path = sock_path;
+    std::snprintf(handle.host, sizeof(handle.host), "127.0.0.1");
+    handle.port = 3306;
     SeekdbConnectionOptions options = {};
 
-    ASSERT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_SUCCESS);
-    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET);
-    EXPECT_EQ(options.port, 0U);
-    ASSERT_NE(options.endpoint, nullptr);
-    EXPECT_STREQ(options.endpoint, "/tmp/seekdb/run/sql.sock");
-    EXPECT_STREQ(options.user, "root");
+    EXPECT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_INTERNAL_ERROR);
 }
-#endif
+
+TEST(LifecyclePrimitives, TryLockDoesNotBlock)
+{
+    namespace fs = std::filesystem;
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path lock_path =
+        fs::temp_directory_path() / ("seekdb-flock-" + std::to_string(nonce) + ".lock");
+
+    Flock *owner = nullptr;
+    Flock *contender = nullptr;
+    ASSERT_EQ(flock_open(lock_path.string().c_str(), &owner), OK);
+    ASSERT_EQ(flock_open(lock_path.string().c_str(), &contender), OK);
+    ASSERT_EQ(flock_try_acquire(owner, FLOCK_EXCLUSIVE), 1);
+
+    const auto started = std::chrono::steady_clock::now();
+    EXPECT_EQ(flock_try_acquire(contender, FLOCK_SHARED), 0);
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(1));
+
+    flock_release(owner);
+    EXPECT_EQ(flock_try_acquire(contender, FLOCK_SHARED), 1);
+    EXPECT_EQ(flock_close(contender), OK);
+    EXPECT_EQ(flock_close(owner), OK);
+    std::error_code ec;
+    fs::remove(lock_path, ec);
+}
