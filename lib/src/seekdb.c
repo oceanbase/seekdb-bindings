@@ -435,7 +435,7 @@ static ProbeResult discover_local_server(SeekdbHandleImpl *h, unsigned int *out_
                                          char *out_uuid, size_t out_uuid_len)
 {
     static const char discovery_sql[] =
-        "SELECT mysql_port() AS port, @@server_uuid AS server_uuid "
+        "SELECT SQL_PORT AS port, @@server_uuid AS server_uuid "
         "FROM oceanbase.V$OB_SERVER_STAT WHERE START_SERVICE_TIME > 0 LIMIT 1";
 
     MYSQL *m = init_probe_mysql();
