@@ -347,8 +347,8 @@ class SeekdbInstance {
             if (options.transport)
                 transport = options.transport;
             port = options.port;
-            if (options.endpoint)
-                host = options.endpoint;
+            if (options.host)
+                host = options.host;
             if (options.user)
                 user = options.user;
         }

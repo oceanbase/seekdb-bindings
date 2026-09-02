@@ -29,8 +29,8 @@ TEST(ConnectionOptions, ReturnsTcpPortAndUser)
     ASSERT_EQ(seekdb_connection_options((SeekdbHandle)&handle, &options), SEEKDB_SUCCESS);
     EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
     EXPECT_EQ(options.port, 3306U);
-    ASSERT_NE(options.endpoint, nullptr);
-    EXPECT_STREQ(options.endpoint, "127.0.0.1");
+    ASSERT_NE(options.host, nullptr);
+    EXPECT_STREQ(options.host, "127.0.0.1");
     ASSERT_NE(options.user, nullptr);
     EXPECT_STREQ(options.user, "root");
 }

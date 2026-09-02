@@ -40,7 +40,7 @@ typedef enum {
 typedef struct {
     const char *transport;
     unsigned int port;
-    const char *endpoint;
+    const char *host;
     const char *user;
 } SeekdbConnectionOptions;
 
@@ -62,10 +62,10 @@ int seekdb_close(SeekdbHandle handle);
 
 /* Return the MySQL-protocol connection options for an open handle.
  *
- * transport is "tcp", endpoint is the verified host "127.0.0.1", port is the
+ * transport is "tcp", host is the verified host "127.0.0.1", port is the
  * auto-assigned server port, and user is "root". The local Unix socket or
  * Windows named pipe is used only for port and server-identity discovery.
- * transport, endpoint, and user are borrowed and remain valid until
+ * transport, host, and user are borrowed and remain valid until
  * seekdb_close(handle). */
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);
 

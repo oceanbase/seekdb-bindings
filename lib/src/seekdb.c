@@ -1072,7 +1072,7 @@ int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_
         return SEEKDB_INTERNAL_ERROR;
 
     out_options->transport = SEEKDB_CONNECTION_TRANSPORT_TCP;
-    out_options->endpoint = h->host;
+    out_options->host = h->host;
     out_options->port = (unsigned int)h->port;
     out_options->user = "root";
 

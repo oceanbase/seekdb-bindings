@@ -184,8 +184,8 @@ TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
     SeekdbConnectionOptions options = {};
     ASSERT_EQ(seekdb_connection_options(h, &options), SEEKDB_SUCCESS);
     EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
-    ASSERT_NE(options.endpoint, nullptr);
-    EXPECT_STREQ(options.endpoint, "127.0.0.1");
+    ASSERT_NE(options.host, nullptr);
+    EXPECT_STREQ(options.host, "127.0.0.1");
     EXPECT_EQ(options.port, (unsigned int)impl->port);
 
     SeekdbConnection c = nullptr;
@@ -220,7 +220,7 @@ TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
     SeekdbConnectionOptions options = {};
     ASSERT_EQ(seekdb_connection_options(h, &options), SEEKDB_SUCCESS);
     EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_TCP);
-    EXPECT_STREQ(options.endpoint, "127.0.0.1");
+    EXPECT_STREQ(options.host, "127.0.0.1");
     EXPECT_EQ(options.port, (unsigned int)impl->port);
     EXPECT_STREQ(options.user, "root");
 
