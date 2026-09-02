@@ -459,7 +459,7 @@ static ProbeResult discover_local_server(SeekdbHandleImpl *h, unsigned int *out_
 #else
                             NULL,
 #endif
-                            "root@sys", "", NULL, 0,
+                            "root", "", NULL, 0,
 #ifdef _WIN32
                             h->pipe_name,
 #else
@@ -524,7 +524,7 @@ static int verify_tcp_server(unsigned int port, const char *expected_uuid)
     }
 
     int verified = 0;
-    if (!mysql_real_connect(m, "127.0.0.1", "root@sys", "", NULL, port, NULL, 0)) {
+    if (!mysql_real_connect(m, "127.0.0.1", "root", "", NULL, port, NULL, 0)) {
         tlog("verify_tcp_server: 127.0.0.1:%u connect failed: errno=%u: %s\n", port, mysql_errno(m),
              mysql_error(m));
         goto done;
