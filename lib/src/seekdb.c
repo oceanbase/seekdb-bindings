@@ -148,29 +148,40 @@ MAYBE_UNUSED
 static void start_reaper(void) { pthread_once(&g_reaper_once, start_reaper_once_cb); }
 #endif
 
-static uint64_t monotonic_time_ms(void)
+static bool monotonic_time_ms(uint64_t *out_ms)
 {
+    if (!out_ms)
+        return false;
 #ifdef _WIN32
-    return (uint64_t)GetTickCount64();
+    *out_ms = (uint64_t)GetTickCount64();
 #else
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
-        return 0;
-    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+        return false;
+    *out_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
 #endif
+    return true;
 }
 
-static bool deadline_reached(uint64_t deadline_ms) { return monotonic_time_ms() >= deadline_ms; }
+static bool deadline_reached(uint64_t deadline_ms)
+{
+    uint64_t now_ms = 0;
+    return !monotonic_time_ms(&now_ms) || now_ms >= deadline_ms;
+}
 
 static bool deadline_has_budget(uint64_t deadline_ms, uint64_t budget_ms)
 {
-    const uint64_t now_ms = monotonic_time_ms();
+    uint64_t now_ms = 0;
+    if (!monotonic_time_ms(&now_ms))
+        return false;
     return now_ms < deadline_ms && deadline_ms - now_ms >= budget_ms;
 }
 
 static void sleep_until_next_probe(uint64_t deadline_ms)
 {
-    const uint64_t now_ms = monotonic_time_ms();
+    uint64_t now_ms = 0;
+    if (!monotonic_time_ms(&now_ms))
+        return;
     if (now_ms >= deadline_ms)
         return;
     const uint64_t remaining_us = (deadline_ms - now_ms) * 1000ULL;
@@ -896,7 +907,12 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
 
     /* One shared deadline covers both lifecycle-lock waits, both local probes,
      * process startup and TCP identity verification. */
-    readiness_deadline_ms = monotonic_time_ms() + READY_TIMEOUT_MS;
+    uint64_t now_ms = 0;
+    if (!monotonic_time_ms(&now_ms)) {
+        tlog("seekdb_open: failed to read monotonic clock\n");
+        goto cleanup;
+    }
+    readiness_deadline_ms = now_ms + READY_TIMEOUT_MS;
     if (!acquire_lock_until_deadline(h->clients_lock, FLOCK_SHARED, readiness_deadline_ms,
                                      "seekdb.clients SH")) {
         goto cleanup;
