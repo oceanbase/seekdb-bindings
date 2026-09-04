@@ -14,9 +14,9 @@ typedef struct {
     char *clients_lock_path; /* <db_dir>/run/seekdb.clients */
     char *startup_lock_path; /* <db_dir>/run/seekdb.startup */
     Flock *clients_lock;     /* SH-locked for the lifetime of the handle */
-    char host[64];           /* verified TCP host; empty until local endpoint discovery succeeds */
-    int port;                /* verified auto-assigned TCP port; 0 until discovery succeeds */
-    char server_uuid[128];   /* identity discovered locally and verified over TCP */
+    char host[64];           /* Windows TCP host; empty for local transports */
+    int port;                /* Windows-discovered TCP port; zero for local transports */
+    char server_uuid[128];   /* identity discovered locally and verified over Windows TCP */
     /* Mirrors of Process — populated after spawn_process succeeds, so the
      * handle remembers which daemon it brought up (or was given by a
      * previous owner). 0/NULL when the handle took the fast path. */
@@ -25,7 +25,7 @@ typedef struct {
     void *spawned_handle;
     char pipe_file_path[256]; /* <db_dir>/run/sql.pipe — server writes the pipe name here */
     char pipe_name[256]; /* contents of sql.pipe (suffix only); libmariadb prepends \\.\pipe\ */
-    char pipe_path[512]; /* full \\.\pipe\... path retained for discovery diagnostics */
+    char pipe_path[512]; /* full \\.\pipe\... path returned to application layers */
 #else
     char *socket_alias_dir; /* /tmp/pylibseekdb-uds-<pid>-XXXXXX */
 #endif

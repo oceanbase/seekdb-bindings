@@ -337,6 +337,8 @@ class SeekdbInstance {
         std::string transport;
         unsigned int port = 0;
         std::string host;
+        std::string unix_socket;
+        std::string named_pipe;
         std::string user;
 
         {
@@ -349,6 +351,10 @@ class SeekdbInstance {
             port = options.port;
             if (options.host)
                 host = options.host;
+            if (options.unix_socket)
+                unix_socket = options.unix_socket;
+            if (options.named_pipe)
+                named_pipe = options.named_pipe;
             if (options.user)
                 user = options.user;
         }
@@ -360,6 +366,16 @@ class SeekdbInstance {
                 throw std::runtime_error("seekdb returned an invalid TCP endpoint");
             result["host"] = host;
             result["port"] = port;
+        }
+        else if (transport == SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET) {
+            if (unix_socket.empty())
+                throw std::runtime_error("seekdb returned an invalid Unix socket endpoint");
+            result["unix_socket"] = unix_socket;
+        }
+        else if (transport == SEEKDB_CONNECTION_TRANSPORT_NAMED_PIPE) {
+            if (named_pipe.empty())
+                throw std::runtime_error("seekdb returned an invalid named-pipe endpoint");
+            result["named_pipe"] = named_pipe;
         }
         else {
             throw std::runtime_error("unknown seekdb connection transport: " +

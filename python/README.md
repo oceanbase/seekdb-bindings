@@ -150,10 +150,12 @@ second.close()
 ```
 
 Each instance stores its local socket inside the normalized database directory.
-On macOS and Linux, startup discovery uses a per-instance short Unix-socket
-alias under `/tmp/pylibseekdb-uds-<pid>-XXXXXX`, so long database paths do not
-exceed the Unix socket pathname limit. Application connections use the
-verified loopback TCP endpoint. The first successful `open()` also becomes the
+On macOS and Linux, startup and application connections use a per-instance
+short Unix-socket alias under `/tmp/pylibseekdb-uds-<pid>-XXXXXX`, so long
+database paths do not exceed the Unix socket pathname limit. TCP is disabled
+by default on those platforms. On Windows, startup discovery uses the local
+named pipe and application connections use a verified loopback TCP endpoint by
+default. The first successful `open()` also becomes the
 module's default instance, preserving the legacy
 `seekdb.connect()`, `seekdb.connection_options()`, and `seekdb.close()` API.
 Later calls return independent instance objects without changing that default.
@@ -161,9 +163,9 @@ Use the object methods for additional instances.
 
 ### Connect with PyMySQL
 
-`connection_options()` returns the verified loopback TCP endpoint and
-authentication arguments shared by Python MySQL-protocol drivers. PyMySQL is
-installed with `pylibseekdb`:
+`connection_options()` returns the active local endpoint and authentication
+arguments used by Python MySQL-protocol drivers. PyMySQL is installed with
+`pylibseekdb`:
 
 ```bash
 pip install pylibseekdb
@@ -187,11 +189,15 @@ finally:
     instance.close()
 ```
 
-`options` always contains `host="127.0.0.1"`, `user="root"`, and the embedded
-server's verified, automatically assigned `port`. The database name remains
-caller-owned because PyMySQL uses `database` while aiomysql uses `db`. Keep the
-`SeekdbInstance` alive while any external connections use these options; close
-those connections before closing their lifecycle instance.
+On macOS and Linux, `options` contains `user="root"` and `unix_socket`. On
+Windows it normally contains `host="127.0.0.1"`, `port`, and `user="root"`;
+when connected to a local-only server it contains `named_pipe` instead. Many
+Python MySQL clients do not accept a named-pipe path, so use
+`SeekdbInstance.connect()` for that explicit local-only Windows configuration.
+The database name remains caller-owned because PyMySQL uses `database` while
+aiomysql uses `db`. Keep the `SeekdbInstance` alive while any external
+connections use these options; close those connections before closing their
+lifecycle instance.
 
 ### Async initialization and aiomysql
 

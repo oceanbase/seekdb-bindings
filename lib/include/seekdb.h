@@ -41,17 +41,24 @@ typedef struct {
     const char *transport;
     unsigned int port;
     const char *host;
+    const char *unix_socket;
+    const char *named_pipe;
     const char *user;
 } SeekdbConnectionOptions;
 
 /* Open a seekdb instance rooted at db_dir.
  *
  * parameters is an optional NULL-terminated array of key/value pairs:
- *   {"port", "0", "memory_budget", "10G", "syslog_max_file", "1000", NULL}
+ *   {"mysql_port_mode", "specified", "port", "3306", "memory_budget", "10G", NULL}
  *
- * Driver-reserved keys (consumed by libseekdb, not forwarded to the server):
- *   port — optional compatibility key; only "0" is accepted. Embedded seekdb
- *          always requests an automatically assigned TCP port.
+ * Driver-reserved keys (handled separately from ordinary first-init parameters):
+ *   mysql_port_mode — passed as a server startup parameter on every spawn;
+ *                     defaults to "disabled" on POSIX and "random" on Windows.
+ *   port — passed as --port on every spawn unless omitted or equal to "0".
+ *
+ * mysql_port_mode and port are passed through without value validation. The
+ * seekdb server validates their values and compatibility. mysql_port is not
+ * accepted as a separate server parameter; use the driver-reserved port key.
  *
  * All other keys are seekdb server parameters, passed as --parameter on first
  * init only. On first init the driver always seeds memory_budget=1G and
@@ -62,11 +69,11 @@ int seekdb_close(SeekdbHandle handle);
 
 /* Return the MySQL-protocol connection options for an open handle.
  *
- * transport is "tcp", host is the verified host "127.0.0.1", port is the
- * auto-assigned server port, and user is "root". The local Unix socket or
- * Windows named pipe is used only for port and server-identity discovery.
- * transport, host, and user are borrowed and remain valid until
- * seekdb_close(handle). */
+ * transport is "tcp", "unix_socket", or "named_pipe". TCP returns host and
+ * port; local transports return their corresponding named field. Unused
+ * transport fields are NULL and port is zero for local transports. user is
+ * always "root". On POSIX, unix_socket is a per-handle short alias under /tmp.
+ * Returned strings are borrowed and remain valid until seekdb_close(handle). */
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);
 
 int seekdb_connect(SeekdbHandle handle, const char *database, bool autocommit,

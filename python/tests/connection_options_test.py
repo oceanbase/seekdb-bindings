@@ -38,32 +38,29 @@ def assert_tcp_options(options):
     assert 1 <= options["port"] <= 65535
 
 
-def find_unix_socket_aliases(db_dir):
-    if os.name == "nt":
-        return frozenset()
-
+def assert_unix_socket_options(options, db_dir):
+    assert set(options) == {"unix_socket", "user"}
+    assert options["user"] == "root"
+    endpoint = pathlib.Path(options["unix_socket"])
+    alias_dir = endpoint.parent.parent
     name_prefix = f"pylibseekdb-uds-{os.getpid()}-"
-    expected_run_dir = (pathlib.Path(db_dir) / "run").resolve()
-    aliases = []
-    for alias_dir in pathlib.Path("/tmp").glob(f"{name_prefix}*"):
-        run_link = alias_dir / "run"
-        try:
-            if run_link.is_symlink() and run_link.resolve() == expected_run_dir:
-                aliases.append(alias_dir)
-        except FileNotFoundError:
-            continue
 
-    for alias_dir in aliases:
-        endpoint = alias_dir / "run" / "sql.sock"
-        assert alias_dir.parent == pathlib.Path("/tmp")
-        assert alias_dir.name.startswith(name_prefix)
-        assert len(alias_dir.name) == len(name_prefix) + 6
-        assert endpoint == alias_dir / "run" / "sql.sock"
-        assert alias_dir.is_dir()
-        assert endpoint.parent.is_symlink()
-        assert endpoint.parent.resolve() == (pathlib.Path(db_dir) / "run").resolve()
-        assert endpoint.exists()
-    return frozenset(aliases)
+    assert alias_dir.parent == pathlib.Path("/tmp")
+    assert alias_dir.name.startswith(name_prefix)
+    assert len(alias_dir.name) == len(name_prefix) + 6
+    assert endpoint == alias_dir / "run" / "sql.sock"
+    assert alias_dir.is_dir()
+    assert endpoint.parent.is_symlink()
+    assert endpoint.parent.resolve() == (pathlib.Path(db_dir) / "run").resolve()
+    assert endpoint.exists()
+    return alias_dir
+
+
+def assert_platform_options(options, db_dir):
+    if os.name == "nt":
+        assert_tcp_options(options)
+        return None
+    return assert_unix_socket_options(options, db_dir)
 
 
 def write_marker(instance, value):
@@ -109,9 +106,9 @@ async def test_connection_options():
         duplicate = None
         second = None
         legacy = None
-        first_alias_dirs = frozenset()
-        second_alias_dirs = frozenset()
-        legacy_alias_dirs = frozenset()
+        first_alias_dir = None
+        second_alias_dir = None
+        legacy_alias_dir = None
 
         async def ticker():
             nonlocal ticks
@@ -142,31 +139,22 @@ async def test_connection_options():
             assert not second.closed
 
             first_options = first.connection_options()
-            assert_tcp_options(first_options)
-            first_alias_dirs = find_unix_socket_aliases(first_db_dir)
-            if os.name != "nt":
-                assert first_alias_dirs
+            first_alias_dir = assert_platform_options(first_options, first_db_dir)
             assert duplicate.connection_options() == first_options
             assert seekdb.connection_options() == first_options
 
             duplicate.close()
             assert duplicate.closed
             assert not first.closed
-            if os.name != "nt":
-                aliases_after_duplicate = find_unix_socket_aliases(first_db_dir)
-                assert aliases_after_duplicate.issubset(first_alias_dirs)
-                assert len(aliases_after_duplicate) == max(1, len(first_alias_dirs) - 1)
-                for removed_alias in first_alias_dirs - aliases_after_duplicate:
-                    assert not removed_alias.exists()
-                first_alias_dirs = aliases_after_duplicate
+            if first_alias_dir is not None:
+                assert first_alias_dir.is_dir()
 
             second_options = second.connection_options()
-            assert_tcp_options(second_options)
-            second_alias_dirs = find_unix_socket_aliases(second_db_dir)
-            if os.name != "nt":
-                assert second_alias_dirs
-            assert second_options["port"] != first_options["port"]
-            assert first_alias_dirs.isdisjoint(second_alias_dirs)
+            second_alias_dir = assert_platform_options(second_options, second_db_dir)
+            if os.name == "nt":
+                assert second_options["port"] != first_options["port"]
+            else:
+                assert second_alias_dir != first_alias_dir
             assert seekdb.connection_options() == first_options
 
             write_marker(first, 1)
@@ -182,12 +170,13 @@ async def test_connection_options():
                     cursor.execute("SELECT 1")
                     assert cursor.fetchone() == (1,)
                     cursor.execute("SELECT mysql_port()")
-                    assert cursor.fetchone() == (first_options["port"],)
+                    expected_port = first_options["port"] if os.name == "nt" else 0
+                    assert cursor.fetchone() == (expected_port,)
                     cursor.execute(
                         "SELECT SQL_PORT FROM oceanbase.V$OB_SERVER_STAT "
                         "WHERE START_SERVICE_TIME > 0 LIMIT 1"
                     )
-                    assert cursor.fetchone() == (first_options["port"],)
+                    assert cursor.fetchone() == (expected_port,)
             finally:
                 sync_connection.close()
 
@@ -209,17 +198,16 @@ async def test_connection_options():
             assert first.closed
             assert_instance_closed(first)
             assert_options_unavailable()
-            if os.name != "nt":
-                assert find_unix_socket_aliases(first_db_dir) == first_alias_dirs
+            if first_alias_dir is not None:
+                assert first_alias_dir.is_dir()
             try:
                 retained_cursor.execute("select value from instance_marker")
                 assert retained_cursor.fetchone() == (1,)
             finally:
                 retained_cursor.close()
                 retained_connection.close()
-            if os.name != "nt":
-                assert not find_unix_socket_aliases(first_db_dir)
-                assert all(not alias.exists() for alias in first_alias_dirs)
+            if first_alias_dir is not None:
+                assert not first_alias_dir.exists()
 
             assert read_marker(second) == 2
             seekdb.close()
@@ -227,25 +215,20 @@ async def test_connection_options():
 
             legacy = seekdb.open(legacy_db_dir)
             legacy_options = legacy.connection_options()
-            assert_tcp_options(legacy_options)
-            legacy_alias_dirs = find_unix_socket_aliases(legacy_db_dir)
-            if os.name != "nt":
-                assert legacy_alias_dirs
+            legacy_alias_dir = assert_platform_options(legacy_options, legacy_db_dir)
             assert seekdb.connection_options() == legacy_options
             legacy_connection = seekdb.connect("test")
             legacy_connection.close()
             seekdb.close()
             assert legacy.closed
-            if os.name != "nt":
-                assert not find_unix_socket_aliases(legacy_db_dir)
-                assert all(not alias.exists() for alias in legacy_alias_dirs)
+            if legacy_alias_dir is not None:
+                assert not legacy_alias_dir.exists()
             assert read_marker(second) == 2
 
             second.close()
             assert_instance_closed(second)
-            if os.name != "nt":
-                assert not find_unix_socket_aliases(second_db_dir)
-                assert all(not alias.exists() for alias in second_alias_dirs)
+            if second_alias_dir is not None:
+                assert not second_alias_dir.exists()
         finally:
             seekdb.close()
             for instance in (legacy, second, duplicate, first):
