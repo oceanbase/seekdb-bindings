@@ -49,16 +49,14 @@ typedef struct {
 /* Open a seekdb instance rooted at db_dir.
  *
  * parameters is an optional NULL-terminated array of key/value pairs:
- *   {"mysql_port_mode", "specified", "port", "3306", "memory_budget", "10G", NULL}
+ *   {"port", "3306", "memory_budget", "10G", NULL}
  *
  * Driver-reserved keys (handled separately from ordinary first-init parameters):
- *   mysql_port_mode — passed as a server startup parameter on every spawn;
- *                     defaults to "disabled" on POSIX and "random" on Windows.
  *   port — passed as --port on every spawn unless omitted or equal to "0".
  *
- * mysql_port_mode and port are passed through without value validation. The
- * seekdb server validates their values and compatibility. mysql_port is not
- * accepted as a separate server parameter; use the driver-reserved port key.
+ * port is passed through without value validation. The seekdb server validates
+ * its value. mysql_port is not accepted as a separate server parameter; use
+ * the driver-reserved port key.
  *
  * All other keys are seekdb server parameters, passed as --parameter on first
  * init only. On first init the driver always seeds memory_budget=1G and
