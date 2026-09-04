@@ -73,6 +73,8 @@ TEST_F(TwoClientsOpen, TwoConcurrentClients)
     bool close_signal = false;
     int a_open_rc = -1, b_open_rc = -1;
     std::vector<int64_t> spawned_pids;
+    std::vector<int> discovered_ports;
+    std::vector<std::string> server_uuids;
 
     auto run_client = [&](int &open_rc, bool &opened_flag) {
         SeekdbHandle h = nullptr;
@@ -80,10 +82,12 @@ TEST_F(TwoClientsOpen, TwoConcurrentClients)
         tlog("seekdb_open return %d\n", open_rc);
 
         if (open_rc == SEEKDB_SUCCESS && h != nullptr) {
-            int64_t pid = ((SeekdbHandleImpl *)h)->spawned_pid;
+            const auto *impl = (const SeekdbHandleImpl *)h;
             std::lock_guard<std::mutex> lk(m);
-            spawned_pids.push_back(pid);
-            tlog("saved spawned pid = %lld\n", (long long)pid);
+            spawned_pids.push_back(impl->spawned_pid);
+            discovered_ports.push_back(impl->port);
+            server_uuids.emplace_back(impl->server_uuid);
+            tlog("saved spawned pid = %lld\n", (long long)impl->spawned_pid);
         }
 
         {
@@ -117,6 +121,28 @@ TEST_F(TwoClientsOpen, TwoConcurrentClients)
 
     ASSERT_EQ(a_open_rc, SEEKDB_SUCCESS) << "client A failed to seekdb_open";
     ASSERT_EQ(b_open_rc, SEEKDB_SUCCESS) << "client B failed to seekdb_open";
+
+    EXPECT_EQ(discovered_ports.size(), 2U);
+    EXPECT_EQ(server_uuids.size(), 2U);
+    if (discovered_ports.size() == 2U && server_uuids.size() == 2U) {
+#ifdef _WIN32
+        EXPECT_GT(discovered_ports[0], 0);
+        EXPECT_EQ(discovered_ports[1], discovered_ports[0]);
+        EXPECT_FALSE(server_uuids[0].empty());
+        EXPECT_EQ(server_uuids[1], server_uuids[0]);
+#else
+        EXPECT_EQ(discovered_ports[0], 0);
+        EXPECT_EQ(discovered_ports[1], 0);
+        EXPECT_TRUE(server_uuids[0].empty());
+        EXPECT_TRUE(server_uuids[1].empty());
+#endif
+    }
+    int spawn_count = 0;
+    for (int64_t pid : spawned_pids) {
+        if (pid > 0)
+            ++spawn_count;
+    }
+    EXPECT_EQ(spawn_count, 1) << "concurrent same-db opens must spawn exactly one server";
 
     // Both opens succeeded — let the threads proceed to seekdb_close.
     {
@@ -231,6 +257,29 @@ TEST_F(TwoClientsOpen, BArrivesAfterAStartup)
     }
     ASSERT_EQ(b_open_rc, SEEKDB_SUCCESS);
     ASSERT_EQ(b_query_rc, SEEKDB_SUCCESS);
+
+    ASSERT_NE(h_a, nullptr);
+    ASSERT_NE(h_b, nullptr);
+    const auto *impl_a = (const SeekdbHandleImpl *)h_a;
+    const auto *impl_b = (const SeekdbHandleImpl *)h_b;
+#ifdef _WIN32
+    EXPECT_GT(impl_a->port, 0);
+    EXPECT_EQ(impl_b->port, impl_a->port);
+    EXPECT_NE(impl_a->server_uuid[0], '\0');
+    EXPECT_STREQ(impl_b->server_uuid, impl_a->server_uuid);
+#else
+    EXPECT_EQ(impl_a->port, 0);
+    EXPECT_EQ(impl_b->port, 0);
+    EXPECT_EQ(impl_a->server_uuid[0], '\0');
+    EXPECT_EQ(impl_b->server_uuid[0], '\0');
+#endif
+
+    int spawn_count = 0;
+    for (int64_t pid : spawned_pids) {
+        if (pid > 0)
+            ++spawn_count;
+    }
+    EXPECT_EQ(spawn_count, 1) << "same-db handles must share the one locally discovered server";
 
     {
         std::lock_guard<std::mutex> lk(m);
