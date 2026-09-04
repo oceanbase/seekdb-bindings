@@ -29,7 +29,6 @@ on:
 env:
   BUILD_TYPE: Debug
   SEEKDB_BUILD_TYPE: release
-  SEEKDB_CACHE_VERSION: "2"
   TEST_TARGET: seekdb_tests
   SEEKDB_ARTIFACT: seekdb-binary
 
@@ -99,7 +98,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/seekdb-binary-cache
-          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}-${{ env.SEEKDB_CACHE_VERSION }}
+          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
 
       - name: Free Disk Space
         if: steps.seekdb_cache.outputs.cache-hit != 'true'
@@ -184,7 +183,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/seekdb-binary-cache
-          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}-${{ env.SEEKDB_CACHE_VERSION }}
+          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
 
       - name: Upload seekdb binary
         uses: actions/upload-artifact@v4
