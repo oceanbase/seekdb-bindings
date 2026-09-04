@@ -14,7 +14,7 @@ typedef struct {
     char *clients_lock_path; /* <db_dir>/run/seekdb.clients */
     char *startup_lock_path; /* <db_dir>/run/seekdb.startup */
     Flock *clients_lock;     /* SH-locked for the lifetime of the handle */
-    char host[64];           /* Windows TCP host; empty for local transports */
+    char host[64];           /* TCP host; empty for local transports */
     int port;                /* Windows-discovered TCP port; zero for local transports */
     char server_uuid[128];   /* identity discovered locally and verified over Windows TCP */
     /* Mirrors of Process — populated after spawn_process succeeds, so the
