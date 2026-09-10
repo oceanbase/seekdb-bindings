@@ -34,7 +34,9 @@ int main(int argc, char **argv)
     assert(strcmp(saved, seekdb_last_open_error()) == 0);
     puts("OPEN_ERROR_TLS_OK invalid arguments, NULL output, thread isolation");
     if (argc == 3) {
-        assert(seekdb_set_binary_path(argv[1]) == SEEKDB_SUCCESS);
+        if (strcmp(argv[1], "auto") != 0) {
+            assert(seekdb_set_binary_path(argv[1]) == SEEKDB_SUCCESS);
+        }
         assert(seekdb_open(argv[2], NULL, &handle) == SEEKDB_SUCCESS);
         assert(seekdb_last_open_error()[0] == '\0');
         assert(seekdb_close(handle) == SEEKDB_SUCCESS);
