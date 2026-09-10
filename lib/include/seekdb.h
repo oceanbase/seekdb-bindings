@@ -64,6 +64,10 @@ typedef struct {
  * may also be supplied. On restart, persisted values are kept (issue #26). */
 int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle);
 int seekdb_close(SeekdbHandle handle);
+/* Override the executable for subsequent opens. The path is copied and must
+ * be non-empty. Existing instances are unaffected. Android apps can point to
+ * their extracted native-library executable. */
+int seekdb_set_binary_path(const char *path);
 
 /* Return the MySQL-protocol connection options for an open handle.
  *

@@ -32,6 +32,8 @@
 #define PROBE_REQUIRED_BUDGET_MS PROBE_PHASE_BUDGET_MS
 #endif
 
+static char *g_binary_path = NULL;
+
 #if defined(__GNUC__) || defined(__clang__)
 #define MAYBE_UNUSED __attribute__((unused))
 #else
@@ -223,6 +225,20 @@ static char *xstrdup(const char *s)
         memcpy(p, s, n);
     return p;
 }
+
+int seekdb_set_binary_path(const char *path)
+{
+    if (!path || path[0] == '\0')
+        return SEEKDB_INVALID_ARGUMENT;
+    char *copy = xstrdup(path);
+    if (!copy)
+        return SEEKDB_INTERNAL_ERROR;
+    lock_spawned();
+    free(g_binary_path);
+    g_binary_path = copy;
+    unlock_spawned();
+    return SEEKDB_SUCCESS;
+}
 static void xfree(void *p)
 {
     if (p)
@@ -270,6 +286,19 @@ static void cleanup_unix_socket_alias(SeekdbHandleImpl *h)
 
 static int prepare_unix_socket_alias(SeekdbHandleImpl *h, const char *run_dir)
 {
+#ifdef __ANDROID__
+    /* Android apps own their data directory, but cannot create aliases in /tmp. */
+    char *socket_path = concat_strings(run_dir, "/sql.sock");
+    if (!socket_path)
+        return SEEKDB_INTERNAL_ERROR;
+    if (strlen(socket_path) >= 108) {
+        tlog("Android Unix socket path is too long: %s\n", socket_path);
+        free(socket_path);
+        return SEEKDB_INVALID_ARGUMENT;
+    }
+    h->sock_path = socket_path;
+    return SEEKDB_SUCCESS;
+#endif
     char *resolved_run_dir = realpath(run_dir, NULL);
     if (!resolved_run_dir) {
         tlog("prepare_unix_socket_alias: realpath(%s) failed: errno=%d\n", run_dir, errno);
@@ -694,6 +723,14 @@ static int wait_for_ready(SeekdbHandleImpl *h, Process *spawned, uint64_t deadli
  * `buf` (NUL-terminated). Returns SEEKDB_SUCCESS or SEEKDB_INTERNAL_ERROR. */
 static int resolve_bin_path(char *buf, size_t buflen)
 {
+    lock_spawned();
+    if (g_binary_path) {
+        const int configured_n = snprintf(buf, buflen, "%s", g_binary_path);
+        unlock_spawned();
+        return configured_n >= 0 && (size_t)configured_n < buflen ? SEEKDB_SUCCESS
+                                                                  : SEEKDB_INTERNAL_ERROR;
+    }
+    unlock_spawned();
     char dir[1024];
     if (get_module_dir(dir, sizeof(dir)) != OK)
         return SEEKDB_INTERNAL_ERROR;
