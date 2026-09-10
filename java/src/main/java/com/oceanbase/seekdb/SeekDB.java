@@ -2,11 +2,6 @@ package com.oceanbase.seekdb;
 
 /** Platform-neutral entry point for libseekdb + JDBC. */
 public final class SeekDB {
-    /** SeekDB server parameter controlling the MySQL TCP listener. */
-    public static final String MYSQL_PORT_MODE = "mysql_port_mode";
-    /** Value that disables the MySQL TCP listener (Unix socket remains available). */
-    public static final String MYSQL_PORT_MODE_DISABLED = "disabled";
-
     static {
         System.loadLibrary("seekdb_jni");
     }
