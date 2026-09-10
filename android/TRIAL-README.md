@@ -5,6 +5,7 @@
 - `aar/seekdb-android.aar`：公共 Java API、JNI、libseekdb、SeekDB 可执行文件。
 - `examples/aar-consumer/`：独立 Gradle 示例，仅通过本地 AAR 引用 SeekDB。
 - `demo/seekdb-test.apk`：示例构建的体验 APK；安装启动后自动执行查询及混合检索。
+- `licenses/`：随包附带的许可证和第三方声明；构建版本与验证结果见测试报告。
 - 仅支持 Android ARM64 (`arm64-v8a`)，原生最低 API 28。
 - 这是试用版，不代表已通过所有 Android 版本、真机或生产负载认证。
 - 示例 targetSdk 为 28；面向更高 targetSdk 和应用商店发布需另外验证。
