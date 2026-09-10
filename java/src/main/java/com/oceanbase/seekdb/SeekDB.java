@@ -1,12 +1,15 @@
 package com.oceanbase.seekdb;
 
 /** Platform-neutral entry point for libseekdb. */
-public final class SeekDB {
+public final class SeekDB implements AutoCloseable {
+    private long handle;
     static {
         System.loadLibrary("seekdb_jni");
     }
 
-    private SeekDB() {}
+    private SeekDB(long handle) {
+        this.handle = handle;
+    }
 
     /** Point libseekdb at the seekdb executable copied from APK assets. */
     public static void setBinaryPath(String path) {
@@ -17,9 +20,24 @@ public final class SeekDB {
      * to libseekdb. For example: open(path, "mysql_port_mode", "disabled").
      * Port, transport defaults and parameter values follow libseekdb/server semantics.
      */
-    public static EmbeddedSeekDB open(String dbDir, String... parameters) {
+    public static SeekDB open(String dbDir, String... parameters) {
         validateParameters(parameters);
-        return new EmbeddedSeekDB(nativeOpen(dbDir, parameters));
+        return new SeekDB(nativeOpen(dbDir, parameters));
+    }
+
+    public synchronized ConnectionOptions connectionOptions() {
+        if (handle == 0) {
+            throw new IllegalStateException("SeekDB is closed");
+        }
+        return nativeConnectionOptions(handle);
+    }
+
+    @Override
+    public synchronized void close() {
+        if (handle != 0) {
+            nativeClose(handle);
+            handle = 0;
+        }
     }
 
     private static void validateParameters(String[] parameters) {
@@ -34,6 +52,6 @@ public final class SeekDB {
 
     private static native void nativeSetBinaryPath(String path);
     private static native long nativeOpen(String dbDir, String[] parameters);
-    static native ConnectionOptions nativeConnectionOptions(long handle);
-    static native void nativeClose(long handle);
+    private static native ConnectionOptions nativeConnectionOptions(long handle);
+    private static native void nativeClose(long handle);
 }

@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.widget.TextView;
 import com.oceanbase.seekdb.ConnectionOptions;
-import com.oceanbase.seekdb.EmbeddedSeekDB;
 import com.oceanbase.seekdb.SeekDB;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -33,7 +32,7 @@ public final class MainActivity extends Activity {
                 throw new AssertionError("Test requires a long socket path");
             }
             String endpoint;
-            try (EmbeddedSeekDB db = SeekDB.open(dbDir, "mysql_port_mode", "disabled")) {
+            try (SeekDB db = SeekDB.open(dbDir, "mysql_port_mode", "disabled")) {
             ConnectionOptions options = db.connectionOptions();
             endpoint = options.unix_socket;
             if (!endpoint.startsWith("/proc/self/fd/") || options.port != 0

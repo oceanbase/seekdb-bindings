@@ -1,6 +1,6 @@
 # SeekDB Java bindings
 
-`src/main/java` contains the platform-neutral API (`SeekDB`, `EmbeddedSeekDB`,
+`src/main/java` contains the platform-neutral API (`SeekDB`,
 `ConnectionOptions`). `jni/seekdb_jni.c` is the common JNI bridge and has no
 Android-specific includes. Build the Java API without the Android SDK:
 
@@ -18,6 +18,10 @@ Parameters are optional key/value pairs, passed unchanged to libseekdb:
 `SeekDB.open(path, "mysql_port_mode", "disabled", "port", "0")`.
 Omitting parameters uses native defaults. Java validates the pair structure only;
 there is no separate port argument or transport-specific open method.
+`open()` returns a `SeekDB` instance implementing `AutoCloseable`. Use
+`try (SeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) { ... }`.
+The instance provides `connectionOptions()` and an idempotent `close()`;
+requesting options after close throws `IllegalStateException`.
 
 Connection options preserve the C API fields exactly: `transport`, `port`,
 `host`, `unix_socket`, `named_pipe`, `user`. Unused strings remain null. No
