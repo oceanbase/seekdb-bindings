@@ -40,34 +40,52 @@ typedef enum {
 typedef struct {
     const char *transport;
     unsigned int port;
-    const char *endpoint;
+    const char *host;
+    const char *unix_socket;
+    const char *named_pipe;
     const char *user;
 } SeekdbConnectionOptions;
 
 /* Open a seekdb instance rooted at db_dir.
  *
  * parameters is an optional NULL-terminated array of key/value pairs:
- *   {"port", "3306", "memory_budget", "10G", "syslog_max_file", "1000", NULL}
+ *   {"port", "3306", "memory_budget", "10G", NULL}
  *
- * Driver-reserved keys (consumed by libseekdb, not forwarded to the server):
- *   port — TCP port for connect; omit or "0" for local transport (UDS/pipe).
+ * Driver-reserved keys (handled separately from ordinary first-init parameters):
+ *   port — passed as --port on every spawn unless omitted or equal to "0".
+ *
+ * port is passed through without value validation. The seekdb server validates
+ * its value. mysql_port is not accepted as a separate server parameter; use
+ * the driver-reserved port key.
  *
  * All other keys are seekdb server parameters, passed as --parameter on first
  * init only. On first init the driver always seeds memory_budget=1G and
  * log_disk_size=2G unless the caller overrides them; additional server keys
  * may also be supplied. On restart, persisted values are kept (issue #26). */
 int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle);
+/* Description of the most recent seekdb_open failure on the calling thread.
+ * Empty before the first open and after a successful open. The borrowed string
+ * remains valid until the next seekdb_open on this thread (or thread exit).
+ * No handle is required. Copy it before another open if it must be retained.
+ * Startup diagnostics describe the driver stage; server-internal failures may
+ * require inspecting the instance's log directory. */
+const char *seekdb_last_open_error(void);
 int seekdb_close(SeekdbHandle handle);
+/* Override the executable for subsequent opens. The path is copied and must
+ * be non-empty. Existing instances are unaffected. Android apps can point to
+ * their extracted native-library executable. Without an override, the executable
+ * is resolved beside libseekdb: seekdb.exe on Windows; otherwise seekdb, falling
+ * back to libseekdb_exec.so only if seekdb is missing (Android APK packaging). */
+int seekdb_set_binary_path(const char *path);
 
 /* Return the MySQL-protocol connection options for an open handle.
  *
- * transport is "tcp", "unix_socket", or "named_pipe". TCP exposes only port;
- * clients use their default local host. Local transports expose endpoint as a
- * Unix socket path or full Windows named-pipe path. user is always "root".
- * On POSIX, the Unix socket endpoint is a per-handle alias under /tmp and is
- * usable only while the handle remains open.
- * transport, endpoint, and user are borrowed and remain valid until
- * seekdb_close(handle). */
+ * transport is "tcp", "unix_socket", or "named_pipe". TCP returns host and
+ * port; local transports return their corresponding named field. Unused
+ * transport fields are NULL and port is zero for local transports. user is
+ * always "root". On POSIX, unix_socket is a per-handle short alias under /tmp;
+ * Android uses a process-local /proc/self/fd/<directory-fd>/sql.sock alias.
+ * Returned strings are borrowed and remain valid until seekdb_close(handle). */
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);
 
 int seekdb_connect(SeekdbHandle handle, const char *database, bool autocommit,
