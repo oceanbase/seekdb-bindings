@@ -10,7 +10,13 @@ if [[ -e "$trial" ]]; then
 fi
 test -f "$out/package/seekdb-android.aar"
 test -f "$out/package/mariadb-java-client-3.5.6.jar"
-mkdir -p "$trial/aar" "$trial/examples" "$trial/demo"
+mkdir -p "$trial/aar" "$trial/examples" "$trial/demo" "$trial/licenses"
+cp "$root/LICENSE" "$trial/licenses/seekdb-bindings-APACHE-2.0.txt"
+cp "$root/deps/mariadb-connector-c/COPYING.LIB" "$trial/licenses/MariaDB-LGPL-2.1.txt"
+if [[ -n ${SEEKDB_SOURCE_DIR:-} ]]; then
+  cp "$SEEKDB_SOURCE_DIR/LICENSE" "$trial/licenses/seekdb-LICENSE.txt"
+  cp "$SEEKDB_SOURCE_DIR/NOTICE" "$trial/licenses/seekdb-NOTICE.txt"
+fi
 cp "$out/package/seekdb-android.aar" "$trial/aar/"
 cp -R "$root/android/examples/aar-consumer" "$trial/examples/"
 project="$trial/examples/aar-consumer"
