@@ -14,7 +14,7 @@ remote_root=$($adb shell run-as "$pkg" pwd | tr -d '\r')
 apk=$($adb shell pm path "$pkg" | tr -d '\r' | sed -n 's/^package://p' | head -n 1)
 native="${apk%/base.apk}/lib/arm64"
 code="$remote_root/no_backup/app-process-code"
-database="$remote_root/no_backup/app-process-db-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz"
+database="$remote_root/no_backup/app-process-auto-db-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz"
 mkdir -p "$out/standalone/classes"
 javac --release 8 -cp "$sdk/platforms/android-36.1/android.jar:$out/package/seekdb-java.jar:$out/package/mariadb-java-client-3.5.6.jar" \
   -d "$out/standalone/classes" "$root/android/test/src/com/oceanbase/seekdb/test/"{Main,JdbcExample,AndroidSocketFactory}.java \
@@ -34,4 +34,4 @@ jar uf "$out/standalone/seekdb-test-dex.jar" -C "$out/standalone/resources" .
   < "$out/standalone/seekdb-test-dex.jar"
 "$adb" shell run-as "$pkg" env "CLASSPATH=$code/seekdb-test-dex.jar" \
   "LD_LIBRARY_PATH=$native" /system/bin/app_process "-Djava.library.path=$native" \
-  /system/bin com.oceanbase.seekdb.test.Main "$native/libseekdb_exec.so" "$database"
+  /system/bin com.oceanbase.seekdb.test.Main "$database"

@@ -11,14 +11,17 @@ import java.sql.Statement;
 public final class Main {
     public static void main(String[] args) {
         try {
-            if (args.length != 2) {
-                throw new IllegalArgumentException("Usage: Main <seekdb-executable> <database-dir>");
+            if (args.length != 1) {
+                throw new IllegalArgumentException("Usage: Main <database-dir>");
             }
             System.out.println("VM=" + System.getProperty("java.vm.name")
                     + " uid=" + android.system.Os.getuid());
-            SeekDB.setBinaryPath(args[0]);
+            File notDirectory = new File(args[0] + "-not-a-directory");
+            if (!notDirectory.createNewFile() && !notDirectory.isFile()) {
+                throw new AssertionError("Invalid directory fixture must be a regular file");
+            }
             try {
-                SeekDB.open(args[0], "mysql_port_mode", "disabled"); // not a database directory
+                SeekDB.open(notDirectory.getAbsolutePath(), "mysql_port_mode", "disabled");
                 throw new AssertionError("Expected invalid directory failure");
             } catch (RuntimeException expected) {
                 if (!expected.getMessage().contains("directory")
@@ -27,21 +30,9 @@ public final class Main {
                 }
                 System.out.println("OPEN_ERROR_OK " + expected.getMessage());
             }
-            SeekDB.setBinaryPath(args[0] + ".missing");
-            try {
-                SeekDB.open(args[1] + "-spawn-error", "mysql_port_mode", "disabled");
-                throw new AssertionError("Expected missing executable failure");
-            } catch (RuntimeException expected) {
-                if (!expected.getMessage().contains("Cannot execute")
-                        || !expected.getMessage().contains("errno=2")) {
-                    throw new AssertionError("Missing spawn error detail", expected);
-                }
-                System.out.println("SPAWN_ERROR_OK " + expected.getMessage());
-            } finally {
-                SeekDB.setBinaryPath(args[0]);
-            }
             String endpoint;
-            try (SeekDB db = SeekDB.open(args[1], "mysql_port_mode", "disabled", "port", "0")) {
+            try (SeekDB db = SeekDB.open(args[0], "mysql_port_mode", "disabled", "port", "0")) {
+                System.out.println("AUTO_BINARY_PATH_OK no override supplied");
                 ConnectionOptions options = db.connectionOptions();
                 endpoint = options.unix_socket;
                 if (!"unix_socket".equals(options.transport) || options.port != 0
@@ -74,7 +65,19 @@ public final class Main {
                 throw new AssertionError("Directory FD still open after handle close");
             }
             System.out.println("APP_PROCESS_OK directory_fd_closed=true realPathBytes="
-                    + (args[1] + "/run/sql.sock").getBytes("UTF-8").length);
+                    + (args[0] + "/run/sql.sock").getBytes("UTF-8").length);
+            // Negative test only: normal startup above never sets a binary path.
+            SeekDB.setBinaryPath(args[0] + "/missing-seekdb");
+            try {
+                SeekDB.open(args[0] + "-spawn-error", "mysql_port_mode", "disabled");
+                throw new AssertionError("Expected missing executable failure");
+            } catch (RuntimeException expected) {
+                if (!expected.getMessage().contains("Cannot execute")
+                        || !expected.getMessage().contains("errno=2")) {
+                    throw new AssertionError("Missing spawn error detail", expected);
+                }
+                System.out.println("SPAWN_ERROR_OK " + expected.getMessage());
+            }
         } catch (Throwable t) {
             t.printStackTrace();
             System.exit(1);

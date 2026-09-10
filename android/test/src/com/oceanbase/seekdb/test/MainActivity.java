@@ -22,11 +22,10 @@ public final class MainActivity extends Activity {
 
     private void runTest() {
         try {
-            SeekDB.setBinaryPath(getApplicationInfo().nativeLibraryDir + "/libseekdb_exec.so");
             // Keep the database entirely in app-owned persistent storage;
             // never use /tmp, cache, or a system directory for test data.
             String dbDir = getNoBackupFilesDir().getAbsolutePath()
-                    + "/seekdb-long-path-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz"
+                    + "/seekdb-auto-path-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz"
                     + "-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz";
             if ((dbDir + "/run/sql.sock").getBytes("UTF-8").length <= 108) {
                 throw new AssertionError("Test requires a long socket path");
