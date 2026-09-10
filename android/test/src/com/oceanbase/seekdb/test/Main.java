@@ -18,15 +18,39 @@ public final class Main {
             System.out.println("VM=" + System.getProperty("java.vm.name")
                     + " uid=" + android.system.Os.getuid());
             SeekDB.setBinaryPath(args[0]);
+            try {
+                SeekDB.openUnixSocket(args[0]); // executable file is not a database directory
+                throw new AssertionError("Expected invalid directory failure");
+            } catch (RuntimeException expected) {
+                if (!expected.getMessage().contains("directory")
+                        || !expected.getMessage().contains("errno=")) {
+                    throw new AssertionError("Missing native error detail", expected);
+                }
+                System.out.println("OPEN_ERROR_OK " + expected.getMessage());
+            }
+            SeekDB.setBinaryPath(args[0] + ".missing");
+            try {
+                SeekDB.openUnixSocket(args[1] + "-spawn-error");
+                throw new AssertionError("Expected missing executable failure");
+            } catch (RuntimeException expected) {
+                if (!expected.getMessage().contains("Cannot execute")
+                        || !expected.getMessage().contains("errno=2")) {
+                    throw new AssertionError("Missing spawn error detail", expected);
+                }
+                System.out.println("SPAWN_ERROR_OK " + expected.getMessage());
+            } finally {
+                SeekDB.setBinaryPath(args[0]);
+            }
             String endpoint;
             try (EmbeddedSeekDB db = SeekDB.openUnixSocket(args[1])) {
                 ConnectionOptions options = db.connectionOptions();
-                endpoint = options.endpoint;
+                endpoint = options.unix_socket;
                 if (!"unix_socket".equals(options.transport) || options.port != 0
+                        || options.host != null || options.named_pipe != null
                         || !endpoint.startsWith("/proc/self/fd/")) {
                     throw new AssertionError("Unexpected connection options: " + endpoint);
                 }
-                try (Connection c = db.connect("test");
+                try (Connection c = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory");
                      Statement s = c.createStatement();
                      ResultSet rs = s.executeQuery("SELECT 1")) {
                     if (!rs.next() || rs.getInt(1) != 1) {
@@ -34,7 +58,7 @@ public final class Main {
                     }
                     System.out.println("JDBC_OK endpoint=" + endpoint + " port=" + options.port);
                 }
-                try (Connection c = db.connect("test")) {
+                try (Connection c = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory")) {
                     System.out.println(HybridScenario.run(c));
                 }
             }

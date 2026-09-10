@@ -18,10 +18,15 @@ public final class EmbeddedSeekDB implements AutoCloseable {
     }
 
     public Connection connect(String database) throws SQLException {
+        return connect(database, null);
+    }
+
+    /** Supply a platform-specific JDBC socket factory for Unix socket connections. */
+    public Connection connect(String database, String socketFactory) throws SQLException {
         try { Class.forName("org.mariadb.jdbc.Driver"); }
         catch (ClassNotFoundException e) { throw new SQLException("MariaDB JDBC driver is missing", e); }
         ConnectionOptions options = connectionOptions();
-        return DriverManager.getConnection(options.jdbcUrl(database), options.user, "");
+        return DriverManager.getConnection(options.jdbcUrl(database, socketFactory), options.user, "");
     }
 
     @Override

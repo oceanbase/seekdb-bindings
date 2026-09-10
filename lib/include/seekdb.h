@@ -63,6 +63,13 @@ typedef struct {
  * log_disk_size=2G unless the caller overrides them; additional server keys
  * may also be supplied. On restart, persisted values are kept (issue #26). */
 int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle);
+/* Description of the most recent seekdb_open failure on the calling thread.
+ * Empty before the first open and after a successful open. The borrowed string
+ * remains valid until the next seekdb_open on this thread (or thread exit).
+ * No handle is required. Copy it before another open if it must be retained.
+ * Startup diagnostics describe the driver stage; server-internal failures may
+ * require inspecting the instance's log directory. */
+const char *seekdb_last_open_error(void);
 int seekdb_close(SeekdbHandle handle);
 /* Override the executable for subsequent opens. The path is copied and must
  * be non-empty. Existing instances are unaffected. Android apps can point to
@@ -74,7 +81,8 @@ int seekdb_set_binary_path(const char *path);
  * transport is "tcp", "unix_socket", or "named_pipe". TCP returns host and
  * port; local transports return their corresponding named field. Unused
  * transport fields are NULL and port is zero for local transports. user is
- * always "root". On POSIX, unix_socket is a per-handle short alias under /tmp.
+ * always "root". On POSIX, unix_socket is a per-handle short alias under /tmp;
+ * Android uses a process-local /proc/self/fd/<directory-fd>/sql.sock alias.
  * Returned strings are borrowed and remain valid until seekdb_close(handle). */
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);
 

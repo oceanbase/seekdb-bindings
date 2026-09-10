@@ -411,6 +411,7 @@ int spawn_process(const char *bin_path, char *const argv[], Process **out_proc)
     if (err != 0) {
         tlog("spawn_process: posix_spawn(%s) failed: errno %d: %s\n", bin_path, err, strerror(err));
         free(p);
+        errno = err; /* posix_spawn returns its error instead of setting errno. */
         return ERR;
     }
     p->pid = (int64_t)pid;

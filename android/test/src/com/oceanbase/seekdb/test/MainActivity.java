@@ -35,11 +35,12 @@ public final class MainActivity extends Activity {
             String endpoint;
             try (EmbeddedSeekDB db = SeekDB.openUnixSocket(dbDir)) {
             ConnectionOptions options = db.connectionOptions();
-            endpoint = options.endpoint;
-            if (!endpoint.startsWith("/proc/self/fd/") || options.port != 0) {
+            endpoint = options.unix_socket;
+            if (!endpoint.startsWith("/proc/self/fd/") || options.port != 0
+                    || options.host != null || options.named_pipe != null) {
                 throw new AssertionError("Unexpected endpoint: " + endpoint);
             }
-            try (Connection c = db.connect("test");
+            try (Connection c = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory");
                  Statement s = c.createStatement();
                  ResultSet rs = s.executeQuery("SELECT 1")) {
                 rs.next();
@@ -49,7 +50,7 @@ public final class MainActivity extends Activity {
                 android.util.Log.i("SeekDBTest", result);
                 runOnUiThread(() -> text.setText(result));
             }
-            try (Connection c = db.connect("test")) {
+            try (Connection c = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory")) {
                 final String hybrid = HybridScenario.run(c);
                 android.util.Log.i("SeekDBTest", hybrid);
                 runOnUiThread(() -> text.setText(hybrid));

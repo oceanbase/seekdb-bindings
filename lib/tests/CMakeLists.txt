@@ -10,6 +10,10 @@ set(_seekdb_test_includes
     "${CMAKE_BINARY_DIR}/deps/mariadb-connector-c/include")
 
 if (NOT WIN32)
+    add_executable(test_open_error test_open_error.c)
+    target_link_libraries(test_open_error PRIVATE seekdb Threads::Threads)
+    add_test(NAME test_open_error COMMAND test_open_error)
+
     add_executable(test_one_client_process test_one_client_process.cc)
     target_include_directories(test_one_client_process PRIVATE ${_seekdb_test_includes})
     target_compile_definitions(test_one_client_process PRIVATE
@@ -52,5 +56,5 @@ gtest_discover_tests(test_connection_options DISCOVERY_MODE PRE_TEST)
 add_custom_target(seekdb_tests DEPENDS test_two_clients_threads test_connection_options)
 if (NOT WIN32)
     add_dependencies(seekdb_tests test_one_client_process test_parameter_persistence
-        test_open_parameters)
+        test_open_parameters test_open_error)
 endif()
