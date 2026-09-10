@@ -1,10 +1,6 @@
 package com.oceanbase.seekdb;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-
-/** A libseekdb-managed embedded instance exposed through JDBC. */
+/** A libseekdb-managed embedded instance, independent of any client driver. */
 public final class EmbeddedSeekDB implements AutoCloseable {
     private long handle;
 
@@ -15,18 +11,6 @@ public final class EmbeddedSeekDB implements AutoCloseable {
     public ConnectionOptions connectionOptions() {
         ensureOpen();
         return SeekDB.nativeConnectionOptions(handle);
-    }
-
-    public Connection connect(String database) throws SQLException {
-        return connect(database, null);
-    }
-
-    /** Supply a platform-specific JDBC socket factory for Unix socket connections. */
-    public Connection connect(String database, String socketFactory) throws SQLException {
-        try { Class.forName("org.mariadb.jdbc.Driver"); }
-        catch (ClassNotFoundException e) { throw new SQLException("MariaDB JDBC driver is missing", e); }
-        ConnectionOptions options = connectionOptions();
-        return DriverManager.getConnection(options.jdbcUrl(database, socketFactory), options.user, "");
     }
 
     @Override

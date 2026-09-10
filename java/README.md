@@ -21,10 +21,11 @@ there is no separate port argument or transport-specific open method.
 
 Connection options preserve the C API fields exactly: `transport`, `port`,
 `host`, `unix_socket`, `named_pipe`, `user`. Unused strings remain null. No
-combined `endpoint` field is used. TCP JDBC URLs use the returned host; Unix
-socket JDBC connections require an explicitly supplied platform socket factory.
-Named-pipe options are exposed unchanged for clients/adapters to consume; the
-built-in JDBC helper currently reports that no named-pipe adapter is configured.
+combined `endpoint` field is used. The public API does not construct JDBC URLs,
+load drivers, or open JDBC connections. Callers choose their driver and use these
+fields to configure it. Driver-specific URL and socket options are demonstrated
+in `android/test/src/com/oceanbase/seekdb/test/JdbcExample.java`, not provided as
+public API. The common JAR has no JDBC dependency.
 
 Android's LocalSocket adapter, NDK build and device tests remain in `android/`.
 An Android app includes `seekdb-java.jar`, `seekdb-android.jar` (adapter only),

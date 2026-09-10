@@ -38,11 +38,25 @@ and is not inherited by the SeekDB executable. Run operations off the UI thread.
 ```java
 SeekDB.setBinaryPath(context.getApplicationInfo().nativeLibraryDir + "/libseekdb_exec.so");
 String path = context.getNoBackupFilesDir().getAbsolutePath() + "/db";
-try (EmbeddedSeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled");
-     java.sql.Connection connection = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory")) {
-    // connectionOptions() is obtained from libseekdb; use JDBC normally.
+try (EmbeddedSeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) {
+    ConnectionOptions options = db.connectionOptions();
+    // Example for MariaDB JDBC 3.5.6 + our Android adapter, not generic JDBC options.
+    Class.forName("org.mariadb.jdbc.Driver");
+    String url = "jdbc:mariadb://localhost/test"
+            + "?socketFactory=com.oceanbase.seekdb.AndroidSocketFactory"
+            + "&seekdbSocket=" + java.net.URLEncoder.encode(options.unix_socket, "UTF-8")
+            + "&sslMode=disable";
+    try (java.sql.Connection connection =
+            java.sql.DriverManager.getConnection(url, options.user, "")) {
+        // Use JDBC normally; close connections before closing the instance handle.
+    }
 }
 ```
+
+The URL prefix and `socketFactory`/`sslMode` options are MariaDB-driver-specific;
+`seekdbSocket` is consumed by this example's Android socket adapter. Other drivers
+must use their own configuration and compatible transport adapter. The common
+SeekDB API returns connection fields only; it has no JDBC URL or connect helper.
 
 The C executable override is copied, serialized against other override reads/writes,
 and affects subsequent opens. Android spawns use POSIX_SPAWN_USEVFORK to avoid the

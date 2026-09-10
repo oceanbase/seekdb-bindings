@@ -50,7 +50,7 @@ public final class Main {
                         || !endpoint.startsWith("/proc/self/fd/")) {
                     throw new AssertionError("Unexpected connection options: " + endpoint);
                 }
-                try (Connection c = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory");
+                try (Connection c = JdbcExample.connect(options, "test");
                      Statement s = c.createStatement();
                      ResultSet rs = s.executeQuery("SELECT 1")) {
                     if (!rs.next() || rs.getInt(1) != 1) {
@@ -58,7 +58,7 @@ public final class Main {
                     }
                     System.out.println("JDBC_OK endpoint=" + endpoint + " port=" + options.port);
                 }
-                try (Connection c = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory")) {
+                try (Connection c = JdbcExample.connect(options, "test")) {
                     System.out.println(HybridScenario.run(c));
                 }
             }
