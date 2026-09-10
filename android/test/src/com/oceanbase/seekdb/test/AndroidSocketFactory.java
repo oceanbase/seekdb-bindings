@@ -1,4 +1,4 @@
-package com.oceanbase.seekdb;
+package com.oceanbase.seekdb.test;
 
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
@@ -7,7 +7,7 @@ import java.net.*;
 import org.mariadb.jdbc.Configuration;
 import org.mariadb.jdbc.util.ConfigurableSocketFactory;
 
-/** JDBC socket adapter backed by Android's filesystem Unix domain sockets. */
+/** Example-only MariaDB JDBC adapter for Android filesystem Unix domain sockets. */
 public final class AndroidSocketFactory extends ConfigurableSocketFactory {
     private String path;
     @Override public void setConfiguration(Configuration config, String host) {

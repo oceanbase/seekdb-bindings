@@ -35,8 +35,10 @@ Android's LocalSocket adapter, NDK build and device tests remain in `android/`.
 The shared JDBC scenario lives in `test/com/oceanbase/seekdb/test/HybridScenario.java`.
 It accepts a standard JDBC `Connection` and has no Android dependencies; both
 Android test entry points compile and reuse it.
-An Android app includes `seekdb-java.jar`, `seekdb-android.jar` (adapter only),
-and the MariaDB JDBC JAR. See [Android instructions](../android/README.md).
+The MariaDB JDBC Android example includes `seekdb-java.jar`, the JDBC JAR, and
+the example `AndroidSocketFactory` source under `android/test/`. The adapter is
+not part of the public bindings and is not published as a separate JAR.
+See [Android instructions](../android/README.md).
 
 ## Open errors
 

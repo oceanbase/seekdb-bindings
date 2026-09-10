@@ -13,7 +13,7 @@ final class JdbcExample {
         }
         Class.forName("org.mariadb.jdbc.Driver");
         String url = "jdbc:mariadb://localhost/" + URLEncoder.encode(database, "UTF-8")
-                + "?socketFactory=com.oceanbase.seekdb.AndroidSocketFactory"
+                + "?socketFactory=com.oceanbase.seekdb.test.AndroidSocketFactory"
                 + "&seekdbSocket=" + URLEncoder.encode(options.unix_socket, "UTF-8")
                 + "&sslMode=disable";
         return DriverManager.getConnection(url, options.user, "");
