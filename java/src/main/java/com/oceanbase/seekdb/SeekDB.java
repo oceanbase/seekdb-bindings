@@ -1,6 +1,6 @@
 package com.oceanbase.seekdb;
 
-/** Platform-neutral entry point for libseekdb + JDBC. */
+/** Platform-neutral entry point for libseekdb. */
 public final class SeekDB {
     static {
         System.loadLibrary("seekdb_jni");

@@ -19,28 +19,4 @@ public final class ConnectionOptions {
         this.user = user;
     }
 
-    public String jdbcUrl(String database) {
-        return jdbcUrl(database, null);
-    }
-
-    public String jdbcUrl(String database, String socketFactory) {
-        String db = database == null ? "" : database;
-        if ("tcp".equals(transport)) {
-            String address = host != null && host.contains(":") && !host.startsWith("[")
-                    ? "[" + host + "]" : host;
-            return "jdbc:mariadb://" + address + ":" + port + "/" + db + "?sslMode=disable";
-        }
-        if ("unix_socket".equals(transport)) {
-            if (socketFactory == null || socketFactory.isEmpty()) {
-                throw new UnsupportedOperationException("Supply a platform-specific Unix socket factory");
-            }
-            try {
-                return "jdbc:mariadb://localhost/" + db
-                        + "?socketFactory=" + java.net.URLEncoder.encode(socketFactory, "UTF-8")
-                        + "&seekdbSocket=" + java.net.URLEncoder.encode(unix_socket, "UTF-8")
-                        + "&sslMode=disable";
-            } catch (java.io.UnsupportedEncodingException e) { throw new AssertionError(e); }
-        }
-        throw new UnsupportedOperationException("No JDBC adapter configured for transport: " + transport);
-    }
 }
