@@ -18,13 +18,14 @@ export MARIADB_JDBC_JAR=/path/to/mariadb-java-client-3.5.6.jar
 BUILD_TEST_APK=1 bash android/build.sh
 ```
 
-Outputs are in `build/android/package`: two JARs, `jniLibs/arm64-v8a` and optionally
+Outputs are in `build/android/package`: three JARs, `jniLibs/arm64-v8a` and optionally
 a signed test APK. The script pins native API 28 and NDK r27d, including the
 sysroot, and defaults to four build jobs. Set BUILD_JOBS to adjust concurrency.
 
 ## Use
 
-Include both JARs as app dependencies and copy all three native files to
+Include `seekdb-java.jar`, `seekdb-android.jar`, and the MariaDB JDBC JAR as app
+dependencies and copy all three native files to
 `app/src/main/jniLibs/arm64-v8a`. Enable `android:extractNativeLibs="true"` and
 Gradle legacy JNI packaging (`packaging { jniLibs { useLegacyPackaging = true } }`).
 Preserve `com.oceanbase.seekdb.**` and `org.mariadb.jdbc.Driver` if enabling shrinking;
@@ -38,7 +39,7 @@ and is not inherited by the SeekDB executable. Run operations off the UI thread.
 SeekDB.setBinaryPath(context.getApplicationInfo().nativeLibraryDir + "/libseekdb_exec.so");
 String path = context.getNoBackupFilesDir().getAbsolutePath() + "/db";
 try (EmbeddedSeekDB db = SeekDB.openUnixSocket(path);
-     java.sql.Connection connection = db.connect("test")) {
+     java.sql.Connection connection = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory")) {
     // connectionOptions() is obtained from libseekdb; use JDBC normally.
 }
 ```
@@ -82,8 +83,8 @@ installed on the connected ARM64 emulator, run:
 ANDROID_SDK_ROOT=/path/to/Android/sdk bash android/test/run-main.sh
 ```
 
-This compiles a separate `Main` against the existing JAR, converts the test and
-both dependency JARs to `build/android/standalone/seekdb-test-dex.jar`, and runs it
+This compiles a separate `Main` against the existing JARs, converts the test and
+all three dependency JARs to `build/android/standalone/seekdb-test-dex.jar`, and runs it
 with `/system/bin/app_process`. It does not build, install, or launch an APK.
 The existing debuggable package is only used for `run-as` access to persistent
 private storage and its already-installed native binaries. Thus this recipe is
@@ -105,6 +106,10 @@ Observed pitfalls on API 36 (SELinux Enforcing):
 Validated initial creation and reopening with a 157-byte real socket path:
 `JDBC_OK`, `HYBRID_OK` (10 rows, five expected results, TCP disabled), and
 `APP_PROCESS_OK directory_fd_closed=true`, with exit status 0.
+The runner also checks descriptive native open errors for a non-directory data
+path and a missing executable, and verifies that `unix_socket` is returned while
+`host` and `named_pipe` remain null. Common Java/JNI code lives in `java/`; only
+the LocalSocket adapter, Android build and tests remain here.
 
 Additional manual validation ran the original pyseekdb simple, complete, seven
 hybrid scenarios, and sparse examples against the APK-owned engine through a

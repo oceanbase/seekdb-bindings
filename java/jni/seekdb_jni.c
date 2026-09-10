@@ -3,7 +3,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <android/log.h>
 
 #include "seekdb.h"
 
@@ -80,9 +79,9 @@ JNIEXPORT jlong JNICALL Java_com_oceanbase_seekdb_SeekDB_nativeOpen(JNIEnv *env,
     free(values);
     free(db);
     if (rc != SEEKDB_SUCCESS) {
-        char message[96];
-        snprintf(message, sizeof(message), "seekdb_open failed (rc=%d)", rc);
-        __android_log_print(ANDROID_LOG_ERROR, "seekdb-jni", "%s", message);
+        char message[2304];
+        snprintf(message, sizeof(message), "seekdb_open failed (rc=%d): %s", rc,
+                 seekdb_last_open_error());
         throw_runtime(env, message);
         return 0;
     }
@@ -100,13 +99,26 @@ JNIEXPORT jobject JNICALL Java_com_oceanbase_seekdb_SeekDB_nativeConnectionOptio
         return NULL;
     }
     jclass result = (*env)->FindClass(env, "com/oceanbase/seekdb/ConnectionOptions");
-    jmethodID ctor = (*env)->GetMethodID(
-        env, result, "<init>", "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)V");
-    jstring transport = (*env)->NewStringUTF(env, options.transport ? options.transport : "");
-    const char *endpoint_value = options.unix_socket ? options.unix_socket : options.named_pipe;
-    jstring endpoint = endpoint_value ? (*env)->NewStringUTF(env, endpoint_value) : NULL;
-    jstring user = (*env)->NewStringUTF(env, options.user ? options.user : "");
-    return (*env)->NewObject(env, result, ctor, transport, (jint)options.port, endpoint, user);
+    if (!result) {
+        return NULL;
+    }
+    jmethodID ctor = (*env)->GetMethodID(env, result, "<init>",
+                                         "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/"
+                                         "String;Ljava/lang/String;Ljava/lang/String;)V");
+    if (!ctor) {
+        return NULL;
+    }
+    jstring transport = options.transport ? (*env)->NewStringUTF(env, options.transport) : NULL;
+    jstring host = options.host ? (*env)->NewStringUTF(env, options.host) : NULL;
+    jstring unix_socket =
+        options.unix_socket ? (*env)->NewStringUTF(env, options.unix_socket) : NULL;
+    jstring named_pipe = options.named_pipe ? (*env)->NewStringUTF(env, options.named_pipe) : NULL;
+    jstring user = options.user ? (*env)->NewStringUTF(env, options.user) : NULL;
+    if ((*env)->ExceptionCheck(env)) {
+        return NULL;
+    }
+    return (*env)->NewObject(env, result, ctor, transport, (jint)options.port, host, unix_socket,
+                             named_pipe, user);
 }
 
 JNIEXPORT void JNICALL Java_com_oceanbase_seekdb_SeekDB_nativeClose(JNIEnv *env, jclass cls,

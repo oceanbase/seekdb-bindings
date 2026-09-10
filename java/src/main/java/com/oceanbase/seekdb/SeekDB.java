@@ -1,6 +1,6 @@
 package com.oceanbase.seekdb;
 
-/** Android entry point for libseekdb + JDBC. */
+/** Platform-neutral entry point for libseekdb + JDBC. */
 public final class SeekDB {
     /** SeekDB server parameter controlling the MySQL TCP listener. */
     public static final String MYSQL_PORT_MODE = "mysql_port_mode";
