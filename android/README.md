@@ -73,6 +73,39 @@ The proc-fd path passed JDBC and hybrid queries with SELinux Enforcing and a
 186-byte real socket path.
 The package is not a standalone pure-Java database; deploy the native files too.
 
+### Standalone `main()` via app_process
+
+After building the package above, with the matching debug test APK already
+installed on the connected ARM64 emulator, run:
+
+```sh
+ANDROID_SDK_ROOT=/path/to/Android/sdk bash android/test/run-main.sh
+```
+
+This compiles a separate `Main` against the existing JAR, converts the test and
+both dependency JARs to `build/android/standalone/seekdb-test-dex.jar`, and runs it
+with `/system/bin/app_process`. It does not build, install, or launch an APK.
+The existing debuggable package is only used for `run-as` access to persistent
+private storage and its already-installed native binaries. Thus this recipe is
+not an APK-free device provisioning method. Its SELinux domain is `runas_app`,
+not the Activity's regular app domain, and it does not replace APK testing.
+
+Observed pitfalls on API 36 (SELinux Enforcing):
+
+- Writable DEX JARs abort ART startup before `main()`; deploy them read-only.
+- D8 does not copy JAR resources. The runner preserves JDBC properties and
+  `META-INF/services`, avoiding missing configuration and plugin metadata.
+- Both `java.library.path` and native dependency resolution must point to the
+  installed ARM64 libraries; a DEX JAR alone cannot run the database.
+- Shell permissions differ from app permissions. This runner uses `run-as` and
+  a dedicated `no_backup/app-process-db-...` directory, never temporary storage.
+- `/proc/self/fd/` endpoints belong to the calling process and handle. Do not
+  reuse them from another process or after closing the handle.
+
+Validated initial creation and reopening with a 157-byte real socket path:
+`JDBC_OK`, `HYBRID_OK` (10 rows, five expected results, TCP disabled), and
+`APP_PROCESS_OK directory_fd_closed=true`, with exit status 0.
+
 Additional manual validation ran the original pyseekdb simple, complete, seven
 hybrid scenarios, and sparse examples against the APK-owned engine through a
 test-only ADB/Unix socket relay. Python and real embedding/reranking models ran on
