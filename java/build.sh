@@ -8,6 +8,6 @@ classes=$(mktemp -d "$out/classes.XXXXXX")
 javac --release 8 -d "$classes" "$root"/java/src/main/java/com/oceanbase/seekdb/*.java
 jar cf "$out/seekdb-java.jar" -C "$classes" .
 javac --release 8 -cp "$out/seekdb-java.jar" -d "$out/tests" \
-  "$root/java/test/ConnectionOptionsTest.java" \
+  "$root/java/test/com/oceanbase/seekdb/test/ConnectionOptionsTest.java" \
   "$root/java/test/com/oceanbase/seekdb/test/HybridScenario.java"
-java -cp "$out/seekdb-java.jar:$out/tests" ConnectionOptionsTest
+java -cp "$out/seekdb-java.jar:$out/tests" com.oceanbase.seekdb.test.ConnectionOptionsTest
