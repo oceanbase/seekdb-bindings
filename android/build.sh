@@ -37,7 +37,8 @@ if [[ ${BUILD_TEST_APK:-0} == 1 ]]; then
   mkdir -p "$out/test/classes" "$out/test/dex" "$out/test/lib/arm64-v8a"
   "$bt/aapt2" link -o "$out/test/unsigned.apk" --manifest "$root/android/test/AndroidManifest.xml" -I "$platform"
   javac --release 8 -cp "$platform:$out/package/seekdb-java.jar:$out/package/seekdb-android.jar" -d "$out/test/classes" \
-    "$root"/android/test/src/com/oceanbase/seekdb/test/{MainActivity,HybridScenario,JdbcExample}.java
+    "$root"/android/test/src/com/oceanbase/seekdb/test/{MainActivity,JdbcExample}.java \
+    "$root/java/test/com/oceanbase/seekdb/test/HybridScenario.java"
   jar cf "$out/test/test-classes.jar" -C "$out/test/classes" .
   "$bt/d8" --min-api 28 --lib "$platform" --output "$out/test/dex" \
     "$out/test/test-classes.jar" "$out/package/seekdb-java.jar" "$out/package/seekdb-android.jar" "$jdbc"

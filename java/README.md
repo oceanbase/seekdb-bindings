@@ -32,6 +32,9 @@ in `android/test/src/com/oceanbase/seekdb/test/JdbcExample.java`, not provided a
 public API. The common JAR has no JDBC dependency.
 
 Android's LocalSocket adapter, NDK build and device tests remain in `android/`.
+The shared JDBC scenario lives in `test/com/oceanbase/seekdb/test/HybridScenario.java`.
+It accepts a standard JDBC `Connection` and has no Android dependencies; both
+Android test entry points compile and reuse it.
 An Android app includes `seekdb-java.jar`, `seekdb-android.jar` (adapter only),
 and the MariaDB JDBC JAR. See [Android instructions](../android/README.md).
 

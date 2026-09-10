@@ -17,7 +17,8 @@ code="$remote_root/no_backup/app-process-code"
 database="$remote_root/no_backup/app-process-db-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz"
 mkdir -p "$out/standalone/classes"
 javac --release 8 -cp "$sdk/platforms/android-36.1/android.jar:$out/package/seekdb-java.jar:$out/package/seekdb-android.jar" \
-  -d "$out/standalone/classes" "$root/android/test/src/com/oceanbase/seekdb/test/"{Main,HybridScenario,JdbcExample}.java
+  -d "$out/standalone/classes" "$root/android/test/src/com/oceanbase/seekdb/test/"{Main,JdbcExample}.java \
+  "$root/java/test/com/oceanbase/seekdb/test/HybridScenario.java"
 jar cf "$out/standalone/test-main.jar" -C "$out/standalone/classes" .
 "$sdk/build-tools/36.1.0/d8" --min-api 28 --lib "$sdk/platforms/android-36.1/android.jar" \
   --output "$out/standalone/seekdb-test-dex.jar" "$out/standalone/test-main.jar" \

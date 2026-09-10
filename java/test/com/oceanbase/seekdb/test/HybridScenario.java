@@ -3,7 +3,7 @@ package com.oceanbase.seekdb.test;
 import java.sql.*;
 import java.util.*;
 
-/** JDBC equivalent of pyseekdb/examples/hybrid_search_example.py scenario 1.
+/** Shared JDBC equivalent of pyseekdb/examples/hybrid_search_example.py scenario 1.
  * Uses explicit deterministic embeddings so testing needs no model download. */
 final class HybridScenario {
     static String run(Connection c) throws Exception {
@@ -46,7 +46,7 @@ final class HybridScenario {
                     sql = r.getString(1);
                 }
             }
-            android.util.Log.i("SeekDBTest", "HYBRID_SQL=" + sql);
+            System.out.println("HYBRID_SQL=" + sql);
             List<String> ids = new ArrayList<>();
             try (ResultSet r = s.executeQuery(sql)) {
                 while (r.next()) ids.add(r.getString("_id"));
