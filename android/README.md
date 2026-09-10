@@ -18,13 +18,13 @@ export MARIADB_JDBC_JAR=/path/to/mariadb-java-client-3.5.6.jar
 BUILD_TEST_APK=1 bash android/build.sh
 ```
 
-Outputs are in `build/android/package`: three JARs, `jniLibs/arm64-v8a` and optionally
+Outputs are in `build/android/package`: two JARs, `jniLibs/arm64-v8a` and optionally
 a signed test APK. The script pins native API 28 and NDK r27d, including the
 sysroot, and defaults to four build jobs. Set BUILD_JOBS to adjust concurrency.
 
 ## Use
 
-Include `seekdb-java.jar`, `seekdb-android.jar`, and the MariaDB JDBC JAR as app
+For this MariaDB JDBC example, include `seekdb-java.jar` and the JDBC JAR as app
 dependencies and copy all three native files to
 `app/src/main/jniLibs/arm64-v8a`. Enable `android:extractNativeLibs="true"` and
 Gradle legacy JNI packaging (`packaging { jniLibs { useLegacyPackaging = true } }`).
@@ -43,7 +43,7 @@ try (SeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) {
     // Example for MariaDB JDBC 3.5.6 + our Android adapter, not generic JDBC options.
     Class.forName("org.mariadb.jdbc.Driver");
     String url = "jdbc:mariadb://localhost/test"
-            + "?socketFactory=com.oceanbase.seekdb.AndroidSocketFactory"
+            + "?socketFactory=com.oceanbase.seekdb.test.AndroidSocketFactory"
             + "&seekdbSocket=" + java.net.URLEncoder.encode(options.unix_socket, "UTF-8")
             + "&sslMode=disable";
     try (java.sql.Connection connection =
@@ -54,6 +54,9 @@ try (SeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) {
 ```
 
 The URL prefix and `socketFactory`/`sslMode` options are MariaDB-driver-specific;
+copy `test/src/com/oceanbase/seekdb/test/AndroidSocketFactory.java` into your app
+to run this example (update the factory class name if you change its package).
+This is example code, not a public bindings class or a separately published JAR.
 `seekdbSocket` is consumed by this example's Android socket adapter. Other drivers
 must use their own configuration and compatible transport adapter. The common
 SeekDB API returns connection fields only; it has no JDBC URL or connect helper.
@@ -98,7 +101,7 @@ ANDROID_SDK_ROOT=/path/to/Android/sdk bash android/test/run-main.sh
 ```
 
 This compiles a separate `Main` against the existing JARs, converts the test and
-all three dependency JARs to `build/android/standalone/seekdb-test-dex.jar`, and runs it
+both dependency JARs to `build/android/standalone/seekdb-test-dex.jar`, and runs it
 with `/system/bin/app_process`. It does not build, install, or launch an APK.
 The existing debuggable package is only used for `run-as` access to persistent
 private storage and its already-installed native binaries. Thus this recipe is
