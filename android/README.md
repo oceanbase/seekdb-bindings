@@ -28,8 +28,11 @@ Include both JARs as app dependencies and copy all three native files to
 `app/src/main/jniLibs/arm64-v8a`. Enable `android:extractNativeLibs="true"` and
 Gradle legacy JNI packaging (`packaging { jniLibs { useLegacyPackaging = true } }`).
 Preserve `com.oceanbase.seekdb.**` and `org.mariadb.jdbc.Driver` if enabling shrinking;
-shrinking has not been tested. Keep the full database path plus `/run/sql.sock`
-shorter than 108 bytes. Run operations off the UI thread.
+shrinking has not been tested. Android uses `/proc/self/fd/<directory-fd>/sql.sock`
+to avoid the Unix socket address length limit even with a long database path.
+The endpoint is process-local and may only be used to open connections while its
+`EmbeddedSeekDB` handle remains open. The directory FD is closed with the handle
+and is not inherited by the SeekDB executable. Run operations off the UI thread.
 
 ```java
 SeekDB.setBinaryPath(context.getApplicationInfo().nativeLibraryDir + "/libseekdb_exec.so");
@@ -60,9 +63,14 @@ JDBC SELECT 1, fulltext/HNSW indexes, inserts, refresh, disabled TCP configurati
 and server-generated RRF hybrid SQL. Expected output includes HYBRID_OK with five
 distinct IDs including doc_1. The fixture follows pyseekdb's hybrid example using
 the same 10 documents and deterministic explicit vectors, without a model download.
+The database directory deliberately makes the real socket path exceed 108 bytes.
+The test checks the returned `/proc/self/fd/` endpoint and reports
+`DIRECTORY_FD_CLOSED_OK` after handle close releases the directory reference.
 
 Validated on the ARM64 Android 16 emulator (API 36, 36.1 image), native min API 28,
 APK targetSdk 28. Newer targetSdk settings and physical devices are not verified.
+The proc-fd path passed JDBC and hybrid queries with SELinux Enforcing and a
+186-byte real socket path.
 The package is not a standalone pure-Java database; deploy the native files too.
 
 Additional manual validation ran the original pyseekdb simple, complete, seven

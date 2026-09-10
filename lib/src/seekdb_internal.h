@@ -28,6 +28,9 @@ typedef struct {
     char pipe_path[512]; /* full \\.\pipe\... path returned to application layers */
 #else
     char *socket_alias_dir; /* /tmp/pylibseekdb-uds-<pid>-XXXXXX */
+#ifdef __ANDROID__
+    int socket_dir_fd;      /* Keeps /proc/self/fd/<fd>/sql.sock valid until handle destruction. */
+#endif
 #endif
 } SeekdbHandleImpl;
 

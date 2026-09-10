@@ -14,6 +14,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <pthread.h>
 #include <unistd.h>
 #endif
@@ -264,6 +265,12 @@ static char *concat_strings(const char *left, const char *right)
 #ifndef _WIN32
 static void cleanup_unix_socket_alias(SeekdbHandleImpl *h)
 {
+#ifdef __ANDROID__
+    if (h && h->socket_dir_fd >= 0) {
+        close(h->socket_dir_fd);
+        h->socket_dir_fd = -1;
+    }
+#endif
     if (!h || !h->socket_alias_dir)
         return;
 
@@ -287,18 +294,26 @@ static void cleanup_unix_socket_alias(SeekdbHandleImpl *h)
 static int prepare_unix_socket_alias(SeekdbHandleImpl *h, const char *run_dir)
 {
 #ifdef __ANDROID__
-    /* Android apps own their data directory, but cannot create aliases in /tmp. */
-    char *socket_path = concat_strings(run_dir, "/sql.sock");
-    if (!socket_path)
+    /* A process-local directory reference avoids /tmp and long socket addresses. */
+    int dir_fd = open(run_dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dir_fd < 0) {
+        tlog("prepare_unix_socket_alias: open(%s) failed: errno=%d\n", run_dir, errno);
         return SEEKDB_INTERNAL_ERROR;
-    if (strlen(socket_path) >= 108) {
-        tlog("Android Unix socket path is too long: %s\n", socket_path);
-        free(socket_path);
-        return SEEKDB_INVALID_ARGUMENT;
     }
-    h->sock_path = socket_path;
+    char socket_path[64];
+    int n = snprintf(socket_path, sizeof(socket_path), "/proc/self/fd/%d/sql.sock", dir_fd);
+    if (n < 0 || (size_t)n >= sizeof(socket_path)) {
+        close(dir_fd);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+    h->sock_path = xstrdup(socket_path);
+    if (!h->sock_path) {
+        close(dir_fd);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+    h->socket_dir_fd = dir_fd;
     return SEEKDB_SUCCESS;
-#endif
+#else
     char *resolved_run_dir = realpath(run_dir, NULL);
     if (!resolved_run_dir) {
         tlog("prepare_unix_socket_alias: realpath(%s) failed: errno=%d\n", run_dir, errno);
@@ -352,6 +367,7 @@ static int prepare_unix_socket_alias(SeekdbHandleImpl *h, const char *run_dir)
     xfree(run_link);
     xfree(resolved_run_dir);
     return SEEKDB_SUCCESS;
+#endif
 }
 #endif
 
@@ -967,6 +983,9 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
 
     if (!h)
         goto cleanup;
+#ifdef __ANDROID__
+    h->socket_dir_fd = -1;
+#endif
     h->db_dir = xstrdup(db_dir);
     run_dir = concat_strings(db_dir, "/run");
     h->clients_lock_path = concat_strings(db_dir, "/run/seekdb.clients");
