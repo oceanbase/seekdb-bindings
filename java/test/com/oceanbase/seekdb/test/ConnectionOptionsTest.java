@@ -18,6 +18,6 @@ public final class ConnectionOptionsTest {
         if (pipe.unix_socket != null || pipe.host != null || !pipe.named_pipe.equals("\\\\.\\pipe\\seekdb")) {
             throw new AssertionError("Named pipe fields not preserved");
         }
-        System.out.println("COMMON_JAVA_OK tcp/unix_socket/named_pipe; no Android SDK");
+        System.out.println("COMMON_JAVA_OK ConnectionOptions field validation passed: tcp, unix_socket, named_pipe");
     }
 }
