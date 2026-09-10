@@ -66,18 +66,6 @@ public final class Main {
             }
             System.out.println("APP_PROCESS_OK directory_fd_closed=true realPathBytes="
                     + (args[0] + "/run/sql.sock").getBytes("UTF-8").length);
-            // Negative test only: normal startup above never sets a binary path.
-            SeekDB.setBinaryPath(args[0] + "/missing-seekdb");
-            try {
-                SeekDB.open(args[0] + "-spawn-error", "mysql_port_mode", "disabled");
-                throw new AssertionError("Expected missing executable failure");
-            } catch (RuntimeException expected) {
-                if (!expected.getMessage().contains("Cannot execute")
-                        || !expected.getMessage().contains("errno=2")) {
-                    throw new AssertionError("Missing spawn error detail", expected);
-                }
-                System.out.println("SPAWN_ERROR_OK " + expected.getMessage());
-            }
         } catch (Throwable t) {
             t.printStackTrace();
             System.exit(1);

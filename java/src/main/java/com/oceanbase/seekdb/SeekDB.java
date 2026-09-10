@@ -11,11 +11,6 @@ public final class SeekDB implements AutoCloseable {
         this.handle = handle;
     }
 
-    /** Optional override of libseekdb's platform-specific executable discovery. */
-    public static void setBinaryPath(String path) {
-        nativeSetBinaryPath(path);
-    }
-
     /** Open an instance with optional key/value parameter pairs, passed unchanged
      * to libseekdb. For example: open(path, "mysql_port_mode", "disabled").
      * Port, transport defaults and parameter values follow libseekdb/server semantics.
@@ -50,7 +45,6 @@ public final class SeekDB implements AutoCloseable {
         }
     }
 
-    private static native void nativeSetBinaryPath(String path);
     private static native long nativeOpen(String dbDir, String[] parameters);
     private static native ConnectionOptions nativeConnectionOptions(long handle);
     private static native void nativeClose(long handle);
