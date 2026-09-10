@@ -769,6 +769,8 @@ static int resolve_bin_path(char *buf, size_t buflen)
         return SEEKDB_INTERNAL_ERROR;
 #ifdef _WIN32
     int n = snprintf(buf, buflen, "%s\\seekdb.exe", dir);
+#elif defined(__ANDROID__)
+    int n = snprintf(buf, buflen, "%s/libseekdb_exec.so", dir);
 #else
     int n = snprintf(buf, buflen, "%s/seekdb", dir);
 #endif

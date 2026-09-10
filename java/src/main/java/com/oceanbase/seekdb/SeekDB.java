@@ -11,7 +11,7 @@ public final class SeekDB implements AutoCloseable {
         this.handle = handle;
     }
 
-    /** Point libseekdb at the seekdb executable copied from APK assets. */
+    /** Optional override of libseekdb's platform-specific executable discovery. */
     public static void setBinaryPath(String path) {
         nativeSetBinaryPath(path);
     }

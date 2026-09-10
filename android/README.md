@@ -36,7 +36,6 @@ The endpoint is process-local and may only be used to open connections while its
 and is not inherited by the SeekDB executable. Run operations off the UI thread.
 
 ```java
-SeekDB.setBinaryPath(context.getApplicationInfo().nativeLibraryDir + "/libseekdb_exec.so");
 String path = context.getNoBackupFilesDir().getAbsolutePath() + "/db";
 try (SeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) {
     ConnectionOptions options = db.connectionOptions();
@@ -61,7 +60,10 @@ This is example code, not a public bindings class or a separately published JAR.
 must use their own configuration and compatible transport adapter. The common
 SeekDB API returns connection fields only; it has no JDBC URL or connect helper.
 
-The C executable override is copied, serialized against other override reads/writes,
+On Android, libseekdb automatically locates `libseekdb_exec.so` beside its own
+loaded library. No `setBinaryPath()` call is needed for this package layout;
+native files must still be extracted into the same directory. A custom layout
+may use the optional override. The C executable override is copied, serialized against other override reads/writes,
 and affects subsequent opens. Android spawns use POSIX_SPAWN_USEVFORK to avoid the
 observed ART child fork-handler hang. The Java socket adapter uses LocalSocket;
 Android's unimplemented connect-with-timeout overload is not used. Read timeouts
@@ -120,7 +122,7 @@ Observed pitfalls on API 36 (SELinux Enforcing):
 - `/proc/self/fd/` endpoints belong to the calling process and handle. Do not
   reuse them from another process or after closing the handle.
 
-Validated initial creation and reopening with a 157-byte real socket path:
+Validated initial creation with automatic executable discovery and a 162-byte real socket path:
 `JDBC_OK`, `HYBRID_OK` (10 rows, five expected results, TCP disabled), and
 `APP_PROCESS_OK directory_fd_closed=true`, with exit status 0.
 The runner also checks descriptive native open errors for a non-directory data
