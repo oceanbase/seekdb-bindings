@@ -63,11 +63,9 @@ SeekDB API returns connection fields only; it has no JDBC URL or connect helper.
 libseekdb looks beside its loaded library for `seekdb`, falling back to
 `libseekdb_exec.so` if the ordinary name is missing. The latter name lets the APK
 installer handle extraction as a native file; it remains an executable, not a
-shared library. No Android-specific lookup branch or `setBinaryPath()` call is
-needed for this package layout;
-native files must still be extracted into the same directory. A custom layout
-may use the optional override. The C executable override is copied, serialized against other override reads/writes,
-and affects subsequent opens. Android spawns use POSIX_SPAWN_USEVFORK to avoid the
+shared library. No Android-specific lookup branch or Java path setter is needed;
+native files must still be extracted into the same directory.
+Android spawns use POSIX_SPAWN_USEVFORK to avoid the
 observed ART child fork-handler hang. The Java socket adapter uses LocalSocket;
 Android's unimplemented connect-with-timeout overload is not used. Read timeouts
 are applied after connecting. The adapter is intended for local Unix sockets.
@@ -129,7 +127,7 @@ Validated initial creation with automatic executable discovery and a 162-byte re
 `JDBC_OK`, `HYBRID_OK` (10 rows, five expected results, TCP disabled), and
 `APP_PROCESS_OK directory_fd_closed=true`, with exit status 0.
 The runner also checks descriptive native open errors for a non-directory data
-path and a missing executable, and verifies that `unix_socket` is returned while
+path, and verifies that `unix_socket` is returned while
 `host` and `named_pipe` remain null. Common Java/JNI code lives in `java/`; only
 the LocalSocket adapter, Android build and tests remain here.
 

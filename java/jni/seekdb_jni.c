@@ -25,21 +25,6 @@ static char *java_string(JNIEnv *env, jstring value)
     return copy;
 }
 
-JNIEXPORT void JNICALL Java_com_oceanbase_seekdb_SeekDB_nativeSetBinaryPath(JNIEnv *env, jclass cls,
-                                                                            jstring path)
-{
-    (void)cls;
-    char *copy = java_string(env, path);
-    if (!copy) {
-        throw_runtime(env, "binary path is null or allocation failed");
-        return;
-    }
-    int rc = seekdb_set_binary_path(copy);
-    free(copy);
-    if (rc != SEEKDB_SUCCESS)
-        throw_runtime(env, "seekdb_set_binary_path failed");
-}
-
 JNIEXPORT jlong JNICALL Java_com_oceanbase_seekdb_SeekDB_nativeOpen(JNIEnv *env, jclass cls,
                                                                     jstring db_dir,
                                                                     jobjectArray params)

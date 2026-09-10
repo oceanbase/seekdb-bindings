@@ -22,10 +22,10 @@ there is no separate port argument or transport-specific open method.
 `try (SeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) { ... }`.
 The instance provides `connectionOptions()` and an idempotent `close()`;
 requesting options after close throws `IllegalStateException`.
-Normally no `setBinaryPath()` call is needed: libseekdb looks beside its loaded
+Executable discovery is automatic: libseekdb looks beside its loaded
 library for `seekdb.exe` on Windows; otherwise it tries `seekdb` and, if missing,
 `libseekdb_exec.so` (the APK-compatible executable name). This avoids a separate
-Android rule. `setBinaryPath()` remains an optional process-wide override.
+Android rule. Java does not expose an executable-path override API.
 
 Connection options preserve the C API fields exactly: `transport`, `port`,
 `host`, `unix_socket`, `named_pipe`, `user`. Unused strings remain null. No
