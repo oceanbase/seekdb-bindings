@@ -34,6 +34,15 @@ java_classes=$(mktemp -d "$out/java-classes.XXXXXX")
 javac --release 8 -d "$java_classes" \
   "$root"/java/src/main/java/com/oceanbase/seekdb/*.java
 jar cf "$out/package/seekdb-java.jar" -C "$java_classes" .
+if [[ ${BUILD_AAR:-1} == 1 ]]; then
+  aar_stage=$(mktemp -d "$out/aar.XXXXXX")
+  cp "$out/package/seekdb-java.jar" "$aar_stage/classes.jar"
+  cp "$root/android/aar/AndroidManifest.xml" "$root/android/aar/proguard.txt" "$aar_stage/"
+  mkdir -p "$aar_stage/jni/arm64-v8a"
+  cp "$out/package/jniLibs/arm64-v8a/"*.so "$aar_stage/jni/arm64-v8a/"
+  (cd "$aar_stage" && zip -q -r seekdb-android.aar AndroidManifest.xml classes.jar proguard.txt jni)
+  mv "$aar_stage/seekdb-android.aar" "$out/package/seekdb-android.aar"
+fi
 cp "$jdbc" "$out/package/mariadb-java-client-3.5.6.jar"
 if [[ ${BUILD_TEST_APK:-0} == 1 ]]; then
   mkdir -p "$out/test/classes" "$out/test/dex" "$out/test/lib/arm64-v8a"
