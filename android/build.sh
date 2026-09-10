@@ -25,9 +25,10 @@ cp "$out/native/libseekdb.so" "$out/package/jniLibs/arm64-v8a/"
   "$root/java/jni/seekdb_jni.c" -L"$out/native" -lseekdb \
   -Wl,--no-undefined -o "$out/package/jniLibs/arm64-v8a/libseekdb_jni.so"
 "$tc/llvm-strip" --strip-debug "$engine" -o "$out/package/jniLibs/arm64-v8a/libseekdb_exec.so"
-javac --release 8 -d "$out/java-classes" \
+java_classes=$(mktemp -d "$out/java-classes.XXXXXX")
+javac --release 8 -d "$java_classes" \
   "$root"/java/src/main/java/com/oceanbase/seekdb/*.java
-jar cf "$out/package/seekdb-java.jar" -C "$out/java-classes" .
+jar cf "$out/package/seekdb-java.jar" -C "$java_classes" .
 javac --release 8 -cp "$platform:$jdbc" -d "$out/android-classes" \
   "$root"/android/src/main/java/com/oceanbase/seekdb/*.java
 jar cf "$out/package/seekdb-android.jar" -C "$out/android-classes" .

@@ -1,7 +1,6 @@
 package com.oceanbase.seekdb.test;
 
 import com.oceanbase.seekdb.ConnectionOptions;
-import com.oceanbase.seekdb.EmbeddedSeekDB;
 import com.oceanbase.seekdb.SeekDB;
 import java.io.File;
 import java.sql.Connection;
@@ -42,7 +41,7 @@ public final class Main {
                 SeekDB.setBinaryPath(args[0]);
             }
             String endpoint;
-            try (EmbeddedSeekDB db = SeekDB.open(args[1], "mysql_port_mode", "disabled", "port", "0")) {
+            try (SeekDB db = SeekDB.open(args[1], "mysql_port_mode", "disabled", "port", "0")) {
                 ConnectionOptions options = db.connectionOptions();
                 endpoint = options.unix_socket;
                 if (!"unix_socket".equals(options.transport) || options.port != 0
@@ -60,6 +59,14 @@ public final class Main {
                 }
                 try (Connection c = JdbcExample.connect(options, "test")) {
                     System.out.println(HybridScenario.run(c));
+                }
+                db.close();
+                db.close();
+                try {
+                    db.connectionOptions();
+                    throw new AssertionError("Closed handle must reject connectionOptions");
+                } catch (IllegalStateException expected) {
+                    System.out.println("LIFECYCLE_OK repeated close and use-after-close guard");
                 }
             }
             String directoryReference = endpoint.substring(0, endpoint.lastIndexOf('/'));

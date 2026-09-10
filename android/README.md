@@ -32,13 +32,13 @@ Preserve `com.oceanbase.seekdb.**` and `org.mariadb.jdbc.Driver` if enabling shr
 shrinking has not been tested. Android uses `/proc/self/fd/<directory-fd>/sql.sock`
 to avoid the Unix socket address length limit even with a long database path.
 The endpoint is process-local and may only be used to open connections while its
-`EmbeddedSeekDB` handle remains open. The directory FD is closed with the handle
+`SeekDB` handle remains open. The directory FD is closed with the handle
 and is not inherited by the SeekDB executable. Run operations off the UI thread.
 
 ```java
 SeekDB.setBinaryPath(context.getApplicationInfo().nativeLibraryDir + "/libseekdb_exec.so");
 String path = context.getNoBackupFilesDir().getAbsolutePath() + "/db";
-try (EmbeddedSeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) {
+try (SeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) {
     ConnectionOptions options = db.connectionOptions();
     // Example for MariaDB JDBC 3.5.6 + our Android adapter, not generic JDBC options.
     Class.forName("org.mariadb.jdbc.Driver");
