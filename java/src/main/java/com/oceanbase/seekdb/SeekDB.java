@@ -18,49 +18,13 @@ public final class SeekDB {
         nativeSetBinaryPath(path);
     }
 
-    /** Open an instance. Android connections use Unix sockets; server parameters
-     * follow libseekdb's startup semantics. */
-    public static EmbeddedSeekDB open(String dbDir, int port, String... parameters) {
-        if (port < 0 || port > 65535) {
-            throw new IllegalArgumentException("port must be in 0..65535");
-        }
-        validateParameters(parameters);
-        if (parameters != null) {
-            for (int i = 0; i < parameters.length; i += 2) {
-                if ("port".equals(parameters[i]))
-                    throw new IllegalArgumentException("Use the port argument, not a parameter pair");
-            }
-        }
-        String[] all = new String[2 + (parameters == null ? 0 : parameters.length)];
-        all[0] = "port";
-        all[1] = Integer.toString(port);
-        if (parameters != null) {
-            System.arraycopy(parameters, 0, all, 2, parameters.length);
-        }
-        long handle = nativeOpen(dbDir, all);
-        return new EmbeddedSeekDB(handle);
-    }
-
-    /**
-     * Open an embedded instance using only its Unix domain socket. The server is
-     * started with mysql_port_mode=disabled, so it does not listen on a TCP port.
+    /** Open an instance with optional key/value parameter pairs, passed unchanged
+     * to libseekdb. For example: open(path, "mysql_port_mode", "disabled").
+     * Port, transport defaults and parameter values follow libseekdb/server semantics.
      */
-    public static EmbeddedSeekDB openUnixSocket(String dbDir, String... parameters) {
+    public static EmbeddedSeekDB open(String dbDir, String... parameters) {
         validateParameters(parameters);
-        if (parameters != null) {
-            for (int i = 0; i < parameters.length; i += 2) {
-                if (MYSQL_PORT_MODE.equals(parameters[i]))
-                    throw new IllegalArgumentException("openUnixSocket manages mysql_port_mode");
-            }
-        }
-        int extra = parameters == null ? 0 : parameters.length;
-        String[] all = new String[extra + 2];
-        if (extra > 0) {
-            System.arraycopy(parameters, 0, all, 0, extra);
-        }
-        all[extra] = MYSQL_PORT_MODE;
-        all[extra + 1] = MYSQL_PORT_MODE_DISABLED;
-        return open(dbDir, 0, all);
+        return new EmbeddedSeekDB(nativeOpen(dbDir, parameters));
     }
 
     private static void validateParameters(String[] parameters) {

@@ -38,7 +38,7 @@ and is not inherited by the SeekDB executable. Run operations off the UI thread.
 ```java
 SeekDB.setBinaryPath(context.getApplicationInfo().nativeLibraryDir + "/libseekdb_exec.so");
 String path = context.getNoBackupFilesDir().getAbsolutePath() + "/db";
-try (EmbeddedSeekDB db = SeekDB.openUnixSocket(path);
+try (EmbeddedSeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled");
      java.sql.Connection connection = db.connect("test", "com.oceanbase.seekdb.AndroidSocketFactory")) {
     // connectionOptions() is obtained from libseekdb; use JDBC normally.
 }
