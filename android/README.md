@@ -60,8 +60,11 @@ This is example code, not a public bindings class or a separately published JAR.
 must use their own configuration and compatible transport adapter. The common
 SeekDB API returns connection fields only; it has no JDBC URL or connect helper.
 
-On Android, libseekdb automatically locates `libseekdb_exec.so` beside its own
-loaded library. No `setBinaryPath()` call is needed for this package layout;
+libseekdb looks beside its loaded library for `seekdb`, falling back to
+`libseekdb_exec.so` if the ordinary name is missing. The latter name lets the APK
+installer handle extraction as a native file; it remains an executable, not a
+shared library. No Android-specific lookup branch or `setBinaryPath()` call is
+needed for this package layout;
 native files must still be extracted into the same directory. A custom layout
 may use the optional override. The C executable override is copied, serialized against other override reads/writes,
 and affects subsequent opens. Android spawns use POSIX_SPAWN_USEVFORK to avoid the

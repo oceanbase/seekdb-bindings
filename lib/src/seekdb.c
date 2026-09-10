@@ -769,13 +769,28 @@ static int resolve_bin_path(char *buf, size_t buflen)
         return SEEKDB_INTERNAL_ERROR;
 #ifdef _WIN32
     int n = snprintf(buf, buflen, "%s\\seekdb.exe", dir);
-#elif defined(__ANDROID__)
-    int n = snprintf(buf, buflen, "%s/libseekdb_exec.so", dir);
-#else
-    int n = snprintf(buf, buflen, "%s/seekdb", dir);
-#endif
-    if (n < 0 || (size_t)n >= buflen)
+    if (n < 0 || (size_t)n >= buflen) {
         return SEEKDB_INTERNAL_ERROR;
+    }
+#else
+    /* Prefer the ordinary executable name. Android APKs may package the same
+     * executable as libseekdb_exec.so so the installer extracts it into the
+     * native-library directory, instead of app-writable data storage where
+     * execution is restricted. It is still an executable, not a shared library.
+     * Discover by layout rather than requiring an Android-specific branch.
+     * Only fall back when missing: permission/exec failures must remain visible. */
+    const char *names[] = {"seekdb", "libseekdb_exec.so"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        int n = snprintf(buf, buflen, "%s/%s", dir, names[i]);
+        if (n < 0 || (size_t)n >= buflen) {
+            return SEEKDB_INTERNAL_ERROR;
+        }
+        if (access(buf, F_OK) == 0 || errno != ENOENT) {
+            return SEEKDB_SUCCESS;
+        }
+    }
+    /* Leave the final candidate for the startup check to report its OS error. */
+#endif
     return SEEKDB_SUCCESS;
 }
 

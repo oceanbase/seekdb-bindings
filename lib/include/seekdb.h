@@ -74,8 +74,8 @@ int seekdb_close(SeekdbHandle handle);
 /* Override the executable for subsequent opens. The path is copied and must
  * be non-empty. Existing instances are unaffected. Android apps can point to
  * their extracted native-library executable. Without an override, the executable
- * is resolved beside libseekdb: libseekdb_exec.so on Android, seekdb.exe on Windows,
- * and seekdb on other platforms. */
+ * is resolved beside libseekdb: seekdb.exe on Windows; otherwise seekdb, falling
+ * back to libseekdb_exec.so only if seekdb is missing (Android APK packaging). */
 int seekdb_set_binary_path(const char *path);
 
 /* Return the MySQL-protocol connection options for an open handle.
