@@ -18,11 +18,29 @@ export MARIADB_JDBC_JAR=/path/to/mariadb-java-client-3.5.6.jar
 BUILD_TEST_APK=1 bash android/build.sh
 ```
 
-Outputs are in `build/android/package`: two JARs, `jniLibs/arm64-v8a` and optionally
+Outputs are in `build/android/package`: `seekdb-android.aar` (default; set BUILD_AAR=0
+to skip), two JARs, `jniLibs/arm64-v8a` and optionally
 a signed test APK. The script pins native API 28 and NDK r27d, including the
 sysroot, and defaults to four build jobs. Set BUILD_JOBS to adjust concurrency.
 
 ## Use
+
+For Android development, prefer the AAR: it includes the Java API and all three
+native files, but no JDBC driver or test classes. Do not also add seekdb-java.jar.
+Configure `packaging.jniLibs.useLegacyPackaging = true` in the consuming app so
+the executable is extracted. JNI keep rules are included as proguard.txt.
+See `TRIAL-README.md` and the standalone template in `examples/aar-consumer/`.
+
+To stage a trial kit after building the AAR:
+
+```sh
+TRIAL_DIR=/new/path/seekdb-android-trial bash android/prepare-trial.sh
+cd /new/path/seekdb-android-trial/examples/aar-consumer
+./gradlew :app:assembleDebug
+```
+
+Install and test that consumer APK before copying it into the kit's demo directory.
+The following manual JAR/native integration remains an alternative to the AAR.
 
 For this MariaDB JDBC example, include `seekdb-java.jar` and the JDBC JAR as app
 dependencies and copy all three native files to
