@@ -1,3 +1,5 @@
+package com.oceanbase.seekdb.test;
+
 import com.oceanbase.seekdb.ConnectionOptions;
 
 public final class ConnectionOptionsTest {
