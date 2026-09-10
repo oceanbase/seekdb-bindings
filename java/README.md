@@ -13,6 +13,12 @@ each target still needs a matching libseekdb, JNI library and SeekDB executable.
 Desktop native packaging and Unix/named-pipe JDBC adapters are not yet provided
 or runtime-verified by this Android work.
 
+The only open entry point is `SeekDB.open(String dbDir, String... parameters)`.
+Parameters are optional key/value pairs, passed unchanged to libseekdb:
+`SeekDB.open(path, "mysql_port_mode", "disabled", "port", "0")`.
+Omitting parameters uses native defaults. Java validates the pair structure only;
+there is no separate port argument or transport-specific open method.
+
 Connection options preserve the C API fields exactly: `transport`, `port`,
 `host`, `unix_socket`, `named_pipe`, `user`. Unused strings remain null. No
 combined `endpoint` field is used. TCP JDBC URLs use the returned host; Unix

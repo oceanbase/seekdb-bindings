@@ -19,7 +19,7 @@ public final class Main {
                     + " uid=" + android.system.Os.getuid());
             SeekDB.setBinaryPath(args[0]);
             try {
-                SeekDB.openUnixSocket(args[0]); // executable file is not a database directory
+                SeekDB.open(args[0], "mysql_port_mode", "disabled"); // not a database directory
                 throw new AssertionError("Expected invalid directory failure");
             } catch (RuntimeException expected) {
                 if (!expected.getMessage().contains("directory")
@@ -30,7 +30,7 @@ public final class Main {
             }
             SeekDB.setBinaryPath(args[0] + ".missing");
             try {
-                SeekDB.openUnixSocket(args[1] + "-spawn-error");
+                SeekDB.open(args[1] + "-spawn-error", "mysql_port_mode", "disabled");
                 throw new AssertionError("Expected missing executable failure");
             } catch (RuntimeException expected) {
                 if (!expected.getMessage().contains("Cannot execute")
@@ -42,7 +42,7 @@ public final class Main {
                 SeekDB.setBinaryPath(args[0]);
             }
             String endpoint;
-            try (EmbeddedSeekDB db = SeekDB.openUnixSocket(args[1])) {
+            try (EmbeddedSeekDB db = SeekDB.open(args[1], "mysql_port_mode", "disabled", "port", "0")) {
                 ConnectionOptions options = db.connectionOptions();
                 endpoint = options.unix_socket;
                 if (!"unix_socket".equals(options.transport) || options.port != 0
