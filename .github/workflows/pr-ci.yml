@@ -77,6 +77,50 @@ jobs:
           fi
           clang-format-14 --dry-run --Werror "${files[@]}"
 
+  process-isolation:
+    name: Process isolation (${{ matrix.os }})
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout seekdb-bindings
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure and build process isolation test (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          extra=()
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            extra+=("-DWITH_EXTERNAL_ZLIB=YES")
+          fi
+          cmake -S . -B build-process \
+            -DSEEKDB_BUILD_PYTHON=OFF \
+            -DBUILD_TESTING=ON \
+            "${extra[@]}"
+          cmake --build build-process --target test_process_spawn --parallel 2
+          ctest --test-dir build-process --output-on-failure -R '^ProcessSpawn\.'
+
+      - name: Configure and build process isolation test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -S . -B build-process `
+            -DSEEKDB_BUILD_PYTHON=OFF `
+            -DBUILD_TESTING=ON `
+            -A x64
+          cmake --build build-process --target test_process_spawn --config Release --parallel 2
+          ctest --test-dir build-process --output-on-failure -C Release -R '^ProcessSpawn\.'
+
   prepare-seekdb:
     name: Prepare seekdb binary
     runs-on: ubuntu-22.04
