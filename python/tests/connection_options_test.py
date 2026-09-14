@@ -2,12 +2,31 @@
 import asyncio
 import os
 import pathlib
+import sys
 import tempfile
 
 import aiomysql
 import pymysql
 import pylibseekdb as seekdb
 from seekdb_test import run_native_smoke_test
+
+
+def print_startup_diagnostics(*db_dirs):
+    for db_dir in db_dirs:
+        log_path = pathlib.Path(db_dir) / "log" / "seekdb.log"
+        print(f"seekdb startup diagnostics: {log_path}", file=sys.stderr)
+        try:
+            with log_path.open("rb") as log_file:
+                log_file.seek(0, os.SEEK_END)
+                log_size = log_file.tell()
+                log_file.seek(max(0, log_size - 128 * 1024))
+                log_tail = log_file.read().decode(errors="replace")
+        except OSError as error:
+            print(f"unable to read seekdb log: {error}", file=sys.stderr)
+            continue
+
+        for line in log_tail.splitlines()[-200:]:
+            print(line, file=sys.stderr)
 
 
 def assert_options_unavailable():
@@ -105,10 +124,14 @@ async def test_connection_options():
         try:
             try:
                 first = await seekdb.aopen(first_open_dir)
-                duplicate, second = await asyncio.gather(
-                    seekdb.aopen(first_db_dir),
-                    seekdb.aopen(second_db_dir),
-                )
+                try:
+                    duplicate, second = await asyncio.gather(
+                        seekdb.aopen(first_db_dir),
+                        seekdb.aopen(second_db_dir),
+                    )
+                except seekdb.SeekdbError:
+                    print_startup_diagnostics(first_db_dir, second_db_dir)
+                    raise
             finally:
                 stop_ticker.set()
                 await ticker_task
