@@ -26,5 +26,5 @@ cp "$root"/android/test/src/com/oceanbase/seekdb/test/{MainActivity,JdbcExample,
    "$root/java/test/com/oceanbase/seekdb/test/HybridScenario.java" \
    "$project/app/src/main/java/com/oceanbase/seekdb/test/"
 cp "$root/android/TRIAL-README.md" "$trial/README.md"
-echo "Prepared $trial; build examples/aar-consumer with Gradle 8.13 and test its APK."
+echo "Prepared $trial; install Gradle 8.13, build examples/aar-consumer, and test its APK."
 echo "Only after validation, copy that APK to demo/seekdb-test.apk."

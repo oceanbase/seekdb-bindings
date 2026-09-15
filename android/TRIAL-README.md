@@ -35,13 +35,13 @@ JNI 与 libseekdb 本身才是动态库。AAR 不包含 JDBC 驱动或测试代�
 
 ## 构建与运行示例
 
-安装 SDK platform 36.1、Build Tools 36.1.0，以及 JDK 17 或兼容版本。
-示例固定 Android Gradle Plugin 8.13.2 和 Gradle 8.13。
+安装 SDK platform 36.1、Build Tools 36.1.0、JDK 17 或兼容版本，以及
+Gradle 8.13。示例使用 Android Gradle Plugin 8.13.2；仓库不附带 Gradle Wrapper。
 设置 `ANDROID_HOME` 为自己的 SDK 目录（或在示例 local.properties 中设置 sdk.dir）。
 
 ```sh
 cd examples/aar-consumer
-./gradlew :app:assembleDebug
+gradle :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.oceanbase.seekdb.trial/com.oceanbase.seekdb.test.MainActivity
 adb logcat -s SeekDBTest:I

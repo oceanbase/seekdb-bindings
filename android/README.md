@@ -36,10 +36,12 @@ To stage a trial kit after building the AAR:
 ```sh
 TRIAL_DIR=/new/path/seekdb-android-trial bash android/prepare-trial.sh
 cd /new/path/seekdb-android-trial/examples/aar-consumer
-./gradlew :app:assembleDebug
+gradle :app:assembleDebug
 ```
 
-Install and test that consumer APK before copying it into the kit's demo directory.
+Install Gradle 8.13 before building the example. The repository does not include
+the Gradle Wrapper. Install and test that consumer APK before copying it into the
+kit's demo directory.
 The following manual JAR/native integration remains an alternative to the AAR.
 
 For this MariaDB JDBC example, include `seekdb-java.jar` and the JDBC JAR as app
