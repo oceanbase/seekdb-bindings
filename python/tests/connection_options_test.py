@@ -31,7 +31,15 @@ def assert_instance_closed(instance):
             raise AssertionError("operation succeeded on a closed seekdb instance")
 
 
-def assert_unix_socket_alias(options, db_dir):
+def assert_tcp_options(options):
+    assert set(options) == {"host", "port", "user"}
+    assert options["user"] == "root"
+    assert options["host"] == "127.0.0.1"
+    assert 1 <= options["port"] <= 65535
+
+
+def assert_unix_socket_options(options, db_dir):
+    assert set(options) == {"unix_socket", "user"}
     assert options["user"] == "root"
     endpoint = pathlib.Path(options["unix_socket"])
     alias_dir = endpoint.parent.parent
@@ -46,6 +54,13 @@ def assert_unix_socket_alias(options, db_dir):
     assert endpoint.parent.resolve() == (pathlib.Path(db_dir) / "run").resolve()
     assert endpoint.exists()
     return alias_dir
+
+
+def assert_platform_options(options, db_dir):
+    if os.name == "nt":
+        assert_tcp_options(options)
+        return None
+    return assert_unix_socket_options(options, db_dir)
 
 
 def write_marker(instance, value):
@@ -124,18 +139,22 @@ async def test_connection_options():
             assert not second.closed
 
             first_options = first.connection_options()
-            first_alias_dir = assert_unix_socket_alias(first_options, first_db_dir)
+            first_alias_dir = assert_platform_options(first_options, first_db_dir)
             assert duplicate.connection_options() == first_options
             assert seekdb.connection_options() == first_options
 
             duplicate.close()
             assert duplicate.closed
             assert not first.closed
-            assert first_alias_dir.is_dir()
+            if first_alias_dir is not None:
+                assert first_alias_dir.is_dir()
 
             second_options = second.connection_options()
-            second_alias_dir = assert_unix_socket_alias(second_options, second_db_dir)
-            assert second_alias_dir != first_alias_dir
+            second_alias_dir = assert_platform_options(second_options, second_db_dir)
+            if os.name == "nt":
+                assert second_options["port"] != first_options["port"]
+            else:
+                assert second_alias_dir != first_alias_dir
             assert seekdb.connection_options() == first_options
 
             write_marker(first, 1)
@@ -150,6 +169,14 @@ async def test_connection_options():
                 with sync_connection.cursor() as cursor:
                     cursor.execute("SELECT 1")
                     assert cursor.fetchone() == (1,)
+                    cursor.execute("SELECT mysql_port()")
+                    expected_port = first_options["port"] if os.name == "nt" else 0
+                    assert cursor.fetchone() == (expected_port,)
+                    cursor.execute(
+                        "SELECT SQL_PORT FROM oceanbase.V$OB_SERVER_STAT "
+                        "WHERE START_SERVICE_TIME > 0 LIMIT 1"
+                    )
+                    assert cursor.fetchone() == (expected_port,)
             finally:
                 sync_connection.close()
 
@@ -171,14 +198,16 @@ async def test_connection_options():
             assert first.closed
             assert_instance_closed(first)
             assert_options_unavailable()
-            assert first_alias_dir.is_dir()
+            if first_alias_dir is not None:
+                assert first_alias_dir.is_dir()
             try:
                 retained_cursor.execute("select value from instance_marker")
                 assert retained_cursor.fetchone() == (1,)
             finally:
                 retained_cursor.close()
                 retained_connection.close()
-            assert not first_alias_dir.exists()
+            if first_alias_dir is not None:
+                assert not first_alias_dir.exists()
 
             assert read_marker(second) == 2
             seekdb.close()
@@ -186,18 +215,20 @@ async def test_connection_options():
 
             legacy = seekdb.open(legacy_db_dir)
             legacy_options = legacy.connection_options()
-            legacy_alias_dir = assert_unix_socket_alias(legacy_options, legacy_db_dir)
+            legacy_alias_dir = assert_platform_options(legacy_options, legacy_db_dir)
             assert seekdb.connection_options() == legacy_options
             legacy_connection = seekdb.connect("test")
             legacy_connection.close()
             seekdb.close()
             assert legacy.closed
-            assert not legacy_alias_dir.exists()
+            if legacy_alias_dir is not None:
+                assert not legacy_alias_dir.exists()
             assert read_marker(second) == 2
 
             second.close()
             assert_instance_closed(second)
-            assert not second_alias_dir.exists()
+            if second_alias_dir is not None:
+                assert not second_alias_dir.exists()
         finally:
             seekdb.close()
             for instance in (legacy, second, duplicate, first):

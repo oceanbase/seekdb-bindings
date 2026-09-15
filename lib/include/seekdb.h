@@ -40,17 +40,23 @@ typedef enum {
 typedef struct {
     const char *transport;
     unsigned int port;
-    const char *endpoint;
+    const char *host;
+    const char *unix_socket;
+    const char *named_pipe;
     const char *user;
 } SeekdbConnectionOptions;
 
 /* Open a seekdb instance rooted at db_dir.
  *
  * parameters is an optional NULL-terminated array of key/value pairs:
- *   {"port", "3306", "memory_budget", "10G", "syslog_max_file", "1000", NULL}
+ *   {"port", "3306", "memory_budget", "10G", NULL}
  *
- * Driver-reserved keys (consumed by libseekdb, not forwarded to the server):
- *   port — TCP port for connect; omit or "0" for local transport (UDS/pipe).
+ * Driver-reserved keys (handled separately from ordinary first-init parameters):
+ *   port — passed as --port on every spawn unless omitted or equal to "0".
+ *
+ * port is passed through without value validation. The seekdb server validates
+ * its value. mysql_port is not accepted as a separate server parameter; use
+ * the driver-reserved port key.
  *
  * All other keys are seekdb server parameters, passed as --parameter on first
  * init only. On first init the driver always seeds memory_budget=1G and
@@ -61,13 +67,11 @@ int seekdb_close(SeekdbHandle handle);
 
 /* Return the MySQL-protocol connection options for an open handle.
  *
- * transport is "tcp", "unix_socket", or "named_pipe". TCP exposes only port;
- * clients use their default local host. Local transports expose endpoint as a
- * Unix socket path or full Windows named-pipe path. user is always "root".
- * On POSIX, the Unix socket endpoint is a per-handle alias under /tmp and is
- * usable only while the handle remains open.
- * transport, endpoint, and user are borrowed and remain valid until
- * seekdb_close(handle). */
+ * transport is "tcp", "unix_socket", or "named_pipe". TCP returns host and
+ * port; local transports return their corresponding named field. Unused
+ * transport fields are NULL and port is zero for local transports. user is
+ * always "root". On POSIX, unix_socket is a per-handle short alias under /tmp.
+ * Returned strings are borrowed and remain valid until seekdb_close(handle). */
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options);
 
 int seekdb_connect(SeekdbHandle handle, const char *database, bool autocommit,
