@@ -13,7 +13,11 @@ namespace {
 
 TEST(ProcessSpawn, StartsNewSession)
 {
+#ifdef __ANDROID__
+    char bin[] = "/system/bin/sleep";
+#else
     char bin[] = "/bin/sleep";
+#endif
     char duration[] = "30";
     char *argv[] = {bin, duration, nullptr};
     Process *process = nullptr;
