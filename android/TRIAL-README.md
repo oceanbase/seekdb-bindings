@@ -1,42 +1,55 @@
-# SeekDB Android 试用包
+# SeekDB Android Trial Kit
 
-## 内容与支持范围
+## Contents and support scope
 
-- `aar/seekdb-android.aar`：公共 Java API、JNI、libseekdb、SeekDB 可执行文件。
-- `examples/aar-consumer/`：独立 Gradle 示例，仅通过本地 AAR 引用 SeekDB。
-- `demo/seekdb-test.apk`：示例构建的体验 APK；安装启动后自动执行查询及混合检索。
-- `licenses/`：随包附带的许可证和第三方声明；构建版本与验证结果见测试报告。
-- 仅支持 Android ARM64 (`arm64-v8a`)，原生最低 API 28。
-- 这是试用版，不代表已通过所有 Android 版本、真机或生产负载认证。
-- 示例 targetSdk 为 28；面向更高 targetSdk 和应用商店发布需另外验证。
+- `aar/seekdb-android.aar`: the public Java API, JNI library, libseekdb, and the
+  SeekDB executable.
+- `examples/aar-consumer/`: a standalone Gradle example that depends only on
+  the local AAR.
+- `demo/seekdb-test.apk`: a trial APK built from the example. It automatically
+  runs a query and a hybrid-search scenario when launched.
+- `licenses/`: licenses and third-party notices included with the kit. See the
+  test report for the exact build revisions and verification results.
+- Only Android ARM64 (`arm64-v8a`) is supported. The native minimum API level
+  is 28.
+- This is a trial package. It has not been certified for every Android version,
+  physical device, or production workload.
+- The example uses targetSdk 28. Higher targetSdk levels and app-store
+  distribution require separate validation.
 
-## 集成到自己的项目
+## Integrate into your project
 
-1. 将 AAR 放到应用模块的 `libs/`，添加 `implementation files('libs/seekdb-android.aar')`。
-2. 不要同时引用 `seekdb-java.jar`，否则会出现重复类。
-3. 配置 `android.packaging.jniLibs.useLegacyPackaging = true`，确保原生文件
-   被提取到文件系统。不要关闭提取：SeekDB 需要通过实际路径启动子进程。
-4. 使用 App 私有持久目录（例如 `context.getNoBackupFilesDir()` 的子目录），
-   在后台线程调用以下 API。
+1. Copy the AAR into the application module's `libs/` directory and add
+   `implementation files('libs/seekdb-android.aar')`.
+2. Do not also depend on `seekdb-java.jar`, because that would introduce
+   duplicate classes.
+3. Set `android.packaging.jniLibs.useLegacyPackaging = true` so the native files
+   are extracted to the filesystem. Do not disable extraction: SeekDB must
+   launch its child process from a real filesystem path.
+4. Use a persistent, app-private directory, such as a child directory of
+   `context.getNoBackupFilesDir()`, and call the API from a background thread.
 
 ```java
 String path = new java.io.File(context.getNoBackupFilesDir(), "seekdb").getAbsolutePath();
 try (com.oceanbase.seekdb.SeekDB db = com.oceanbase.seekdb.SeekDB.open(path)) {
     com.oceanbase.seekdb.ConnectionOptions options = db.connectionOptions();
-    // 选择自己的客户端驱动，用 options.unix_socket 等字段建立连接。
-    // 先关闭客户端连接，再关闭 db。
+    // Use the client driver of your choice and connect with fields such as
+    // options.unix_socket. Close the client connection before closing db.
 }
 ```
 
-无需设置二进制路径。libseekdb 在自身目录查找 `seekdb`，不存在时回退到
-`libseekdb_exec.so`。后者是为 APK 提取机制命名的可执行文件，不是动态库。
-JNI 与 libseekdb 本身才是动态库。AAR 不包含 JDBC 驱动或测试代码。
+No binary path configuration is required. libseekdb looks for `seekdb` in its
+own directory and falls back to `libseekdb_exec.so` when it is not present. The
+latter is an executable named to work with APK native-file extraction; it is
+not a shared library. The JNI library and libseekdb itself are shared libraries.
+The AAR does not contain a JDBC driver or test code.
 
-## 构建与运行示例
+## Build and run the example
 
-安装 SDK platform 36.1、Build Tools 36.1.0、JDK 17 或兼容版本，以及
-Gradle 8.13。示例使用 Android Gradle Plugin 8.13.2；仓库不附带 Gradle Wrapper。
-设置 `ANDROID_HOME` 为自己的 SDK 目录（或在示例 local.properties 中设置 sdk.dir）。
+Install SDK platform 36.1, Build Tools 36.1.0, JDK 17 or a compatible version,
+and Gradle 8.13. The example uses Android Gradle Plugin 8.13.2. The repository
+does not include a Gradle Wrapper. Set `ANDROID_HOME` to your SDK directory, or
+set `sdk.dir` in the example's `local.properties` file.
 
 ```sh
 cd examples/aar-consumer
@@ -46,18 +59,26 @@ adb shell am start -n com.oceanbase.seekdb.trial/com.oceanbase.seekdb.test.MainA
 adb logcat -s SeekDBTest:I
 ```
 
-预期出现 `OK transport=unix_socket port=0 value=1`、`HYBRID_OK`、
-`DIRECTORY_FD_CLOSED_OK`。数据库保存在试用 App 私有目录，不会使用 /tmp。
-测试会重建它自己的 `android_hybrid_demo` 表；不要指向包含重要数据的实例。
+Expected output includes `OK transport=unix_socket port=0 value=1`,
+`HYBRID_OK`, and `DIRECTORY_FD_CLOSED_OK`. The database is stored in the trial
+app's private directory; `/tmp` is not used. The test recreates its own
+`android_hybrid_demo` table. Do not point it at an instance containing important
+data.
 
-示例使用 MariaDB JDBC 3.5.6，并附带其 JAR。`JdbcExample` 和
-`AndroidSocketFactory` 是该驱动的示例配置/适配代码，不是通用 bindings API。
-其他驱动应采用自己的 Unix socket 连接方案。反射加载的适配器在开启混淆时
-需要保留类名；本试用示例不启用混淆。AAR 自带公共 JNI API 的保留规则。
+The example uses MariaDB JDBC 3.5.6 and includes its JAR. `JdbcExample` and
+`AndroidSocketFactory` are example configuration and adapter code specific to
+that driver; they are not part of the general bindings API. Other drivers
+should use their own Unix-domain-socket connection mechanism. If an adapter is
+loaded through reflection and code shrinking is enabled, preserve the adapter's
+class name. The trial example does not enable code shrinking. The AAR includes
+keep rules for the public JNI API.
 
-## 注意事项
+## Notes
 
-初次启动需要初始化数据库，可能等待较长时间，且会占用数百 MB 存储空间。
-请勿在 UI 线程启动。关闭 handle 不保证服务进程立即退出，也不删除数据库。
-`/proc/self/fd/` socket 地址只在对应进程和 handle 生命周期内有效。
-不足的设备空间可能导致安装失败；不要通过删除个人数据来解决测试空间问题。
+The first launch initializes the database, so it can take some time and consume
+several hundred megabytes of storage. Do not start it on the UI thread. Closing
+the handle does not guarantee that the service process exits immediately, and
+it does not delete the database. A `/proc/self/fd/` socket address is valid only
+within the corresponding process and handle lifetime. Insufficient device
+storage can cause installation to fail; do not delete personal data merely to
+make room for this test.
