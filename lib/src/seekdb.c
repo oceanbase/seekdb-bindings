@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <pthread.h>
 #include <unistd.h>
 #endif
@@ -31,6 +33,24 @@
 #else
 #define PROBE_REQUIRED_BUDGET_MS PROBE_PHASE_BUDGET_MS
 #endif
+
+static char *g_binary_path = NULL;
+
+#ifdef _MSC_VER
+static __declspec(thread) char g_open_error[2048];
+#else
+static _Thread_local char g_open_error[2048];
+#endif
+
+const char *seekdb_last_open_error(void) { return g_open_error; }
+
+static void set_open_error(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(g_open_error, sizeof(g_open_error), fmt, ap);
+    va_end(ap);
+}
 
 #if defined(__GNUC__) || defined(__clang__)
 #define MAYBE_UNUSED __attribute__((unused))
@@ -223,6 +243,20 @@ static char *xstrdup(const char *s)
         memcpy(p, s, n);
     return p;
 }
+
+int seekdb_set_binary_path(const char *path)
+{
+    if (!path || path[0] == '\0')
+        return SEEKDB_INVALID_ARGUMENT;
+    char *copy = xstrdup(path);
+    if (!copy)
+        return SEEKDB_INTERNAL_ERROR;
+    lock_spawned();
+    free(g_binary_path);
+    g_binary_path = copy;
+    unlock_spawned();
+    return SEEKDB_SUCCESS;
+}
 static void xfree(void *p)
 {
     if (p)
@@ -248,6 +282,12 @@ static char *concat_strings(const char *left, const char *right)
 #ifndef _WIN32
 static void cleanup_unix_socket_alias(SeekdbHandleImpl *h)
 {
+#ifdef __ANDROID__
+    if (h && h->socket_dir_fd >= 0) {
+        close(h->socket_dir_fd);
+        h->socket_dir_fd = -1;
+    }
+#endif
     if (!h || !h->socket_alias_dir)
         return;
 
@@ -270,6 +310,27 @@ static void cleanup_unix_socket_alias(SeekdbHandleImpl *h)
 
 static int prepare_unix_socket_alias(SeekdbHandleImpl *h, const char *run_dir)
 {
+#ifdef __ANDROID__
+    /* A process-local directory reference avoids /tmp and long socket addresses. */
+    int dir_fd = open(run_dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dir_fd < 0) {
+        tlog("prepare_unix_socket_alias: open(%s) failed: errno=%d\n", run_dir, errno);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+    char socket_path[64];
+    int n = snprintf(socket_path, sizeof(socket_path), "/proc/self/fd/%d/sql.sock", dir_fd);
+    if (n < 0 || (size_t)n >= sizeof(socket_path)) {
+        close(dir_fd);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+    h->sock_path = xstrdup(socket_path);
+    if (!h->sock_path) {
+        close(dir_fd);
+        return SEEKDB_INTERNAL_ERROR;
+    }
+    h->socket_dir_fd = dir_fd;
+    return SEEKDB_SUCCESS;
+#else
     char *resolved_run_dir = realpath(run_dir, NULL);
     if (!resolved_run_dir) {
         tlog("prepare_unix_socket_alias: realpath(%s) failed: errno=%d\n", run_dir, errno);
@@ -323,6 +384,7 @@ static int prepare_unix_socket_alias(SeekdbHandleImpl *h, const char *run_dir)
     xfree(run_link);
     xfree(resolved_run_dir);
     return SEEKDB_SUCCESS;
+#endif
 }
 #endif
 
@@ -694,16 +756,41 @@ static int wait_for_ready(SeekdbHandleImpl *h, Process *spawned, uint64_t deadli
  * `buf` (NUL-terminated). Returns SEEKDB_SUCCESS or SEEKDB_INTERNAL_ERROR. */
 static int resolve_bin_path(char *buf, size_t buflen)
 {
+    lock_spawned();
+    if (g_binary_path) {
+        const int configured_n = snprintf(buf, buflen, "%s", g_binary_path);
+        unlock_spawned();
+        return configured_n >= 0 && (size_t)configured_n < buflen ? SEEKDB_SUCCESS
+                                                                  : SEEKDB_INTERNAL_ERROR;
+    }
+    unlock_spawned();
     char dir[1024];
     if (get_module_dir(dir, sizeof(dir)) != OK)
         return SEEKDB_INTERNAL_ERROR;
 #ifdef _WIN32
     int n = snprintf(buf, buflen, "%s\\seekdb.exe", dir);
-#else
-    int n = snprintf(buf, buflen, "%s/seekdb", dir);
-#endif
-    if (n < 0 || (size_t)n >= buflen)
+    if (n < 0 || (size_t)n >= buflen) {
         return SEEKDB_INTERNAL_ERROR;
+    }
+#else
+    /* Prefer the ordinary executable name. Android APKs may package the same
+     * executable as libseekdb_exec.so so the installer extracts it into the
+     * native-library directory, instead of app-writable data storage where
+     * execution is restricted. It is still an executable, not a shared library.
+     * Discover by layout rather than requiring an Android-specific branch.
+     * Only fall back when missing: permission/exec failures must remain visible. */
+    const char *names[] = {"seekdb", "libseekdb_exec.so"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        int n = snprintf(buf, buflen, "%s/%s", dir, names[i]);
+        if (n < 0 || (size_t)n >= buflen) {
+            return SEEKDB_INTERNAL_ERROR;
+        }
+        if (access(buf, F_OK) == 0 || errno != ENOENT) {
+            return SEEKDB_SUCCESS;
+        }
+    }
+    /* Leave the final candidate for the startup check to report its OS error. */
+#endif
     return SEEKDB_SUCCESS;
 }
 
@@ -892,15 +979,24 @@ static void free_spawn_argv(char **argv, char **owned, size_t owned_n)
 
 int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle)
 {
-    if (!db_dir || !out_handle)
+    g_open_error[0] = '\0';
+    if (out_handle) {
+        *out_handle = NULL;
+    }
+    if (!db_dir || !db_dir[0] || !out_handle) {
+        set_open_error("db_dir must be non-empty and out_handle must not be NULL");
         return SEEKDB_INVALID_ARGUMENT;
+    }
     const int param_rc = validate_parameters(parameters);
-    if (param_rc != SEEKDB_SUCCESS)
+    if (param_rc != SEEKDB_SUCCESS) {
+        set_open_error("Invalid parameters: expected key/value pairs with non-empty keys; "
+                       "mysql_port is not supported (use port)");
         return param_rc;
-    *out_handle = NULL;
+    }
 
     char bin_path[1024];
     if (resolve_bin_path(bin_path, sizeof(bin_path)) != SEEKDB_SUCCESS) {
+        set_open_error("Cannot resolve SeekDB executable path; use seekdb_set_binary_path");
         tlog("seekdb_open: cannot resolve seekdb binary "
              "(set SEEKDB_BIN or place seekdb next to libseekdb)\n");
         return SEEKDB_INTERNAL_ERROR;
@@ -909,6 +1005,7 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     tlog("seekdb_open: bin=%s db_dir=%s\n", bin_path, db_dir);
 
     int result = SEEKDB_INTERNAL_ERROR;
+    const char *error_stage = "allocate handle";
     SeekdbHandleImpl *h = (SeekdbHandleImpl *)calloc(1, sizeof(*h));
     char *run_dir = NULL;
     char *base_dir_arg = NULL;
@@ -930,6 +1027,10 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
 
     if (!h)
         goto cleanup;
+#ifdef __ANDROID__
+    h->socket_dir_fd = -1;
+#endif
+    error_stage = "allocate instance paths";
     h->db_dir = xstrdup(db_dir);
     run_dir = concat_strings(db_dir, "/run");
     h->clients_lock_path = concat_strings(db_dir, "/run/seekdb.clients");
@@ -941,26 +1042,38 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
 #ifdef _WIN32
     pipe_n = snprintf(h->pipe_file_path, sizeof(h->pipe_file_path), "%s/run/sql.pipe", db_dir);
     if (pipe_n < 0 || (size_t)pipe_n >= sizeof(h->pipe_file_path)) {
+        set_open_error("Named pipe discovery path is too long for db_dir=%s", db_dir);
         tlog("seekdb_open: pipe discovery path truncated for db_dir=%s\n", db_dir);
         goto cleanup;
     }
 #endif
 
     if (ensure_dir(db_dir) != OK) {
+        int saved_errno = errno;
+        set_open_error("Cannot create/access database directory %s: errno=%d (%s)", db_dir,
+                       saved_errno, strerror(saved_errno));
         tlog("ensure_dir failed: %s\n", db_dir);
         goto cleanup;
     }
 
     if (ensure_dir(run_dir) != OK) {
+        int saved_errno = errno;
+        set_open_error("Cannot create/access run directory %s: errno=%d (%s)", run_dir, saved_errno,
+                       strerror(saved_errno));
         tlog("ensure_dir failed: %s\n", run_dir);
         goto cleanup;
     }
 
 #ifndef _WIN32
-    if (prepare_unix_socket_alias(h, run_dir) != SEEKDB_SUCCESS)
+    error_stage = "prepare Unix socket alias";
+    int alias_rc = prepare_unix_socket_alias(h, run_dir);
+    if (alias_rc != SEEKDB_SUCCESS) {
+        result = alias_rc;
         goto cleanup;
+    }
 #endif
 
+    error_stage = "open clients lock";
     if (flock_open(h->clients_lock_path, &h->clients_lock) != OK) {
         tlog("flock_open failed: %s\n", h->clients_lock_path);
         goto cleanup;
@@ -969,11 +1082,13 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     /* One shared deadline covers lifecycle-lock waits, local probes, process
      * startup and Windows TCP identity verification when applicable. */
     uint64_t now_ms = 0;
+    error_stage = "read monotonic clock";
     if (!monotonic_time_ms(&now_ms)) {
         tlog("seekdb_open: failed to read monotonic clock\n");
         goto cleanup;
     }
     readiness_deadline_ms = now_ms + READY_TIMEOUT_MS;
+    error_stage = "acquire clients lock (lock failure or readiness deadline exceeded)";
     if (!acquire_lock_until_deadline(h->clients_lock, FLOCK_SHARED, readiness_deadline_ms,
                                      "seekdb.clients SH")) {
         goto cleanup;
@@ -990,10 +1105,12 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     }
     tlog("seekdb_open: initial local readiness probe did not succeed\n");
 
+    error_stage = "open startup lock";
     if (flock_open(h->startup_lock_path, &startup_lock) != OK) {
         tlog("flock_open failed: %s\n", h->startup_lock_path);
         goto cleanup;
     }
+    error_stage = "acquire startup lock (lock failure or readiness deadline exceeded)";
     if (!acquire_lock_until_deadline(startup_lock, FLOCK_EXCLUSIVE, readiness_deadline_ms,
                                      "seekdb.startup EX")) {
         goto cleanup;
@@ -1011,12 +1128,14 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         goto cleanup;
     }
     if (deadline_reached(readiness_deadline_ms)) {
+        set_open_error("Readiness deadline exceeded during server discovery for %s", db_dir);
         clear_discovered_server(h);
         tlog("seekdb_open: readiness deadline reached after post-lock probe\n");
         goto cleanup;
     }
 
     if (probe == PROBE_LOCAL_NOT_FOUND) {
+        error_stage = "allocate process arguments";
         base_dir_arg = concat_strings("--base-dir=", db_dir);
         sstable_dir = concat_strings(db_dir, "/store/sstable");
         if (!base_dir_arg || !sstable_dir) {
@@ -1042,6 +1161,7 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
                         : "restart — keeping persisted parameters",
              sstable_dir);
 
+        error_stage = "build process arguments";
         argv_rc = build_spawn_argv(bin_path, base_dir_arg, parameters, first_init, &spawn_argv,
                                    &spawn_owned, &spawn_owned_n);
         if (argv_rc != SEEKDB_SUCCESS) {
@@ -1050,11 +1170,30 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         }
 
         if (!deadline_has_budget(readiness_deadline_ms, PROBE_REQUIRED_BUDGET_MS)) {
+            set_open_error("Insufficient readiness time remaining to start SeekDB for %s", db_dir);
             tlog("seekdb_open: insufficient deadline budget to start a child\n");
             goto cleanup;
         }
 
+#ifndef _WIN32
+        /* Android may report exec failure as a child exit after a successful spawn. */
+        if (access(bin_path, X_OK) != 0) {
+            int saved_errno = errno;
+            set_open_error("Cannot execute SeekDB binary %s: errno=%d (%s)", bin_path, saved_errno,
+                           strerror(saved_errno));
+            goto cleanup;
+        }
+#endif
         if (spawn_process(bin_path, spawn_argv, &spawned) != OK) {
+#ifdef _WIN32
+            set_open_error(
+                "Cannot spawn SeekDB executable %s; check executable and its dependencies",
+                bin_path);
+#else
+            int saved_errno = errno;
+            set_open_error("Cannot spawn SeekDB executable %s: errno=%d (%s)", bin_path,
+                           saved_errno, strerror(saved_errno));
+#endif
             tlog("spawn process failed.");
             goto cleanup;
         }
@@ -1087,6 +1226,10 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     startup_lock = NULL;
 
     if (wait_rc < 0) {
+        set_open_error("%s for %s; inspect the instance log directory for server details",
+                       wait_rc == -1 ? "SeekDB process exited before becoming ready"
+                                     : "SeekDB did not become ready before the deadline",
+                       db_dir);
         if (wait_rc == -1) {
             spawned = NULL; /* wait_for_ready reaped and freed it */
         }
@@ -1114,6 +1257,12 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     result = SEEKDB_SUCCESS;
 
 cleanup:
+    if (result != SEEKDB_SUCCESS && !g_open_error[0]) {
+        set_open_error("seekdb_open failed to %s for %s", error_stage, db_dir);
+    }
+    if (result == SEEKDB_SUCCESS) {
+        g_open_error[0] = '\0';
+    }
     free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
     if (startup_lock)
         flock_close(startup_lock);

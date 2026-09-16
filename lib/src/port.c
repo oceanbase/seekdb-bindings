@@ -318,6 +318,7 @@ int dir_has_entries(const char *path)
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+extern char **environ;
 
 /* ============================================================ Flock ====== */
 
@@ -375,24 +376,42 @@ int flock_close(Flock *lock)
 
 int spawn_process(const char *bin_path, char *const argv[], Process **out_proc)
 {
-    if (!bin_path || !argv || !out_proc)
+    if (!bin_path || !argv || !out_proc) {
         return ERR_INVALID_ARG;
+    }
     *out_proc = NULL;
 
     Process *p = (Process *)malloc(sizeof(Process));
 
     posix_spawn_file_actions_t fa;
+    if (!p) {
+        return ERR;
+    }
     posix_spawn_file_actions_init(&fa);
     posix_spawn_file_actions_addopen(&fa, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
     posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
     posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
 
     pid_t pid;
-    int err = posix_spawn(&pid, bin_path, &fa, NULL, argv, NULL);
+#ifdef __ANDROID__
+    /* Avoid running ART's fork handlers when spawning an external executable. */
+    posix_spawnattr_t attr;
+    int err = posix_spawnattr_init(&attr);
+    if (err == 0) {
+        err = posix_spawnattr_setflags(&attr, POSIX_SPAWN_USEVFORK);
+        if (err == 0) {
+            err = posix_spawn(&pid, bin_path, &fa, &attr, argv, environ);
+        }
+        posix_spawnattr_destroy(&attr);
+    }
+#else
+    int err = posix_spawn(&pid, bin_path, &fa, NULL, argv, environ);
+#endif
     posix_spawn_file_actions_destroy(&fa);
     if (err != 0) {
         tlog("spawn_process: posix_spawn(%s) failed: errno %d: %s\n", bin_path, err, strerror(err));
         free(p);
+        errno = err; /* posix_spawn returns its error instead of setting errno. */
         return ERR;
     }
     p->pid = (int64_t)pid;

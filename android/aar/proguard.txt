@@ -1,0 +1,3 @@
+# JNI resolves these class and member names. Do not rename or remove them.
+-keep class com.oceanbase.seekdb.SeekDB { *; }
+-keep class com.oceanbase.seekdb.ConnectionOptions { *; }
