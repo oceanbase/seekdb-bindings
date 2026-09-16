@@ -73,10 +73,13 @@ public final class AndroidSocketFactory extends ConfigurableSocketFactory {
             }
 
             Throwable cause = failure.get();
-            if (cause instanceof IOException) throw (IOException) cause;
-            if (cause instanceof RuntimeException) throw (RuntimeException) cause;
-            if (cause instanceof Error) throw (Error) cause;
-            if (cause != null) throw new IOException("Failed to connect to " + path, cause);
+            if (cause != null) {
+                closeAfterFailedConnect();
+                if (cause instanceof IOException) throw (IOException) cause;
+                if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+                if (cause instanceof Error) throw (Error) cause;
+                throw new IOException("Failed to connect to " + path, cause);
+            }
             socket.setSoTimeout(readTimeout);
         }
         private void connectLocal() throws IOException {
