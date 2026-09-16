@@ -31,7 +31,8 @@ public final class Main {
                 System.out.println("OPEN_ERROR_OK " + expected.getMessage());
             }
             String endpoint;
-            try (SeekDB db = SeekDB.open(args[0])) {
+            String dbDir = args[0] + "-\uD83D\uDE80";
+            try (SeekDB db = SeekDB.open(dbDir)) {
                 System.out.println("AUTO_BINARY_PATH_OK no override supplied");
                 ConnectionOptions options = db.connectionOptions();
                 endpoint = options.unix_socket;
@@ -65,7 +66,8 @@ public final class Main {
                 throw new AssertionError("Directory FD still open after handle close");
             }
             System.out.println("APP_PROCESS_OK directory_fd_closed=true realPathBytes="
-                    + (args[0] + "/run/sql.sock").getBytes("UTF-8").length);
+                    + (dbDir + "/run/sql.sock").getBytes("UTF-8").length
+                    + " unicodePath=true");
         } catch (Throwable t) {
             t.printStackTrace();
             System.exit(1);

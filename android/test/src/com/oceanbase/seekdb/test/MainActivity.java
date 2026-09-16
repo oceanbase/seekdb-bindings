@@ -26,7 +26,7 @@ public final class MainActivity extends Activity {
             // never use /tmp, cache, or a system directory for test data.
             String dbDir = getNoBackupFilesDir().getAbsolutePath()
                     + "/seekdb-auto-path-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz"
-                    + "-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz";
+                    + "-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-\uD83D\uDE80";
             if ((dbDir + "/run/sql.sock").getBytes("UTF-8").length <= 108) {
                 throw new AssertionError("Test requires a long socket path");
             }
@@ -44,7 +44,8 @@ public final class MainActivity extends Activity {
                 rs.next();
                 final String result = "OK transport=" + options.transport + " port=" + options.port
                         + " value=" + rs.getInt(1) + " endpoint=" + endpoint
-                        + " realPathBytes=" + (dbDir + "/run/sql.sock").getBytes("UTF-8").length;
+                        + " realPathBytes=" + (dbDir + "/run/sql.sock").getBytes("UTF-8").length
+                        + " unicodePath=true";
                 android.util.Log.i("SeekDBTest", result);
                 runOnUiThread(() -> text.setText(result));
             }
