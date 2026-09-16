@@ -178,10 +178,12 @@ TEST_F(ParameterPersistence, ChangedMemoryBudgetSurvivesRestart)
     // --- full shutdown so the next open must re-spawn (the restart path) ---
     shutdown_server(h1, pid1);
 
-    // --- restart: store/sstable is now non-empty, so the driver must NOT pass
-    //     --parameter, and the persisted value must remain ---
+    // --- restart: store/sstable is now non-empty, so the driver must not
+    //     re-seed ordinary parameters. Operational port settings are still
+    //     passed, while the persisted memory_budget must remain. ---
+    const char *restart_parameters[] = {"mysql_port_mode", "DISABLED", "port", "12345", NULL};
     SeekdbHandle h2 = nullptr;
-    ASSERT_EQ(seekdb_open(db_dir_.c_str(), NULL, &h2), SEEKDB_SUCCESS);
+    ASSERT_EQ(seekdb_open(db_dir_.c_str(), restart_parameters, &h2), SEEKDB_SUCCESS);
     ASSERT_NE(h2, nullptr);
     const int64_t pid2 = ((SeekdbHandleImpl *)h2)->spawned_pid;
     ASSERT_GT(pid2, 0) << "restart should have re-spawned a server (not fast-path)";
@@ -196,6 +198,9 @@ TEST_F(ParameterPersistence, ChangedMemoryBudgetSurvivesRestart)
     EXPECT_NE(after_restart, seeded)
         << "memory_budget was reset to the seeded default '" << seeded
         << "' on restart — driver clobbered the persisted value (issue #26)";
+
+    EXPECT_NE(read_parameter(c2, "mysql_port_mode").find("DISABLED"), std::string::npos);
+    EXPECT_NE(read_parameter(c2, "mysql_port").find("12345"), std::string::npos);
 
     seekdb_disconnect(c2);
     shutdown_server(h2, pid2);

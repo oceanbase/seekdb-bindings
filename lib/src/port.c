@@ -320,6 +320,7 @@ int dir_has_entries(const char *path)
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+extern char **environ;
 
 /* ============================================================ Flock ====== */
 
@@ -377,13 +378,17 @@ int flock_close(Flock *lock)
 
 int spawn_process(const char *bin_path, char *const argv[], Process **out_proc)
 {
-    if (!bin_path || !argv || !out_proc)
+    if (!bin_path || !argv || !out_proc) {
         return ERR_INVALID_ARG;
+    }
     *out_proc = NULL;
 
     Process *p = (Process *)malloc(sizeof(Process));
 
     posix_spawn_file_actions_t fa;
+    if (!p) {
+        return ERR;
+    }
     posix_spawn_file_actions_init(&fa);
     posix_spawn_file_actions_addopen(&fa, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
     posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
@@ -401,8 +406,13 @@ int spawn_process(const char *bin_path, char *const argv[], Process **out_proc)
     /* Start the server as the leader of a new session. It also becomes the
      * leader of a new process group and loses the parent's controlling
      * terminal, while remaining our direct child for PID ownership and
-     * waitpid(). */
-    err = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
+     * waitpid(). On Android, USEVFORK also avoids running ART's fork
+     * handlers when spawning an external executable. */
+    short spawn_flags = POSIX_SPAWN_SETSID;
+#ifdef __ANDROID__
+    spawn_flags |= POSIX_SPAWN_USEVFORK;
+#endif
+    err = posix_spawnattr_setflags(&attr, spawn_flags);
     if (err != 0) {
         tlog("spawn_process: configuring child session failed: errno %d: %s\n", err, strerror(err));
         posix_spawnattr_destroy(&attr);
@@ -412,12 +422,13 @@ int spawn_process(const char *bin_path, char *const argv[], Process **out_proc)
     }
 
     pid_t pid;
-    err = posix_spawn(&pid, bin_path, &fa, &attr, argv, NULL);
+    err = posix_spawn(&pid, bin_path, &fa, &attr, argv, environ);
     posix_spawnattr_destroy(&attr);
     posix_spawn_file_actions_destroy(&fa);
     if (err != 0) {
         tlog("spawn_process: posix_spawn(%s) failed: errno %d: %s\n", bin_path, err, strerror(err));
         free(p);
+        errno = err; /* posix_spawn returns its error instead of setting errno. */
         return ERR;
     }
     p->pid = (int64_t)pid;

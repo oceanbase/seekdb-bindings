@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.oceanbase.seekdb.pr60">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
+    <application android:debuggable="true" android:extractNativeLibs="true" android:label="SeekDB PR60 Test">
+        <activity android:name="com.oceanbase.seekdb.test.MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
