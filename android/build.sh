@@ -10,6 +10,24 @@ out=${ANDROID_BUILD_DIR:-"$root/build/android"}
 openssl=${ANDROID_OPENSSL_ROOT:?Set ANDROID_OPENSSL_ROOT to an arm64 API28 static OpenSSL installation}
 engine=${SEEKDB_ANDROID_BIN:?Set SEEKDB_ANDROID_BIN to the Android ARM64 SeekDB executable}
 jdbc=${MARIADB_JDBC_JAR:?Set MARIADB_JDBC_JAR to mariadb-java-client-3.5.6.jar}
+
+verify_16k_elf_alignment() {
+  local file=$1
+  local alignment
+  local load_count=0
+  while IFS= read -r alignment; do
+    ((load_count += 1))
+    if [[ ! "$alignment" =~ ^0x[0-9a-fA-F]+$ ]] || ((alignment < 0x4000)); then
+      echo "$file has a PT_LOAD alignment below 16 KiB: $alignment" >&2
+      return 1
+    fi
+  done < <("$tc/llvm-readelf" -lW "$file" | awk '$1 == "LOAD" { print $NF }')
+  if ((load_count == 0)); then
+    echo "$file has no PT_LOAD segments" >&2
+    return 1
+  fi
+}
+
 mkdir -p "$out/package/jniLibs/arm64-v8a"
 # Keep a previous adapter artifact out of the package without deleting it.
 if [[ -f "$out/package/seekdb-android.jar" ]]; then
@@ -19,6 +37,7 @@ fi
 env -u CC -u CXX -u SDKROOT ANDROID_NDK_HOME="$ndk" cmake -S "$root" -B "$out/native" \
   -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+  -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF -DSEEKDB_BUILD_PYTHON=OFF \
   -DOPENSSL_USE_STATIC_LIBS=TRUE -DOPENSSL_ROOT_DIR="$openssl" \
   -DOPENSSL_INCLUDE_DIR="$openssl/include" \
@@ -28,8 +47,12 @@ cmake --build "$out/native" --target seekdb -j "${BUILD_JOBS:-4}"
 cp "$out/native/libseekdb.so" "$out/package/jniLibs/arm64-v8a/"
 "$tc/aarch64-linux-android28-clang" -shared -fPIC -I"$root/lib/include" \
   "$root/java/jni/seekdb_jni.c" -L"$out/native" -lseekdb \
-  -Wl,--no-undefined -o "$out/package/jniLibs/arm64-v8a/libseekdb_jni.so"
+  -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 \
+  -o "$out/package/jniLibs/arm64-v8a/libseekdb_jni.so"
 "$tc/llvm-strip" --strip-debug "$engine" -o "$out/package/jniLibs/arm64-v8a/libseekdb_exec.so"
+verify_16k_elf_alignment "$out/package/jniLibs/arm64-v8a/libseekdb.so"
+verify_16k_elf_alignment "$out/package/jniLibs/arm64-v8a/libseekdb_jni.so"
+verify_16k_elf_alignment "$out/package/jniLibs/arm64-v8a/libseekdb_exec.so"
 java_classes=$(mktemp -d "$out/java-classes.XXXXXX")
 javac --release 8 -d "$java_classes" \
   "$root"/java/src/main/java/com/oceanbase/seekdb/*.java

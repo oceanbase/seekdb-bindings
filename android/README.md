@@ -8,7 +8,8 @@ server defaults to `mysql_port_mode=disabled`; connections use a Unix socket.
 Initialize the repository submodules. Install Android SDK platform 36.1, Build
 Tools 36.1.0, and NDK r27d (27.3.13750724). Use a JDK supporting `--release 8`.
 Provide an ARM64/API28 SeekDB executable, an Android ARM64/API28 static OpenSSL
-installation, and MariaDB JDBC 3.5.6. These inputs are not downloaded by the script.
+installation, and MariaDB JDBC 3.5.6. The SeekDB executable must use 16 KiB ELF
+segment alignment. These inputs are not downloaded by the script.
 
 ```sh
 export ANDROID_SDK_ROOT=/path/to/android-sdk
@@ -22,6 +23,8 @@ Outputs are in `build/android/package`: `seekdb-android.aar` (default; set BUILD
 to skip), two JARs, `jniLibs/arm64-v8a` and optionally
 a signed test APK. The script pins native API 28 and NDK r27d, including the
 sysroot, and defaults to four build jobs. Set BUILD_JOBS to adjust concurrency.
+The build enables flexible page sizes and rejects any packaged native ELF whose
+`PT_LOAD` alignment is below 16 KiB.
 
 ## Use
 
