@@ -31,7 +31,7 @@ public final class MainActivity extends Activity {
                 throw new AssertionError("Test requires a long socket path");
             }
             String endpoint;
-            try (SeekDB db = SeekDB.open(dbDir, "mysql_port_mode", "disabled")) {
+            try (SeekDB db = SeekDB.open(dbDir)) {
             ConnectionOptions options = db.connectionOptions();
             endpoint = options.unix_socket;
             if (!endpoint.startsWith("/proc/self/fd/") || options.port != 0

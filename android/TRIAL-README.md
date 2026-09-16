@@ -21,8 +21,7 @@
 
 ```java
 String path = new java.io.File(context.getNoBackupFilesDir(), "seekdb").getAbsolutePath();
-try (com.oceanbase.seekdb.SeekDB db = com.oceanbase.seekdb.SeekDB.open(
-        path, "mysql_port_mode", "disabled")) {
+try (com.oceanbase.seekdb.SeekDB db = com.oceanbase.seekdb.SeekDB.open(path)) {
     com.oceanbase.seekdb.ConnectionOptions options = db.connectionOptions();
     // 选择自己的客户端驱动，用 options.unix_socket 等字段建立连接。
     // 先关闭客户端连接，再关闭 db。

@@ -57,7 +57,7 @@ and is not inherited by the SeekDB executable. Run operations off the UI thread.
 
 ```java
 String path = context.getNoBackupFilesDir().getAbsolutePath() + "/db";
-try (SeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) {
+try (SeekDB db = SeekDB.open(path)) {
     ConnectionOptions options = db.connectionOptions();
     // Example for MariaDB JDBC 3.5.6 + our Android adapter, not generic JDBC options.
     Class.forName("org.mariadb.jdbc.Driver");

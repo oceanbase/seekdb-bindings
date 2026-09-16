@@ -21,7 +21,7 @@ public final class Main {
                 throw new AssertionError("Invalid directory fixture must be a regular file");
             }
             try {
-                SeekDB.open(notDirectory.getAbsolutePath(), "mysql_port_mode", "disabled");
+                SeekDB.open(notDirectory.getAbsolutePath());
                 throw new AssertionError("Expected invalid directory failure");
             } catch (RuntimeException expected) {
                 if (!expected.getMessage().contains("directory")
@@ -31,7 +31,7 @@ public final class Main {
                 System.out.println("OPEN_ERROR_OK " + expected.getMessage());
             }
             String endpoint;
-            try (SeekDB db = SeekDB.open(args[0], "mysql_port_mode", "disabled", "port", "0")) {
+            try (SeekDB db = SeekDB.open(args[0])) {
                 System.out.println("AUTO_BINARY_PATH_OK no override supplied");
                 ConnectionOptions options = db.connectionOptions();
                 endpoint = options.unix_socket;
