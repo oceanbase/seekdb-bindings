@@ -6,7 +6,8 @@ package com.oceanbase.seekdb;
  *
  * <pre>{@code
  * String dataDir = "/path/to/writable/persistent/database";
- * try (SeekDB db = SeekDB.open(dataDir, "mysql_port_mode", "disabled")) {
+ * try (SeekDB db = SeekDB.open(
+ *         dataDir, "memory_budget", "2G", "log_disk_size", "4G")) {
  *     ConnectionOptions options = db.connectionOptions();
  *     // Configure your chosen client using options.transport, options.user,
  *     // and options.unix_socket, options.named_pipe, or options.host/options.port.
@@ -38,7 +39,7 @@ public final class SeekDB implements AutoCloseable {
     }
 
     /** Open an instance with optional key/value parameter pairs, passed unchanged
-     * to libseekdb. For example: open(path, "mysql_port_mode", "disabled").
+     * to libseekdb. For example: open(path, "memory_budget", "2G").
      * Port, transport defaults and parameter values follow libseekdb/server semantics.
      *
      * @param dbDir writable, persistent database directory

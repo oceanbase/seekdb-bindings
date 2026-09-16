@@ -15,11 +15,11 @@ or runtime-verified by this Android work.
 
 The only open entry point is `SeekDB.open(String dbDir, String... parameters)`.
 Parameters are optional key/value pairs, passed unchanged to libseekdb:
-`SeekDB.open(path, "mysql_port_mode", "disabled", "port", "0")`.
+`SeekDB.open(path, "memory_budget", "2G", "log_disk_size", "4G")`.
 Omitting parameters uses native defaults. Java validates the pair structure only;
 there is no separate port argument or transport-specific open method.
 `open()` returns a `SeekDB` instance implementing `AutoCloseable`. Use
-`try (SeekDB db = SeekDB.open(path, "mysql_port_mode", "disabled")) { ... }`.
+`try (SeekDB db = SeekDB.open(path, "memory_budget", "2G")) { ... }`.
 The instance provides `connectionOptions()` and an idempotent `close()`;
 requesting options after close throws `IllegalStateException`.
 Executable discovery is automatic: libseekdb looks beside its loaded
