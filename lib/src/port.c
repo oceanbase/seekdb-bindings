@@ -168,8 +168,10 @@ int spawn_process(const char *bin_path, char *const argv[], Process **out_proc)
     si.hStdOutput = h_nul_out;
     si.hStdError = h_nul_err;
 
+    /* Keep the embedded server as a directly-owned child, but isolate it from
+     * console control events delivered to the parent's process group. */
     BOOL ok = CreateProcessA(bin_path, cmd, NULL, NULL, TRUE, /* inherit (for NUL handles) */
-                             0, NULL, NULL, &si, &pi);
+                             CREATE_NEW_PROCESS_GROUP, NULL, NULL, &si, &pi);
     CloseHandle(h_nul_in);
     CloseHandle(h_nul_out);
     CloseHandle(h_nul_err);
@@ -392,21 +394,36 @@ int spawn_process(const char *bin_path, char *const argv[], Process **out_proc)
     posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
     posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
 
-    pid_t pid;
-#ifdef __ANDROID__
-    /* Avoid running ART's fork handlers when spawning an external executable. */
     posix_spawnattr_t attr;
     int err = posix_spawnattr_init(&attr);
-    if (err == 0) {
-        err = posix_spawnattr_setflags(&attr, POSIX_SPAWN_USEVFORK);
-        if (err == 0) {
-            err = posix_spawn(&pid, bin_path, &fa, &attr, argv, environ);
-        }
-        posix_spawnattr_destroy(&attr);
+    if (err != 0) {
+        tlog("spawn_process: posix_spawnattr_init failed: errno %d: %s\n", err, strerror(err));
+        posix_spawn_file_actions_destroy(&fa);
+        free(p);
+        return ERR;
     }
-#else
-    int err = posix_spawn(&pid, bin_path, &fa, NULL, argv, environ);
+
+    /* Start the server as the leader of a new session. It also becomes the
+     * leader of a new process group and loses the parent's controlling
+     * terminal, while remaining our direct child for PID ownership and
+     * waitpid(). On Android, USEVFORK also avoids running ART's fork
+     * handlers when spawning an external executable. */
+    short spawn_flags = POSIX_SPAWN_SETSID;
+#ifdef __ANDROID__
+    spawn_flags |= POSIX_SPAWN_USEVFORK;
 #endif
+    err = posix_spawnattr_setflags(&attr, spawn_flags);
+    if (err != 0) {
+        tlog("spawn_process: configuring child session failed: errno %d: %s\n", err, strerror(err));
+        posix_spawnattr_destroy(&attr);
+        posix_spawn_file_actions_destroy(&fa);
+        free(p);
+        return ERR;
+    }
+
+    pid_t pid;
+    err = posix_spawn(&pid, bin_path, &fa, &attr, argv, environ);
+    posix_spawnattr_destroy(&attr);
     posix_spawn_file_actions_destroy(&fa);
     if (err != 0) {
         tlog("spawn_process: posix_spawn(%s) failed: errno %d: %s\n", bin_path, err, strerror(err));
