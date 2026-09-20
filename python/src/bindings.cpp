@@ -15,7 +15,7 @@
 #include <vector>
 
 extern "C" {
-#include "seekdb.h"
+#include "seekdb/seekdb.h"
 }
 
 namespace nb = nanobind;

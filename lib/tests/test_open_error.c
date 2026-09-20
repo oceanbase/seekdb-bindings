@@ -1,4 +1,4 @@
-#include "seekdb.h"
+#include "seekdb/seekdb.h"
 #ifdef NDEBUG
 #undef NDEBUG
 #endif

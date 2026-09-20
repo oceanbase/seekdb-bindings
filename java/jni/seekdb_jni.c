@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "seekdb.h"
+#include "seekdb/seekdb.h"
 
 static void throw_runtime(JNIEnv *env, const char *message)
 {

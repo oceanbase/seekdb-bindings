@@ -9,7 +9,7 @@ The core shared library (`libseekdb`, with a `libseekdb_driver` compatibility sy
 ```
 seekdb-bindings/
 ├── lib/
-│   ├── include/seekdb.h        public C API
+│   ├── include/seekdb/seekdb.h public C API
 │   ├── src/                    library + CLI sources
 │   └── tests/                  gtest cases
 ├── python/                     nanobind module + cibuildwheel config
@@ -125,7 +125,7 @@ cmake --build build
 independently selected source revisions:
 
 - an `oceanbase/seekdb` branch, tag, or commit for the embedded server;
-- a `seekdb-bindings` branch, tag, or commit for `libseekdb` and `seekdb.h`.
+- a `seekdb-bindings` branch, tag, or commit for `libseekdb` and the public C header.
 
 Run the same script on one native builder for each release platform. Linux uses
 the manylinux 2.28 container for an explicit glibc 2.28 baseline. The macOS
@@ -180,7 +180,7 @@ libseekdb-1.3.0-r1-macos15.6-arm64-sdb0123456789ab-bndabcdef012345.tar.gz
 Every archive has a sibling `.tar.gz.sha256` file containing the archive checksum. The archive itself contains this layout:
 
 ```text
-include/seekdb.h
+include/seekdb/seekdb.h
 lib/libseekdb.so             # libseekdb.dylib on macOS
 lib/libseekdb_driver.so      # compatibility symlink; .dylib on macOS
 lib/seekdb                   # must remain next to libseekdb for auto-discovery
