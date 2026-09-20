@@ -15,7 +15,7 @@
 #include <gtest/gtest.h>
 
 #include "port.h"
-#include "seekdb.h"
+#include "seekdb/seekdb.h"
 #include "seekdb_internal.h"
 #include "test_utils.h"
 

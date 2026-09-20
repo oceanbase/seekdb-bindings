@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "seekdb.h"
+#include "seekdb/seekdb.h"
 #include "seekdb_internal.h"
 
 #include <cstdio>

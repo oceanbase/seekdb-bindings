@@ -1,6 +1,6 @@
 #pragma once
 
-#include "seekdb.h"
+#include "seekdb/seekdb.h"
 #include "port.h"
 
 #include <mysql.h>

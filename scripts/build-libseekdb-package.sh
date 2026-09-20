@@ -427,10 +427,10 @@ cmake --build /tmp/bindings-build --target seekdb --parallel
   || fail "libseekdb.so was not produced"
 
 stage=/out/stage
-mkdir -p "$stage/bin" "$stage/include" "$stage/lib" "$stage/licenses"
+mkdir -p "$stage/bin" "$stage/include/seekdb" "$stage/lib" "$stage/licenses"
 cp "$seekdb_bin" "$stage/lib/seekdb"
 cp /tmp/bindings-build/libseekdb.so "$stage/lib/libseekdb.so"
-cp /tmp/bindings-src/lib/include/seekdb.h "$stage/include/seekdb.h"
+cp /tmp/bindings-src/lib/include/seekdb/seekdb.h "$stage/include/seekdb/seekdb.h"
 ln -s libseekdb.so "$stage/lib/libseekdb_driver.so"
 ln -s ../lib/seekdb "$stage/bin/seekdb"
 
@@ -763,10 +763,10 @@ EOF
     || die "libseekdb.dylib was not produced"
 
   STAGE_DIR="$WORK_DIR/stage"
-  mkdir -p "$STAGE_DIR/bin" "$STAGE_DIR/include" "$STAGE_DIR/lib" "$STAGE_DIR/licenses"
+  mkdir -p "$STAGE_DIR/bin" "$STAGE_DIR/include/seekdb" "$STAGE_DIR/lib" "$STAGE_DIR/licenses"
   cp "$seekdb_bin" "$STAGE_DIR/lib/seekdb"
   cp "$WORK_DIR/bindings-build/libseekdb.dylib" "$STAGE_DIR/lib/libseekdb.dylib"
-  cp "$bindings_src/lib/include/seekdb.h" "$STAGE_DIR/include/seekdb.h"
+  cp "$bindings_src/lib/include/seekdb/seekdb.h" "$STAGE_DIR/include/seekdb/seekdb.h"
   ln -s libseekdb.dylib "$STAGE_DIR/lib/libseekdb_driver.dylib"
   ln -s ../lib/seekdb "$STAGE_DIR/bin/seekdb"
   copy_source_licenses "$seekdb_src" "$STAGE_DIR/licenses" seekdb
@@ -910,7 +910,7 @@ EOF
 libseekdb C SDK $VERSION-r$REVISION
 
 Contents:
-  include/seekdb.h            Public C API
+  include/seekdb/seekdb.h            Public C API
   lib/libseekdb.*             C shared library
   lib/libseekdb_driver.*      Compatibility symlink
   lib/seekdb                  Embedded seekdb server (kept next to libseekdb)
