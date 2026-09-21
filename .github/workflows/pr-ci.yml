@@ -256,9 +256,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --no-build-isolation ./python
-          python python/tests/migration_test.py
-          python python/tests/migration_integration_test.py
-          python python/tests/connection_options_test.py
+          for test_file in python/tests/*_test.py; do
+            echo "=== Running $test_file ==="
+            python "$test_file"
+          done
 
       - &verify-python-binding-contract
         name: Verify Python binding exception contract
