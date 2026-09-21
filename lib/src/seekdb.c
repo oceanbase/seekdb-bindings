@@ -100,6 +100,8 @@ static void sleep_us(unsigned us) { usleep(us); }
 
 #endif
 
+static void start_reaper(void);
+
 static void spawned_add(Process *proc)
 {
     ProcessNode *node = (ProcessNode *)malloc(sizeof(*node));
@@ -110,6 +112,7 @@ static void spawned_add(Process *proc)
     node->next = g_spawned;
     g_spawned = node;
     unlock_spawned();
+    start_reaper();
 }
 
 /* Background thread that wait_nonblocks each spawned server once it
@@ -1248,7 +1251,6 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
          * bookkeeping so it can be reaped once the server exits. */
         spawned_add(spawned);
         spawned = NULL;
-        // start_reaper();
     }
 
     tlog("seekdb_open: success (spawned pid = %lld)\n", (long long)spawned_pid);

@@ -14,6 +14,7 @@ import os
 import pathlib
 import re
 import sys
+import tempfile
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, TextIO
 
@@ -114,6 +115,11 @@ def open_instance_connection(
     connection: pymysql.Connection | None = None
     try:
         options = dict(instance.connection_options())
+        if options.get("named_pipe"):
+            raise PreflightError(
+                "migration commands do not support Windows named-pipe endpoints; "
+                "configure a verified TCP endpoint"
+            )
         connection = pymysql.connect(
             charset="utf8mb4",
             cursorclass=cursorclass,
@@ -544,14 +550,23 @@ def dump_output(path: str | None) -> Iterator[TextIO]:
         yield sys.stdout
         return
     destination = pathlib.Path(path)
-    temporary = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
+    temporary: pathlib.Path | None = None
     try:
-        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=destination.parent,
+            prefix=f".{destination.name}.tmp-",
+            delete=False,
+        ) as stream:
+            temporary = pathlib.Path(stream.name)
             yield stream
         os.replace(temporary, destination)
     finally:
-        with contextlib.suppress(FileNotFoundError):
-            temporary.unlink()
+        if temporary is not None:
+            with contextlib.suppress(FileNotFoundError):
+                temporary.unlink()
 
 
 def run_dump(args: argparse.Namespace) -> int:

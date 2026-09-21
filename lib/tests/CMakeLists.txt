@@ -10,9 +10,18 @@ set(_seekdb_test_includes
     "${CMAKE_BINARY_DIR}/deps/mariadb-connector-c/include")
 
 if (NOT WIN32)
+    if (SEEKDB_BIN)
+        set(_seekdb_open_error_bin "${SEEKDB_BIN}")
+    else()
+        set(_seekdb_open_error_bin "auto")
+    endif()
+
     add_executable(test_open_error test_open_error.c)
     target_link_libraries(test_open_error PRIVATE seekdb Threads::Threads)
-    add_test(NAME test_open_error COMMAND test_open_error)
+    add_test(NAME test_open_error
+        COMMAND test_open_error
+            "${_seekdb_open_error_bin}"
+            "${SEEKDB_TEST_DATA_ROOT}/test_open_error")
 
     add_executable(test_one_client_process test_one_client_process.cc)
     target_include_directories(test_one_client_process PRIVATE ${_seekdb_test_includes})

@@ -7,7 +7,11 @@ import datetime as dt
 import decimal
 import io
 import json
+import os
+import pathlib
+import tempfile
 
+import pymysql
 import pymysql.converters
 import pylibseekdb
 
@@ -15,12 +19,15 @@ from pylibseekdb._migration import (
     DbObject,
     DumpInventory,
     DumpMetadata,
+    PreflightError,
     SqlParseError,
     UnsupportedObject,
     _create_database_if_missing,
     _object_comment,
     dump_main,
+    dump_output,
     iter_sql_statements,
+    open_instance_connection,
     order_views,
     parse_metadata_line,
     prune_unsupported_views,
@@ -188,6 +195,52 @@ def test_seekdb_error_is_reported_without_traceback():
     assert "Traceback" not in output
 
 
+def test_named_pipe_is_rejected_before_pymysql_connect():
+    class NamedPipeInstance:
+        closed = False
+
+        def connection_options(self):
+            return {"user": "root", "named_pipe": r"\\.\pipe\seekdb"}
+
+        def close(self):
+            self.closed = True
+
+    instance = NamedPipeInstance()
+    original_open = pylibseekdb.open
+    original_close = pylibseekdb.close
+    original_connect = pymysql.connect
+    pylibseekdb.open = lambda _db_dir: instance
+    pylibseekdb.close = lambda: None
+    pymysql.connect = lambda **_options: (_ for _ in ()).throw(
+        AssertionError("PyMySQL must not receive named_pipe")
+    )
+    try:
+        try:
+            with open_instance_connection("unused.db", autocommit=False):
+                raise AssertionError("named-pipe connection was accepted")
+        except PreflightError as error:
+            assert "named-pipe" in str(error)
+            assert "TCP" in str(error)
+        else:
+            raise AssertionError("named-pipe connection was accepted")
+    finally:
+        pylibseekdb.open = original_open
+        pylibseekdb.close = original_close
+        pymysql.connect = original_connect
+    assert instance.closed
+
+
+def test_dump_output_does_not_reuse_predictable_temporary_path():
+    with tempfile.TemporaryDirectory() as directory:
+        destination = pathlib.Path(directory) / "dump.sql"
+        predictable = destination.with_name(f".{destination.name}.tmp-{os.getpid()}")
+        predictable.write_text("sentinel", encoding="utf-8")
+        with dump_output(str(destination)) as output:
+            output.write("dump contents\n")
+        assert destination.read_text(encoding="utf-8") == "dump contents\n"
+        assert predictable.read_text(encoding="utf-8") == "sentinel"
+
+
 def main():
     test_identifiers_and_ddl_rewrites()
     test_serialize_values()
@@ -198,6 +251,8 @@ def main():
     test_prune_unsupported_views_transitively()
     test_object_comments_cannot_emit_sql()
     test_seekdb_error_is_reported_without_traceback()
+    test_named_pipe_is_rejected_before_pymysql_connect()
+    test_dump_output_does_not_reuse_predictable_temporary_path()
     print("migration tests passed")
 
 
