@@ -38,6 +38,43 @@ Built on the proven OceanBase SQL engine. Works as an embedded library, a single
 pip install pylibseekdb
 ```
 
+## Logical version migration
+
+`pylibseekdb` installs `seekdb-dump` and `seekdb-restore` for migrating an
+embedded database without opening an old data directory with a new runtime.
+Stop all application writes and DDL, then create the dump while the old wheel
+is still installed:
+
+```bash
+seekdb-dump ./old.db -o backup.sql
+```
+
+After installing the new wheel, restore into a new or otherwise empty instance:
+
+```bash
+seekdb-restore ./new.db backup.sql
+```
+
+The dump is mysql-compatible SQL, so stdout, stdin, and external compression
+can be used:
+
+```bash
+seekdb-dump ./old.db | gzip > backup.sql.gz
+gzip -dc backup.sql.gz | seekdb-restore ./new.db
+```
+
+By default all user databases are included. Repeat `--database NAME` to select
+specific databases. System databases, users, and grants are never exported.
+Tables, their data and indexes, and ordinary views are supported. Triggers,
+stored routines, events, materialized views, and unknown object types are
+reported before any SQL is written and make the command fail. To deliberately
+create a partial dump, use `--ignore-unsupported`. Restore warns with the
+skipped-object list and continues without those objects.
+
+`seekdb-restore` refuses a target containing any user table or view. A failed
+restore can contain already-applied DDL, so discard that target and retry with
+an empty instance.
+
 ### Requirements
 
 - CPython >= 3.11
@@ -113,9 +150,12 @@ second.close()
 ```
 
 Each instance stores its local socket inside the normalized database directory.
-On macOS and Linux, pylibseekdb connects through a per-instance short alias under
-`/tmp/pylibseekdb-uds-<pid>-XXXXXX`, so long database paths do not exceed the
-Unix socket pathname limit. The first successful `open()` also becomes the
+On macOS and Linux, startup and application connections use a per-instance
+short Unix-socket alias under `/tmp/pylibseekdb-uds-<pid>-XXXXXX`, so long
+database paths do not exceed the Unix socket pathname limit. TCP is disabled
+by default on those platforms. On Windows, startup discovery uses the local
+named pipe and application connections use a verified loopback TCP endpoint by
+default. The first successful `open()` also becomes the
 module's default instance, preserving the legacy
 `seekdb.connect()`, `seekdb.connection_options()`, and `seekdb.close()` API.
 Later calls return independent instance objects without changing that default.
@@ -123,11 +163,12 @@ Use the object methods for additional instances.
 
 ### Connect with PyMySQL
 
-`connection_options()` returns endpoint and authentication arguments
-shared by Python MySQL-protocol drivers. Install the driver separately:
+`connection_options()` returns the active local endpoint and authentication
+arguments used by Python MySQL-protocol drivers. PyMySQL is installed with
+`pylibseekdb`:
 
 ```bash
-pip install PyMySQL
+pip install pylibseekdb
 ```
 
 ```python
@@ -148,13 +189,15 @@ finally:
     instance.close()
 ```
 
-On Unix, `options` contains only `user="root"` and `unix_socket`. For TCP it
-contains only `user="root"` and `port`; the driver supplies its default local
-host. The database name remains caller-owned because PyMySQL uses `database`
-while aiomysql uses `db`. Treat the returned dictionary as lifecycle-scoped:
-the Unix socket alias is removed with the underlying lifecycle handle, so do
-not use it after closing its `SeekdbInstance` and any retained native
-connections.
+On macOS and Linux, `options` contains `user="root"` and `unix_socket`. On
+Windows it normally contains `host="127.0.0.1"`, `port`, and `user="root"`;
+when connected to a local-only server it contains `named_pipe` instead. Many
+Python MySQL clients do not accept a named-pipe path, so use
+`SeekdbInstance.connect()` for that explicit local-only Windows configuration.
+The database name remains caller-owned because PyMySQL uses `database` while
+aiomysql uses `db`. Keep the `SeekdbInstance` alive while any external
+connections use these options; close those connections before closing their
+lifecycle instance.
 
 ### Async initialization and aiomysql
 

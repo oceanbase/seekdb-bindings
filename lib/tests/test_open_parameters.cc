@@ -1,11 +1,12 @@
 // Regression test for issue #44: seekdb_open accepts user-provided parameters
-// on first init. Parameters are passed as a NULL-terminated key/value array and
-// are only applied when store/sstable is empty (same first-init gate as #26).
+// on first init. Parameters are passed as a NULL-terminated key/value array.
+// Ordinary server parameters use the same first-init gate as #26, while port
+// and mysql_port_mode are operational settings passed on every spawn.
 
 #include <gtest/gtest.h>
 
 #include "port.h"
-#include "seekdb.h"
+#include "seekdb/seekdb.h"
 #include "seekdb_internal.h"
 #include "test_utils.h"
 
@@ -73,6 +74,26 @@ std::string read_parameter(SeekdbConnection c, const std::string &name)
     return out;
 }
 
+std::string read_string_scalar(SeekdbConnection c, const char *sql)
+{
+    SeekdbResult r = nullptr;
+    if (seekdb_query(c, sql, (int64_t)std::strlen(sql), &r) != SEEKDB_SUCCESS)
+        return "";
+
+    std::string out;
+    if (seekdb_result_next(r) == SEEKDB_SUCCESS) {
+        const char *data = nullptr;
+        size_t len = 0;
+        int is_null = 0;
+        if (seekdb_result_get_str(r, 0, &data, &len, &is_null) == SEEKDB_SUCCESS && !is_null &&
+            data) {
+            out.assign(data, len);
+        }
+    }
+    seekdb_result_free(r);
+    return out;
+}
+
 void shutdown_server(SeekdbHandle h, int64_t pid)
 {
     seekdb_close(h);
@@ -109,15 +130,15 @@ class OpenParameters : public ::testing::Test {
 
 TEST_F(OpenParameters, RejectsOddParameterCount)
 {
-    const char *bad[] = {"memory_limit", "10G", "only_key", NULL};
+    const char *bad[] = {"memory_budget", "10G", "only_key", NULL};
     SeekdbHandle h = nullptr;
     EXPECT_EQ(seekdb_open(db_dir_.c_str(), bad, &h), SEEKDB_INVALID_ARGUMENT);
     EXPECT_EQ(h, nullptr);
 }
 
-TEST_F(OpenParameters, RejectsInvalidPort)
+TEST_F(OpenParameters, RejectsMysqlPortServerParameter)
 {
-    const char *bad[] = {"port", "not-a-number", NULL};
+    const char *bad[] = {"mysql_port", "3306", NULL};
     SeekdbHandle h = nullptr;
     EXPECT_EQ(seekdb_open(db_dir_.c_str(), bad, &h), SEEKDB_INVALID_ARGUMENT);
     EXPECT_EQ(h, nullptr);
@@ -152,11 +173,18 @@ TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
     EXPECT_TRUE(fs::is_directory(alias_dir));
     EXPECT_TRUE(fs::is_symlink(fs::path(alias_dir) / "run"));
     EXPECT_EQ(fs::canonical(fs::path(alias_dir) / "run"), fs::canonical(long_db_dir / "run"));
+    EXPECT_EQ(impl->host[0], '\0');
+    EXPECT_EQ(impl->port, 0);
+    EXPECT_EQ(impl->server_uuid[0], '\0');
 
     SeekdbConnectionOptions options = {};
     ASSERT_EQ(seekdb_connection_options(h, &options), SEEKDB_SUCCESS);
-    ASSERT_NE(options.endpoint, nullptr);
-    EXPECT_EQ(options.endpoint, alias_dir + "/run/sql.sock");
+    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET);
+    EXPECT_EQ(options.host, nullptr);
+    EXPECT_EQ(options.port, 0U);
+    ASSERT_NE(options.unix_socket, nullptr);
+    EXPECT_STREQ(options.unix_socket, impl->sock_path);
+    EXPECT_EQ(options.named_pipe, nullptr);
 
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, "test", true, &c), SEEKDB_SUCCESS);
@@ -172,23 +200,45 @@ TEST_F(OpenParameters, UsesShortUnixSocketAliasForLongDatabasePath)
 }
 #endif // !_WIN32
 
-TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
+TEST_F(OpenParameters, DefaultModeDisablesTcpAndStillSeedsServerParameters)
 {
     const char *parameters[] = {"port", "0", NULL};
 
     SeekdbHandle h = nullptr;
     ASSERT_EQ(seekdb_open(db_dir_.c_str(), parameters, &h), SEEKDB_SUCCESS);
     ASSERT_NE(h, nullptr);
-    const int64_t pid = ((SeekdbHandleImpl *)h)->spawned_pid;
+    auto *impl = (SeekdbHandleImpl *)h;
+    const int64_t pid = impl->spawned_pid;
     ASSERT_GT(pid, 0);
+    ASSERT_EQ(impl->host[0], '\0');
+    ASSERT_EQ(impl->port, 0);
+    ASSERT_EQ(impl->server_uuid[0], '\0');
+
+    SeekdbConnectionOptions options = {};
+    ASSERT_EQ(seekdb_connection_options(h, &options), SEEKDB_SUCCESS);
+    EXPECT_STREQ(options.transport, SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET);
+    EXPECT_EQ(options.host, nullptr);
+    EXPECT_EQ(options.port, 0U);
+    EXPECT_STREQ(options.unix_socket, impl->sock_path);
+    EXPECT_EQ(options.named_pipe, nullptr);
+    EXPECT_STREQ(options.user, "root");
 
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, nullptr, true, &c), SEEKDB_SUCCESS);
 
-    const std::string memory_limit = read_parameter(c, "memory_limit");
-    ASSERT_FALSE(memory_limit.empty()) << "could not read memory_limit";
-    EXPECT_NE(memory_limit.find("1G"), std::string::npos)
-        << "expected default memory_limit=1G when only port is provided, got '" << memory_limit
+    EXPECT_EQ(read_string_scalar(c, "SELECT mysql_port()"), "0");
+    EXPECT_EQ(read_string_scalar(c, "SELECT SQL_PORT FROM oceanbase.V$OB_SERVER_STAT "
+                                    "WHERE START_SERVICE_TIME > 0 LIMIT 1"),
+              "0");
+
+    const std::string mysql_port_mode = read_parameter(c, "mysql_port_mode");
+    ASSERT_FALSE(mysql_port_mode.empty()) << "could not read mysql_port_mode";
+    EXPECT_NE(mysql_port_mode.find("disabled"), std::string::npos);
+
+    const std::string memory_budget = read_parameter(c, "memory_budget");
+    ASSERT_FALSE(memory_budget.empty()) << "could not read memory_budget";
+    EXPECT_NE(memory_budget.find("1G"), std::string::npos)
+        << "expected default memory_budget=1G when only port is provided, got '" << memory_budget
         << "'";
 
     seekdb_disconnect(c);
@@ -197,7 +247,7 @@ TEST_F(OpenParameters, PortOnlyStillSeedsDefaultServerParameters)
 
 TEST_F(OpenParameters, PartialUserParametersStillSeedDefaults)
 {
-    const char *parameters[] = {"memory_limit", "10G", NULL};
+    const char *parameters[] = {"memory_budget", "10G", NULL};
 
     SeekdbHandle h = nullptr;
     ASSERT_EQ(seekdb_open(db_dir_.c_str(), parameters, &h), SEEKDB_SUCCESS);
@@ -208,10 +258,10 @@ TEST_F(OpenParameters, PartialUserParametersStillSeedDefaults)
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, nullptr, true, &c), SEEKDB_SUCCESS);
 
-    const std::string memory_limit = read_parameter(c, "memory_limit");
-    ASSERT_FALSE(memory_limit.empty()) << "could not read memory_limit";
-    EXPECT_NE(memory_limit.find("10G"), std::string::npos)
-        << "expected user memory_limit=10G, got '" << memory_limit << "'";
+    const std::string memory_budget = read_parameter(c, "memory_budget");
+    ASSERT_FALSE(memory_budget.empty()) << "could not read memory_budget";
+    EXPECT_NE(memory_budget.find("10G"), std::string::npos)
+        << "expected user memory_budget=10G, got '" << memory_budget << "'";
 
     const std::string log_disk_size = read_parameter(c, "log_disk_size");
     ASSERT_FALSE(log_disk_size.empty()) << "could not read log_disk_size";
@@ -224,7 +274,9 @@ TEST_F(OpenParameters, PartialUserParametersStillSeedDefaults)
 
 TEST_F(OpenParameters, SeedsUserProvidedParametersOnFirstInit)
 {
-    const char *parameters[] = {"memory_limit", "10G", "log_disk_size", "4G", NULL};
+    const char *parameters[] = {
+        "mysql_port_mode", "DISABLED", "port", "12345", "memory_budget", "10G",
+        "log_disk_size",   "4G",       NULL};
 
     SeekdbHandle h = nullptr;
     ASSERT_EQ(seekdb_open(db_dir_.c_str(), parameters, &h), SEEKDB_SUCCESS);
@@ -235,15 +287,25 @@ TEST_F(OpenParameters, SeedsUserProvidedParametersOnFirstInit)
     SeekdbConnection c = nullptr;
     ASSERT_EQ(seekdb_connect(h, nullptr, true, &c), SEEKDB_SUCCESS);
 
-    const std::string memory_limit = read_parameter(c, "memory_limit");
-    ASSERT_FALSE(memory_limit.empty()) << "could not read memory_limit";
-    EXPECT_NE(memory_limit.find("10G"), std::string::npos)
-        << "expected memory_limit to include 10G, got '" << memory_limit << "'";
+    const std::string memory_budget = read_parameter(c, "memory_budget");
+    ASSERT_FALSE(memory_budget.empty()) << "could not read memory_budget";
+    EXPECT_NE(memory_budget.find("10G"), std::string::npos)
+        << "expected memory_budget to include 10G, got '" << memory_budget << "'";
 
     const std::string log_disk_size = read_parameter(c, "log_disk_size");
     ASSERT_FALSE(log_disk_size.empty()) << "could not read log_disk_size";
     EXPECT_NE(log_disk_size.find("4G"), std::string::npos)
         << "expected log_disk_size to include 4G, got '" << log_disk_size << "'";
+
+    const std::string mysql_port_mode = read_parameter(c, "mysql_port_mode");
+    ASSERT_FALSE(mysql_port_mode.empty()) << "could not read mysql_port_mode";
+    EXPECT_NE(mysql_port_mode.find("DISABLED"), std::string::npos)
+        << "bindings unexpectedly normalized mysql_port_mode: '" << mysql_port_mode << "'";
+
+    const std::string mysql_port = read_parameter(c, "mysql_port");
+    ASSERT_FALSE(mysql_port.empty()) << "could not read mysql_port";
+    EXPECT_NE(mysql_port.find("12345"), std::string::npos)
+        << "expected --port to reach the server unchanged, got '" << mysql_port << "'";
 
     seekdb_disconnect(c);
     shutdown_server(h, pid);
