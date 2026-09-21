@@ -4,7 +4,6 @@ on:
   pull_request:
     branches:
       - main
-      - pylibseekdb
     paths-ignore:
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
