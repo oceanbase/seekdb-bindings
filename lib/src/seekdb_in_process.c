@@ -35,17 +35,8 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         seekdb_set_open_error("Invalid database directory, output handle, or parameters");
         return SEEKDB_INVALID_ARGUMENT;
     }
-    /* The engine changes process cwd. Require absolute paths even for later
-     * opens so their meaning does not change during an engine lifetime. */
-#ifdef _WIN32
-    if (!((db_dir[0] && db_dir[1] == ':' && (db_dir[2] == '/' || db_dir[2] == '\\')) ||
-          (db_dir[0] == '\\' && db_dir[1] == '\\'))) {
-#else
-    if (db_dir[0] != '/') {
-#endif
-        seekdb_set_open_error("In-process mode requires an absolute database directory");
-        return SEEKDB_INVALID_ARGUMENT;
-    }
+    /* Resolve relative paths against the current cwd while holding the lifecycle
+     * lock, before this open can start an engine that changes cwd. */
     lock_engine();
     int result = SEEKDB_INTERNAL_ERROR;
     char *canonical = NULL;

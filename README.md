@@ -145,7 +145,8 @@ interposition library. The bindings output remains the shared `libseekdb` librar
 executable is copied or spawned.
 
 The public C and Python APIs and MySQL-protocol session handling remain the same.
-In-process builds require an absolute database directory. Multiple handles for the
+In-process builds accept relative database directories and resolve them against
+the current working directory before engine startup. Multiple handles for the
 same directory share one engine; the final `seekdb_close()` stops it synchronously.
 Close connections before closing their owning handle. A different database cannot
 be opened while one is active, and the current core permits only one engine
@@ -153,8 +154,10 @@ lifetime per process: reopening after final close is rejected with a diagnostic
 from `seekdb_last_open_error()`.
 
 The current engine changes the host's working directory during its lifetime.
-Do not change cwd, depend on relative paths, or fork while it is running. It does
-not install process signal handlers. Its synchronous startup/cleanup cannot be
+Subsequent relative opens use that changed directory: after opening `./data`,
+opening `.` shares the active engine, while `./data` refers to its `data` subdirectory.
+Do not change cwd or fork while it is running; other relative file operations are
+also affected. It does not install process signal handlers. Its synchronous startup/cleanup cannot be
 cancelled by the bindings readiness timeout. Existing servers owned by another
 process are not adopted by in-process mode.
 

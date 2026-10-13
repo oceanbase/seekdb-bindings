@@ -48,12 +48,14 @@ typedef struct {
 
 /* Open a seekdb instance rooted at db_dir.
  *
- * With SEEKDB_IN_PROCESS enabled at build time, db_dir must be absolute. Handles
- * for the same directory share one engine; the last close stops it synchronously.
+ * With SEEKDB_IN_PROCESS enabled at build time, relative db_dir paths are resolved
+ * against the current cwd before engine startup. Handles for the same directory
+ * share one engine; the last close stops it synchronously.
  * Close all connections before their owning handle. The current engine supports
  * one lifetime per process, so reopening after the final close is rejected.
  * The engine changes process cwd until the final close; the host must not change
- * cwd or rely on relative paths during that lifetime. No child process is started.
+ * cwd during that lifetime. Subsequent relative opens use the changed cwd, not
+ * the cwd of the first open. No child process is started.
  *
  * parameters is an optional NULL-terminated array of key/value pairs:
  *   {"port", "3306", "mysql_port_mode", "specified", "memory_budget", "10G", NULL}
@@ -82,8 +84,8 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
 const char *seekdb_last_open_error(void);
 /* Consumes the handle even if engine cleanup reports an error. */
 int seekdb_close(SeekdbHandle handle);
-/* Ignored by in-process builds. Override the executable for subsequent subprocess opens. The path is copied and must
- * be non-empty. Existing instances are unaffected. Android apps can point to
+/* Ignored by in-process builds. Override the executable for subsequent subprocess opens. The path
+ * is copied and must be non-empty. Existing instances are unaffected. Android apps can point to
  * their extracted native-library executable. Without an override, the executable
  * is resolved beside libseekdb: seekdb.exe on Windows; otherwise seekdb, falling
  * back to libseekdb_exec.so only if seekdb is missing (Android APK packaging). */
