@@ -11,6 +11,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 add_library(seekdb SHARED
     src/seekdb.c
+    src/seekdb_lifecycle.c
     src/port.c)
 
 set_target_properties(seekdb PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -60,6 +61,7 @@ endif()
 target_link_libraries(seekdb PRIVATE mariadb_client Threads::Threads)
 
 if(SEEKDB_IN_PROCESS)
+    target_sources(seekdb PRIVATE src/seekdb_in_process.c)
     set(SEEKDB_ENGINE_INCLUDE_DIR "" CACHE PATH "Directory containing seekdb_engine.h")
     set(SEEKDB_ENGINE_LIBRARIES "" CACHE STRING
         "Engine library/target and its complete transitive link dependencies")
@@ -75,6 +77,8 @@ if(SEEKDB_IN_PROCESS)
         # Keep statically linked engine/third-party symbols private to bindings.
         target_link_options(seekdb PRIVATE "-Wl,--exclude-libs,ALL" "-Wl,--no-undefined")
     endif()
+else()
+    target_sources(seekdb PRIVATE src/seekdb_subprocess.c)
 endif()
 
 if (SEEKDB_BIN AND NOT SEEKDB_IN_PROCESS)
