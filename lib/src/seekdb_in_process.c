@@ -131,7 +131,7 @@ int seekdb_backend_start(SeekdbHandleImpl *h, const char *bin_path, char **argv,
 {
     if (g_engine) {
         seekdb_set_open_error("Active engine endpoint is unavailable: %s", h->db_dir);
-        return SEEKDB_INTERNAL_ERROR;
+        return SEEKDB_UNAVAILABLE;
     }
     int argc = 0;
     while (argv[argc])

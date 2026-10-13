@@ -991,8 +991,11 @@ int seekdb_open_instance(const char *db_dir, const char **parameters, SeekdbHand
             goto cleanup;
         }
 
-        if (seekdb_backend_start(h, bin_path, spawn_argv, &startup) != SEEKDB_SUCCESS)
+        const int start_rc = seekdb_backend_start(h, bin_path, spawn_argv, &startup);
+        if (start_rc != SEEKDB_SUCCESS) {
+            result = start_rc;
             goto cleanup;
+        }
         free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
         spawn_argv = NULL;
         spawn_owned = NULL;

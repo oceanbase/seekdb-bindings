@@ -77,6 +77,19 @@ int main(void)
     assert(pthread_create(&thread, NULL, open_second, NULL) == 0);
     assert(pthread_join(thread, NULL) == 0);
     assert(seekdb_open(other, NULL, &rejected) != SEEKDB_SUCCESS && !rejected);
+    /* Temporarily hide the socket to exercise an existing engine whose endpoint
+     * cannot be reached. Restore it before checking the result or continuing. */
+    SeekdbConnectionOptions options;
+    char hidden_socket[4096];
+    assert(seekdb_connection_options(first, &options) == SEEKDB_SUCCESS);
+    assert(strcmp(options.transport, SEEKDB_CONNECTION_TRANSPORT_UNIX_SOCKET) == 0);
+    int path_len = snprintf(hidden_socket, sizeof(hidden_socket), "%s.hidden", options.unix_socket);
+    assert(path_len > 0 && (size_t)path_len < sizeof(hidden_socket));
+    assert(rename(options.unix_socket, hidden_socket) == 0);
+    rc = seekdb_open(absolute_database, NULL, &rejected);
+    assert(rename(hidden_socket, options.unix_socket) == 0);
+    assert(rc == SEEKDB_UNAVAILABLE && rejected == NULL);
+    assert(strstr(seekdb_last_open_error(), "endpoint is unavailable"));
     query_one(first);
     assert(seekdb_close(first) == SEEKDB_SUCCESS);
     query_one(second);

@@ -19,6 +19,7 @@ typedef enum {
     SEEKDB_INTERNAL_ERROR = -1,
     SEEKDB_INVALID_ARGUMENT = -2,
     SEEKDB_NO_MORE_ROWS = -3,
+    SEEKDB_UNAVAILABLE = -4, /* An existing engine cannot currently be reached. */
 } SeekdbReturnCode;
 
 typedef enum {
