@@ -985,7 +985,7 @@ int seekdb_open_instance(const char *db_dir, const char **parameters, SeekdbHand
         }
 
         if (!deadline_has_budget(readiness_deadline_ms, PROBE_REQUIRED_BUDGET_MS)) {
-            seekdb_set_open_error("Insufficient readiness time remaining to start SeekDB for %s",
+            seekdb_set_open_error("Insufficient readiness time remaining to start seekdb for %s",
                                   db_dir);
             tlog("seekdb_open: insufficient deadline budget to start a child\n");
             goto cleanup;
@@ -1013,8 +1013,8 @@ int seekdb_open_instance(const char *db_dir, const char **parameters, SeekdbHand
 
     if (wait_rc < 0) {
         seekdb_set_open_error("%s for %s; inspect the instance log directory for server details",
-                              wait_rc == -1 ? "SeekDB process exited before becoming ready"
-                                            : "SeekDB did not become ready before the deadline",
+                              wait_rc == -1 ? "seekdb process exited before becoming ready"
+                                            : "seekdb did not become ready before the deadline",
                               db_dir);
         tlog("seekdb: server not ready\n");
         goto cleanup;

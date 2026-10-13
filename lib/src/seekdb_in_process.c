@@ -55,7 +55,7 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         goto done;
     }
     if (g_engine && strcmp(canonical, g_engine_dir) != 0) {
-        seekdb_set_open_error("Only one in-process database directory may be open at a time");
+        seekdb_set_open_error("Only one database directory may be open at a time");
         result = SEEKDB_INVALID_ARGUMENT;
         goto done;
     }
@@ -130,7 +130,7 @@ int seekdb_backend_check_endpoint(bool found, const char *db_dir)
 int seekdb_backend_start(SeekdbHandleImpl *h, const char *bin_path, char **argv, void **startup)
 {
     if (g_engine) {
-        seekdb_set_open_error("Active in-process engine endpoint is unavailable: %s", h->db_dir);
+        seekdb_set_open_error("Active engine endpoint is unavailable: %s", h->db_dir);
         return SEEKDB_INTERNAL_ERROR;
     }
     int argc = 0;
@@ -140,7 +140,7 @@ int seekdb_backend_start(SeekdbHandleImpl *h, const char *bin_path, char **argv,
     const char *engine_message = NULL;
     g_engine = seekdb_engine_open(argc, (const char *const *)argv, &engine_error, &engine_message);
     if (!g_engine) {
-        seekdb_set_open_error("Cannot open in-process SeekDB engine: code=%d, %s", engine_error,
+        seekdb_set_open_error("Cannot open seekdb engine: code=%d, %s", engine_error,
                               engine_message ? engine_message : "unknown error");
         return SEEKDB_INTERNAL_ERROR;
     }

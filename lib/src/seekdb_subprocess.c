@@ -223,7 +223,7 @@ int seekdb_close(SeekdbHandle handle)
 int seekdb_backend_binary_path(char *buf, size_t size, const char **out_path)
 {
     if (resolve_bin_path(buf, size) != SEEKDB_SUCCESS) {
-        seekdb_set_open_error("Cannot resolve SeekDB executable path; use seekdb_set_binary_path");
+        seekdb_set_open_error("Cannot resolve seekdb executable path; use seekdb_set_binary_path");
         return SEEKDB_INTERNAL_ERROR;
     }
     *out_path = buf;
@@ -238,7 +238,7 @@ int seekdb_backend_start(SeekdbHandleImpl *h, const char *bin_path, char **argv,
     /* Android may report exec failure as a child exit after a successful spawn. */
     if (access(bin_path, X_OK) != 0) {
         int saved_errno = errno;
-        seekdb_set_open_error("Cannot execute SeekDB binary %s: errno=%d (%s)", bin_path,
+        seekdb_set_open_error("Cannot execute seekdb binary %s: errno=%d (%s)", bin_path,
                               saved_errno, strerror(saved_errno));
         return SEEKDB_INTERNAL_ERROR;
     }
@@ -247,10 +247,10 @@ int seekdb_backend_start(SeekdbHandleImpl *h, const char *bin_path, char **argv,
     if (spawn_process(bin_path, argv, &spawned) != OK) {
 #ifdef _WIN32
         seekdb_set_open_error(
-            "Cannot spawn SeekDB executable %s; check executable and its dependencies", bin_path);
+            "Cannot spawn seekdb executable %s; check executable and its dependencies", bin_path);
 #else
         int saved_errno = errno;
-        seekdb_set_open_error("Cannot spawn SeekDB executable %s: errno=%d (%s)", bin_path,
+        seekdb_set_open_error("Cannot spawn seekdb executable %s: errno=%d (%s)", bin_path,
                               saved_errno, strerror(saved_errno));
 #endif
         return SEEKDB_INTERNAL_ERROR;
