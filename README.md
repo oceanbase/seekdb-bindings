@@ -108,6 +108,9 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 
 | option | default | what it does |
 |---|---|---|
+| `SEEKDB_IN_PROCESS` | OFF | compile `libseekdb` with `SEEKDB_IN_PROCESS=1` to use the engine API instead of spawning a server |
+| `SEEKDB_ENGINE_INCLUDE_DIR` | empty | directory containing the core `seekdb_engine.h` (in-process only) |
+| `SEEKDB_ENGINE_LIBRARIES` | empty | engine library/target and complete transitive link dependencies, as a CMake list (in-process only) |
 | `SEEKDB_DRIVER_ENABLE_LOG` | OFF | enables `tlog()` debug prints in libseekdb |
 | `SEEKDB_BIN` | `$SEEKDB_BIN` env | path to the seekdb binary |
 | `SEEKDB_BUILD_PYTHON` | ON | configure the Python extension; set OFF for a C-only build/package |
@@ -118,6 +121,62 @@ Example:
 cmake -S . -B build -DSEEKDB_DRIVER_ENABLE_LOG=ON
 cmake --build build
 ```
+
+## In-process builds
+
+Subprocess mode remains the default. To opt in at compile time:
+
+```sh
+cmake -S . -B build-in-process \
+  -DSEEKDB_IN_PROCESS=ON \
+  -DSEEKDB_BUILD_PYTHON=OFF \
+  -DSEEKDB_ENGINE_INCLUDE_DIR=/path/to/seekdb/src/observer/include \
+  -DSEEKDB_ENGINE_LIBRARIES="<engine library and transitive dependencies>"
+cmake --build build-in-process
+```
+
+This requires the `seekdb_engine_open/close` API from
+[oceanbase/seekdb#1495](https://github.com/oceanbase/seekdb/pull/1495).
+`libseekdb.a` from the core build is not a bundled SDK: supply its complete
+link dependencies (or a CMake target carrying them), compiled as position-independent
+code with a compatible C++ runtime. Do not link the server's `main` or malloc
+interposition library. The bindings output remains the shared `libseekdb` library.
+`SEEKDB_BIN` and `seekdb_set_binary_path()` are unused in this mode; no server
+executable is copied or spawned.
+
+The public C and Python APIs and MySQL-protocol session handling remain the same.
+In-process builds require an absolute database directory. Multiple handles for the
+same directory share one engine; the final `seekdb_close()` stops it synchronously.
+Close connections before closing their owning handle. A different database cannot
+be opened while one is active, and the current core permits only one engine
+lifetime per process: reopening after final close is rejected with a diagnostic
+from `seekdb_last_open_error()`.
+
+The current engine changes the host's working directory during its lifetime.
+Do not change cwd, depend on relative paths, or fork while it is running. It does
+not install process signal handlers. Its synchronous startup/cleanup cannot be
+cancelled by the bindings readiness timeout. Existing servers owned by another
+process are not adopted by in-process mode.
+
+For Python, enable `SEEKDB_BUILD_PYTHON` in the top-level build. Standalone Python
+CMake builds using a prebuilt in-process library must also pass
+`-DSEEKDB_IN_PROCESS=ON`; they do not require or package a server executable.
+With the current Linux engine build, Python must preload the bindings library at
+process startup because its static TLS requirements prevent loading it later with
+`import`/`dlopen`:
+
+```sh
+LD_PRELOAD=/absolute/path/to/build-in-process/libseekdb.so \
+  PYTHONPATH=/absolute/path/to/build-in-process python3 app.py
+```
+
+Use a compatible C++ runtime and make the engine's dynamic dependencies available
+to the loader. This requirement also applies to other hosts that load the library
+late; native applications linked to it at startup do not need the preload step.
+
+The existing release shell scripts and cibuildwheel convenience targets remain
+subprocess workflows. iOS and other cross-platform in-process builds require a
+compatible engine build and have not been validated by this change.
 
 ## Build C SDK release packages
 

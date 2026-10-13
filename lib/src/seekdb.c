@@ -22,6 +22,23 @@
 
 #include <mysql.h>
 
+#ifdef SEEKDB_IN_PROCESS
+#include "seekdb_engine.h"
+
+static SeekdbEngineHandle g_engine = NULL;
+static char *g_engine_dir = NULL;
+static size_t g_engine_refs = 0;
+#ifdef _WIN32
+static SRWLOCK g_engine_mutex = SRWLOCK_INIT;
+static void lock_engine(void) { AcquireSRWLockExclusive(&g_engine_mutex); }
+static void unlock_engine(void) { ReleaseSRWLockExclusive(&g_engine_mutex); }
+#else
+static pthread_mutex_t g_engine_mutex = PTHREAD_MUTEX_INITIALIZER;
+static void lock_engine(void) { pthread_mutex_lock(&g_engine_mutex); }
+static void unlock_engine(void) { pthread_mutex_unlock(&g_engine_mutex); }
+#endif
+#endif
+
 #define WAIT_INTERVAL_US (200 * 1000)   /* 200 ms between discovery polls */
 #define REAPER_INTERVAL_US (500 * 1000) /* 500 ms between reaper wakeups */
 #define READY_TIMEOUT_MS (180ULL * 1000ULL)
@@ -757,7 +774,7 @@ static int wait_for_ready(SeekdbHandleImpl *h, Process *spawned, uint64_t deadli
  * (".exe" suffix on Windows). The binary is expected to ship alongside the
  * shared library — that's the wheel/install layout. Writes the result into
  * `buf` (NUL-terminated). Returns SEEKDB_SUCCESS or SEEKDB_INTERNAL_ERROR. */
-static int resolve_bin_path(char *buf, size_t buflen)
+static MAYBE_UNUSED int resolve_bin_path(char *buf, size_t buflen)
 {
     lock_spawned();
     if (g_binary_path) {
@@ -887,7 +904,7 @@ static int append_parameter_kv(char ***argv, int *argv_i, char **owned, size_t *
     return SEEKDB_SUCCESS;
 }
 
-/* Build argv for spawn_process. mysql_port_mode and a non-zero port are
+/* Build server arguments; a NULL bin_path omits argv[0] for the engine API. mysql_port_mode and a non-zero port are
  * operational settings and are passed on every spawn. Other server parameters
  * remain first-init-only. Caller frees *out_argv and each *out_owned entry. */
 static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
@@ -919,7 +936,8 @@ static int build_spawn_argv(const char *bin_path, const char *base_dir_arg,
     }
 
     int i = 0;
-    argv[i++] = (char *)bin_path;
+    if (bin_path)
+        argv[i++] = (char *)bin_path;
     argv[i++] = (char *)base_dir_arg;
     argv[i++] = (char *)"--embedded";
     argv[i++] = (char *)"--nodaemon";
@@ -980,7 +998,7 @@ static void free_spawn_argv(char **argv, char **owned, size_t owned_n)
     free(argv);
 }
 
-int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle)
+static int open_instance(const char *db_dir, const char **parameters, SeekdbHandle *out_handle)
 {
     g_open_error[0] = '\0';
     if (out_handle) {
@@ -997,6 +1015,9 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         return param_rc;
     }
 
+#ifdef SEEKDB_IN_PROCESS
+    const char *bin_path = NULL;
+#else
     char bin_path[1024];
     if (resolve_bin_path(bin_path, sizeof(bin_path)) != SEEKDB_SUCCESS) {
         set_open_error("Cannot resolve SeekDB executable path; use seekdb_set_binary_path");
@@ -1006,6 +1027,7 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     }
 
     tlog("seekdb_open: bin=%s db_dir=%s\n", bin_path, db_dir);
+#endif
 
     int result = SEEKDB_INTERNAL_ERROR;
     const char *error_stage = "allocate handle";
@@ -1099,6 +1121,12 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     tlog("got seekdb.clients\n");
 
     probe = probe_server(h, readiness_deadline_ms);
+#ifdef SEEKDB_IN_PROCESS
+    if (!g_engine && probe != PROBE_LOCAL_NOT_FOUND) {
+        set_open_error("Database directory is already served by another process: %s", db_dir);
+        goto cleanup;
+    }
+#endif
     if (probe == PROBE_VERIFIED && !deadline_reached(readiness_deadline_ms)) {
         tlog("seekdb_open: fast-path success — server already serving\n");
         *out_handle = (SeekdbHandle)h;
@@ -1123,6 +1151,12 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     /* The opener that held startup EX may have finished while we waited. Always
      * repeat local discovery after acquiring EX before deciding to spawn. */
     probe = probe_server(h, readiness_deadline_ms);
+#ifdef SEEKDB_IN_PROCESS
+    if (!g_engine && probe != PROBE_LOCAL_NOT_FOUND) {
+        set_open_error("Database directory is already served by another process: %s", db_dir);
+        goto cleanup;
+    }
+#endif
     if (probe == PROBE_VERIFIED && !deadline_reached(readiness_deadline_ms)) {
         tlog("seekdb_open: post-lock local discovery verified the existing server\n");
         *out_handle = (SeekdbHandle)h;
@@ -1138,6 +1172,12 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
     }
 
     if (probe == PROBE_LOCAL_NOT_FOUND) {
+#ifdef SEEKDB_IN_PROCESS
+        if (g_engine) {
+            set_open_error("Active in-process engine endpoint is unavailable: %s", db_dir);
+            goto cleanup;
+        }
+#endif
         error_stage = "allocate process arguments";
         base_dir_arg = concat_strings("--base-dir=", db_dir);
         sstable_dir = concat_strings(db_dir, "/store/sstable");
@@ -1178,6 +1218,18 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
             goto cleanup;
         }
 
+#ifdef SEEKDB_IN_PROCESS
+        int engine_error = 0;
+        const char *engine_message = NULL;
+        const int engine_argc = count_null_terminated((const char *const *)spawn_argv);
+        g_engine = seekdb_engine_open(engine_argc, (const char *const *)spawn_argv,
+                                      &engine_error, &engine_message);
+        if (!g_engine) {
+            set_open_error("Cannot open in-process SeekDB engine: code=%d, %s", engine_error,
+                           engine_message ? engine_message : "unknown error");
+            goto cleanup;
+        }
+#else
 #ifndef _WIN32
         /* Android may report exec failure as a child exit after a successful spawn. */
         if (access(bin_path, X_OK) != 0) {
@@ -1200,11 +1252,13 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
             tlog("spawn process failed.");
             goto cleanup;
         }
+#endif
         free_spawn_argv(spawn_argv, spawn_owned, spawn_owned_n);
         spawn_argv = NULL;
         spawn_owned = NULL;
         spawn_owned_n = 0;
 
+#ifndef SEEKDB_IN_PROCESS
         /* Mirror the Process fields onto the handle. wait_for_ready frees
          * `spawned` only when it reports that the process died. */
         h->spawned_pid = spawned->pid;
@@ -1214,6 +1268,7 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         spawned_pid = spawned->pid;
         tlog("seekdb_open: spawned pid=%lld; waiting for server readiness\n",
              (long long)spawned_pid);
+#endif
     }
     else {
         /* A successful local connection proves a process already owns this
@@ -1275,6 +1330,71 @@ cleanup:
     return result;
 }
 
+int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_handle)
+{
+#ifndef SEEKDB_IN_PROCESS
+    return open_instance(db_dir, parameters, out_handle);
+#else
+    g_open_error[0] = '\0';
+    if (out_handle)
+        *out_handle = NULL;
+    if (!db_dir || !db_dir[0] || !out_handle || validate_parameters(parameters) != SEEKDB_SUCCESS) {
+        set_open_error("Invalid database directory, output handle, or parameters");
+        return SEEKDB_INVALID_ARGUMENT;
+    }
+    /* The engine changes process cwd. Require absolute paths even for later
+     * opens so their meaning does not change during an engine lifetime. */
+#ifdef _WIN32
+    if (!((db_dir[0] && db_dir[1] == ':' && (db_dir[2] == '/' || db_dir[2] == '\\')) ||
+          (db_dir[0] == '\\' && db_dir[1] == '\\'))) {
+#else
+    if (db_dir[0] != '/') {
+#endif
+        set_open_error("In-process mode requires an absolute database directory");
+        return SEEKDB_INVALID_ARGUMENT;
+    }
+    lock_engine();
+    int result = SEEKDB_INTERNAL_ERROR;
+    char *canonical = NULL;
+    if (ensure_dir(db_dir) != OK) {
+        set_open_error("Cannot create/access database directory %s: %s", db_dir, strerror(errno));
+        goto done;
+    }
+#ifdef _WIN32
+    canonical = _fullpath(NULL, db_dir, 0);
+#else
+    canonical = realpath(db_dir, NULL);
+#endif
+    if (!canonical) {
+        set_open_error("Cannot resolve database directory %s: %s", db_dir, strerror(errno));
+        goto done;
+    }
+    if (g_engine && strcmp(canonical, g_engine_dir) != 0) {
+        set_open_error("Only one in-process database directory may be open at a time");
+        result = SEEKDB_INVALID_ARGUMENT;
+        goto done;
+    }
+    result = open_instance(canonical, parameters, out_handle);
+    if (result == SEEKDB_SUCCESS) {
+        if (g_engine_refs == 0) {
+            g_engine_dir = canonical;
+            canonical = NULL;
+        }
+        ++g_engine_refs;
+    }
+    else if (g_engine && g_engine_refs == 0) {
+        /* Startup may succeed before endpoint discovery fails. Never leave an
+         * unowned engine running, and preserve the original diagnostic. */
+        seekdb_engine_close(g_engine);
+        g_engine = NULL;
+    }
+done:
+    free(canonical);
+    unlock_engine();
+    return result;
+#endif
+}
+
 int seekdb_close(SeekdbHandle handle)
 {
     if (!handle)
@@ -1285,8 +1405,24 @@ int seekdb_close(SeekdbHandle handle)
 
     if (h->clients_lock)
         tlog("released seekdb.clients\n");
+#ifdef SEEKDB_IN_PROCESS
+    lock_engine();
+    destroy_handle(h);
+    int result = SEEKDB_SUCCESS;
+    if (--g_engine_refs == 0) {
+        const int engine_result = seekdb_engine_close(g_engine);
+        g_engine = NULL;
+        free(g_engine_dir);
+        g_engine_dir = NULL;
+        if (engine_result != 0)
+            result = SEEKDB_INTERNAL_ERROR;
+    }
+    unlock_engine();
+    return result;
+#else
     destroy_handle(h);
     return SEEKDB_SUCCESS;
+#endif
 }
 
 int seekdb_connection_options(SeekdbHandle handle, SeekdbConnectionOptions *out_options)
