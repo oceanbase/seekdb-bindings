@@ -1,4 +1,4 @@
-#include "seekdb_lifecycle.h"
+#include "seekdb_instance.h"
 #include "tlog.h"
 
 #include <errno.h>

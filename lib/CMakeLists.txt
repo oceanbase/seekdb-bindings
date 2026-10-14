@@ -11,7 +11,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 add_library(seekdb SHARED
     src/seekdb.c
-    src/seekdb_lifecycle.c
+    src/seekdb_instance.c
     src/port.c)
 
 set_target_properties(seekdb PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
