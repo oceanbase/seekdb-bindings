@@ -74,7 +74,8 @@ class InstanceState {
             if (handle_)
                 seekdb_close(handle_);
             const char *message = seekdb_last_open_error();
-            throw SeekdbError(rc, std::string(message && *message ? message : "seekdb_open failed"));
+            throw SeekdbError(rc,
+                              std::string(message && *message ? message : "seekdb_open failed"));
         }
     }
     ~InstanceState()
