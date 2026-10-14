@@ -147,17 +147,25 @@ executable is copied or spawned.
 The public C and Python APIs and MySQL-protocol session handling remain the same.
 In-process builds accept relative database directories and resolve them against
 the current working directory before engine startup. Multiple handles for the
-same directory share one engine; the final `seekdb_close()` stops it synchronously.
-Close connections before closing their owning handle. A different database cannot
-be opened while one is active, and the current core permits only one engine
-lifetime per process: reopening after final close is rejected with a diagnostic
-from `seekdb_last_open_error()`.
+same directory share one engine. `seekdb_close()` releases only the bindings handle;
+it does not call `seekdb_engine_close()`, including for the final handle. The engine
+and its resources remain alive until process termination. Later opens of the same
+directory reuse that engine; switching to another directory is unsupported even
+when all handles have been closed. Close connections before closing their owning
+handle, and do not unload the library while the engine is running.
+Normal process exit is not yet safe either: global destructors can race with the
+retained engine's threads. The isolated lifecycle test terminates with `_Exit`
+after its checks; the bindings do not terminate the host or install an exit hook.
 
-The current engine changes the host's working directory during its lifetime.
+If engine startup succeeds but endpoint discovery fails, the engine is also
+retained. A later open of the same directory can retry discovery.
+
+The current engine changes the host's working directory; closing handles does not
+restore it.
 Subsequent relative opens use that changed directory: after opening `./data`,
 opening `.` shares the active engine, while `./data` refers to its `data` subdirectory.
 Do not change cwd or fork while it is running; other relative file operations are
-also affected. It does not install process signal handlers. Its synchronous startup/cleanup cannot be
+also affected. It does not install process signal handlers. Its synchronous startup cannot be
 cancelled by the bindings readiness timeout. Existing servers owned by another
 process are not adopted by in-process mode.
 

@@ -40,9 +40,8 @@ int main(void)
 {
     char directory[] = "/tmp/seekdb-in-process-XXXXXX";
     char other[] = "/tmp/seekdb-in-process-other-XXXXXX";
-    char original[4096], before[4096], after[4096], absolute_database[4096];
+    char before[4096], after[4096], absolute_database[4096];
     struct sigaction sig_before, sig_after;
-    assert(getcwd(original, sizeof(original)) != NULL);
     assert(sigaction(SIGTERM, NULL, &sig_before) == 0);
     assert(mkdtemp(directory) && mkdtemp(other));
     assert(chdir(directory) == 0);
@@ -94,11 +93,20 @@ int main(void)
     assert(seekdb_close(first) == SEEKDB_SUCCESS);
     query_one(second);
     assert(seekdb_close(second) == SEEKDB_SUCCESS);
-    assert(getcwd(after, sizeof(after)) && strcmp(before, after) == 0);
-    assert(seekdb_open("./data", NULL, &rejected) != SEEKDB_SUCCESS && !rejected);
-    assert(strstr(seekdb_last_open_error(), "code="));
-    assert(chdir(original) == 0);
+    /* Closing every handle retains the engine and its cwd. Reopening creates a
+     * new bindings handle and must reuse the still-running engine. */
+    assert(getcwd(after, sizeof(after)) && strcmp(absolute_database, after) == 0);
+    assert(seekdb_open(other, NULL, &rejected) == SEEKDB_INVALID_ARGUMENT && !rejected);
+    for (int i = 0; i < 3; ++i) {
+        SeekdbHandle reopened = NULL;
+        assert(seekdb_open(i == 0 ? "." : absolute_database, NULL, &reopened) == SEEKDB_SUCCESS);
+        query_one(reopened);
+        assert(seekdb_close(reopened) == SEEKDB_SUCCESS);
+    }
     printf("Data retained for inspection: %s\n", directory);
     puts("IN_PROCESS_COMPLETED");
-    return 0;
+    fflush(stdout);
+    /* The retained engine still has running threads. Until graceful shutdown is
+     * supported, do not run process-global destructors in this test process. */
+    _Exit(0);
 }

@@ -14,7 +14,6 @@
 
 static SeekdbEngineHandle g_engine = NULL;
 static char *g_engine_dir = NULL;
-static size_t g_engine_refs = 0;
 #ifdef _WIN32
 static SRWLOCK g_engine_mutex = SRWLOCK_INIT;
 static void lock_engine(void) { AcquireSRWLockExclusive(&g_engine_mutex); }
@@ -55,24 +54,11 @@ int seekdb_open(const char *db_dir, const char **parameters, SeekdbHandle *out_h
         goto done;
     }
     if (g_engine && strcmp(canonical, g_engine_dir) != 0) {
-        seekdb_set_open_error("Only one database directory may be open at a time");
+        seekdb_set_open_error("The engine is already bound to another database directory");
         result = SEEKDB_INVALID_ARGUMENT;
         goto done;
     }
     result = seekdb_open_instance(canonical, parameters, out_handle);
-    if (result == SEEKDB_SUCCESS) {
-        if (g_engine_refs == 0) {
-            g_engine_dir = canonical;
-            canonical = NULL;
-        }
-        ++g_engine_refs;
-    }
-    else if (g_engine && g_engine_refs == 0) {
-        /* Startup may succeed before endpoint discovery fails. Never leave an
-         * unowned engine running, and preserve the original diagnostic. */
-        seekdb_engine_close(g_engine);
-        g_engine = NULL;
-    }
 done:
     free(canonical);
     unlock_engine();
@@ -91,17 +77,10 @@ int seekdb_close(SeekdbHandle handle)
         tlog("released seekdb.clients\n");
     lock_engine();
     seekdb_destroy_handle(h);
-    int result = SEEKDB_SUCCESS;
-    if (--g_engine_refs == 0) {
-        const int engine_result = seekdb_engine_close(g_engine);
-        g_engine = NULL;
-        free(g_engine_dir);
-        g_engine_dir = NULL;
-        if (engine_result != 0)
-            result = SEEKDB_INTERNAL_ERROR;
-    }
+    /* Engine shutdown is not supported yet. Keep it alive for later opens of
+     * the same directory, even after the last bindings handle is released. */
     unlock_engine();
-    return result;
+    return SEEKDB_SUCCESS;
 }
 
 int seekdb_set_binary_path(const char *path)
@@ -133,6 +112,14 @@ int seekdb_backend_start(SeekdbHandleImpl *h, const char *bin_path, char **argv,
         seekdb_set_open_error("Active engine endpoint is unavailable: %s", h->db_dir);
         return SEEKDB_UNAVAILABLE;
     }
+    /* Remember ownership as soon as the engine starts, even if subsequent
+     * endpoint discovery fails and no bindings handle is returned. */
+    char *engine_dir = (char *)malloc(strlen(h->db_dir) + 1);
+    if (!engine_dir) {
+        seekdb_set_open_error("Cannot allocate engine database directory");
+        return SEEKDB_INTERNAL_ERROR;
+    }
+    strcpy(engine_dir, h->db_dir);
     int argc = 0;
     while (argv[argc])
         ++argc;
@@ -140,10 +127,12 @@ int seekdb_backend_start(SeekdbHandleImpl *h, const char *bin_path, char **argv,
     const char *engine_message = NULL;
     g_engine = seekdb_engine_open(argc, (const char *const *)argv, &engine_error, &engine_message);
     if (!g_engine) {
+        free(engine_dir);
         seekdb_set_open_error("Cannot open seekdb engine: code=%d, %s", engine_error,
                               engine_message ? engine_message : "unknown error");
         return SEEKDB_INTERNAL_ERROR;
     }
+    g_engine_dir = engine_dir;
     return SEEKDB_SUCCESS;
 }
 
