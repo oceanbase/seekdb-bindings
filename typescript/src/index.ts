@@ -24,12 +24,19 @@ const nativeDir = resolve(dirname(fileURLToPath(import.meta.url)), "native");
 const builtFor = JSON.parse(readFileSync(resolve(nativeDir, "platform.json"), "utf8")) as {
   platform: string;
   arch: string;
+  libc?: string;
 };
 if (builtFor.platform !== process.platform || builtFor.arch !== process.arch) {
   throw new Error(
     `seekdb native files target ${builtFor.platform}/${builtFor.arch}, ` +
     `but this runtime is ${process.platform}/${process.arch}`,
   );
+}
+if (builtFor.libc === "glibc") {
+  const report = process.report.getReport() as { header?: { glibcVersionRuntime?: string } };
+  if (!report.header?.glibcVersionRuntime) {
+    throw new Error("This seekdb native package requires glibc; musl/Alpine is not supported");
+  }
 }
 const native: NativeBinding = require(
   resolve(nativeDir, "seekdb_native.node"),

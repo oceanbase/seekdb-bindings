@@ -24,6 +24,9 @@
   "scripts": {
     "build": "node scripts/build-lib.mjs && node scripts/build-addon.mjs && tsc -p tsconfig.json && node scripts/stage-native.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "node scripts/check-package.mjs",
+    "pack:linux": "node scripts/pack-linux.mjs",
+    "test:packaging": "node --test test/packaging.test.mjs",
     "pretest": "npm run build",
     "test": "npm run test:types && node --test test/*.test.mjs",
     "test:types": "tsc -p tsconfig.test.json --noEmit"

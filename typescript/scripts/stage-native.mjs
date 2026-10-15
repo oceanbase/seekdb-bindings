@@ -2,16 +2,17 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { bundleLinuxRuntime } from "./linux-runtime.mjs";
 
 const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const libDir = resolve(packageDir, "..", "build", "node-sdk");
 const targetDir = join(packageDir, "dist", "native");
 rmSync(targetDir, { recursive: true, force: true });
 mkdirSync(targetDir, { recursive: true });
-writeFileSync(join(targetDir, "platform.json"), JSON.stringify({
+const platform = {
   platform: process.platform,
   arch: process.arch,
-}));
+};
 
 function findFile(directory, name) {
   for (const candidate of [join(directory, name), join(directory, "Release", name)]) {
@@ -45,6 +46,14 @@ for (const source of files) {
   console.log(`Staged ${destination}`);
 }
 
+if (process.platform === "linux") {
+  if (!process.report.getReport().header.glibcVersionRuntime) {
+    throw new Error("Linux native packaging currently requires a glibc build environment");
+  }
+  platform.libc = "glibc";
+  platform.minimumGlibc = bundleLinuxRuntime(files, targetDir);
+}
+
 if (process.platform === "darwin") {
   const scanned = new Set();
   const queue = files.map((source) => join(targetDir, basename(source)));
@@ -75,3 +84,4 @@ if (process.platform === "darwin") {
     execFileSync("codesign", ["--force", "--sign", "-", file], { stdio: "inherit" });
   }
 }
+writeFileSync(join(targetDir, "platform.json"), JSON.stringify(platform));

@@ -25,9 +25,49 @@ SEEKDB_BIN=/path/to/seekdb npm test
 run `SEEKDB_BIN=/path/to/seekdb npm run build`. The build creates `libseekdb`,
 compiles the Node-API addon and TypeScript, then stages the addon, library, and
 server executable under `dist/native`.
-The native files must match the host operating system and architecture.
-The package is private while platform-specific release artifacts are being
-defined; the local build can be consumed by JavaScript and TypeScript projects.
+The native files must match the host operating system and architecture. Linux
+builds additionally require a C/C++ toolchain, `readelf` (binutils), `ldd`, and
+`patchelf`. Staging recursively bundles non-glibc shared libraries, rejects
+missing or conflicting dependencies, and sets their runtime search paths to
+`$ORIGIN`. glibc and its loader remain system dependencies.
+
+`CC`, `CXX`, and `LDFLAGS` are preserved. On macOS, unset compilers are selected
+with `xcrun --find clang` / `clang++`, respecting the active developer SDK. The
+same compiler selection applies to the C library and addon. Use a fresh
+`build/node-sdk` directory when changing a compiler already cached by CMake.
+
+## Build a Linux x64 npm tarball
+
+Build in a glibc 2.28 environment, such as an AlmaLinux/Rocky Linux 8 builder
+with a current compiler toolchain and Node.js 22 or 24. The existing
+`scripts/build-seekdb-glibc228.sh` can build the server executable. Build the C
+library, addon, and any bundled dependencies against the same glibc baseline.
+The ordinary Debian-based `node` images may introduce newer glibc requirements;
+Alpine/musl is not a supported target of this command.
+
+```sh
+SEEKDB_BIN=/path/to/seekdb npm run build
+npm run pack:linux -- --out-dir /path/to/artifacts
+```
+
+`pack:linux` checks the built files, dependency closure, executable permissions,
+and every ELF's GLIBC symbol requirements, rejecting anything above 2.28. It
+creates a publishable `@oceanbase/seekdb-node` tarball restricted to Linux/x64/glibc,
+including the license and native runtime. The source manifest stays private;
+the generated manifest has public npm publish settings and no build scripts or
+development dependencies. No package is uploaded by this command.
+
+For testing a different compatibility target, pass `--glibc-baseline <version>`.
+`platform.json` records the highest required glibc symbol version. Choosing a
+lower baseline cannot make an existing binary compatible; rebuild the offending
+binary or dependency in the target environment. `npm pack` also validates the
+built package, so a clean checkout cannot silently produce an empty tarball.
+
+Before publishing, install the tarball outside the source tree and verify SQL
+with Node.js 22 and 24 on the baseline distribution and a newer distribution.
+Confirm publish rights to the chosen npm scope. The existing `seekdb` SDK uses
+`@seekdb/js-bindings`, whose `open/connect/execute` API differs from this package's
+lifecycle API. Adapting that SDK is required before replacing its native package.
 
 ## Use
 

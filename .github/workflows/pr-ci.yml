@@ -341,8 +341,30 @@ jobs:
 
       - name: Build and test Node.js binding
         run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf
           npm ci --prefix typescript
           npm test --prefix typescript
+
+      - name: Verify Node.js npm tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This PR job builds on Ubuntu. Release builds use the default 2.28 gate.
+          baseline="$(node -p 'JSON.parse(require("fs").readFileSync("typescript/dist/native/platform.json")).minimumGlibc')"
+          npm run pack:linux --prefix typescript -- --glibc-baseline "$baseline"
+          install_dir="$(mktemp -d)"
+          npm install --prefix "$install_dir" --ignore-scripts --no-audit --no-fund typescript/build/npm/*.tgz
+          cd "$install_dir"
+          node --input-type=module -e 'import { seekdb } from "@oceanbase/seekdb-node"; if (typeof seekdb.open !== "function") process.exit(1)'
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify Node.js 22 with the Node.js 24 native build
+        run: node --test typescript/test/binding.test.mjs
 
   asan-ubsan-test:
     name: ASan/UBSan build and test

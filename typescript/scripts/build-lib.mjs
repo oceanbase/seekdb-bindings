@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compilerEnvironment } from "./compiler-env.mjs";
 
 const packageDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const rootDir = resolve(packageDir, "..");
@@ -31,5 +32,6 @@ const args = [
   `-DSEEKDB_BIN=${binary}`,
 ];
 if (process.platform === "darwin") args.push("-DWITH_EXTERNAL_ZLIB=YES");
-execFileSync("cmake", args, { stdio: "inherit" });
-execFileSync("cmake", ["--build", buildDir, "--target", "seekdb", "--config", "Release", "--parallel"], { stdio: "inherit" });
+const options = { stdio: "inherit", env: compilerEnvironment() };
+execFileSync("cmake", args, options);
+execFileSync("cmake", ["--build", buildDir, "--target", "seekdb", "--config", "Release", "--parallel"], options);
