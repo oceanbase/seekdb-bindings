@@ -95,3 +95,19 @@ test("Linux staging rejects different libraries with the same runtime name", {
   for (const file of sources) copyFileSync(file, join(target, basename(file)));
   assert.throws(() => bundleLinuxRuntime(sources, target), /Different runtime libraries share the name/);
 });
+
+test("Linux staging and verification reject path-based DT_NEEDED entries", {
+  skip: process.platform !== "linux",
+}, (t) => {
+  const { root, target } = fixture(t);
+  const { build, binary } = executable(root, "server", 42);
+  const library = "libseekdb_test_middle.so";
+  for (const dependency of [join(build, library), `./${library}`]) {
+    const staged = join(target, "server");
+    copyFileSync(binary, staged);
+    execFileSync("patchelf", ["--page-size", "2097152", "--replace-needed",
+      library, dependency, staged]);
+    assert.throws(() => bundleLinuxRuntime([staged], target), /path-based ELF dependency/);
+    assert.throws(() => verifyLinuxRuntime(target, "2.28"), /path-based ELF dependency/);
+  }
+});

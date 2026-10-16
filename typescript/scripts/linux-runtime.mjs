@@ -29,7 +29,15 @@ function elfFiles(directory) {
 }
 
 function dependencies(file, env) {
-  if (!run("readelf", ["-d", file]).includes("(NEEDED)")) return [];
+  const dynamic = run("readelf", ["-d", file]);
+  if (!dynamic.includes("(NEEDED)")) return [];
+  // A DT_NEEDED entry containing '/' bypasses RPATH. ldd prints these entries
+  // without '=>', so ignoring them would let host-only dependencies pass checks.
+  for (const match of dynamic.matchAll(/\(NEEDED\).*Shared library: \[([^\]]+)\]/g)) {
+    if (match[1].includes("/")) {
+      throw new Error(`${file}: path-based ELF dependency ${match[1]}; relink using a SONAME before packaging`);
+    }
+  }
   const output = run("ldd", [file], env);
   if (/=>\s+not found/.test(output)) throw new Error(`Unresolved dependency of ${file}:\n${output}`);
   return output.split("\n").flatMap((line) => {
