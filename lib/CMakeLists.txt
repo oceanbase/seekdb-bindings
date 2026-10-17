@@ -11,6 +11,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 add_library(seekdb SHARED
     src/seekdb.c
+    src/seekdb_instance.c
     src/port.c)
 
 set_target_properties(seekdb PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -59,7 +60,28 @@ endif()
 
 target_link_libraries(seekdb PRIVATE mariadb_client Threads::Threads)
 
-if (SEEKDB_BIN)
+if(SEEKDB_IN_PROCESS)
+    target_sources(seekdb PRIVATE src/seekdb_in_process.c)
+    set(SEEKDB_ENGINE_INCLUDE_DIR "" CACHE PATH "Directory containing seekdb_engine.h")
+    set(SEEKDB_ENGINE_LIBRARIES "" CACHE STRING
+        "Engine library/target and its complete transitive link dependencies")
+    if(NOT EXISTS "${SEEKDB_ENGINE_INCLUDE_DIR}/seekdb_engine.h" OR NOT SEEKDB_ENGINE_LIBRARIES)
+        message(FATAL_ERROR
+            "SEEKDB_IN_PROCESS requires SEEKDB_ENGINE_INCLUDE_DIR and SEEKDB_ENGINE_LIBRARIES")
+    endif()
+    target_compile_definitions(seekdb PRIVATE SEEKDB_IN_PROCESS=1)
+    target_include_directories(seekdb PRIVATE "${SEEKDB_ENGINE_INCLUDE_DIR}")
+    target_link_libraries(seekdb PRIVATE ${SEEKDB_ENGINE_LIBRARIES})
+    set_target_properties(seekdb PROPERTIES LINKER_LANGUAGE CXX)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Keep statically linked engine/third-party symbols private to bindings.
+        target_link_options(seekdb PRIVATE "-Wl,--exclude-libs,ALL" "-Wl,--no-undefined")
+    endif()
+else()
+    target_sources(seekdb PRIVATE src/seekdb_subprocess.c)
+endif()
+
+if (SEEKDB_BIN AND NOT SEEKDB_IN_PROCESS)
     if (NOT EXISTS "${SEEKDB_BIN}")
         message(FATAL_ERROR "SEEKDB_BIN does not exist: ${SEEKDB_BIN}")
     endif()

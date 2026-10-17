@@ -10,6 +10,7 @@ endif()
 
 if (SEEKDB_PYTHON_STANDALONE)
     project(python-client LANGUAGES CXX)
+    option(SEEKDB_IN_PROCESS "Use a prebuilt in-process libseekdb without a server executable" OFF)
 
     set(CMAKE_CXX_STANDARD 17)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -53,7 +54,7 @@ if (SEEKDB_PYTHON_STANDALONE)
             "${_seekdb_lib} not found.\n"
             "Build the top-level project first, or pass -DSEEKDB_LIB_DIR=<build-dir>")
     endif()
-    if (NOT EXISTS "${_seekdb_bin}")
+    if (NOT SEEKDB_IN_PROCESS AND NOT EXISTS "${_seekdb_bin}")
         message(FATAL_ERROR
             "seekdb binary not found at ${_seekdb_bin}.\n"
             "Configure the top-level build with -DSEEKDB_BIN=<path-to-seekdb>.")
@@ -97,15 +98,20 @@ set_target_properties(pylibseekdb PROPERTIES
 if (SEEKDB_PYTHON_STANDALONE)
     add_custom_command(TARGET pylibseekdb POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_seekdb_lib}" "$<TARGET_FILE_DIR:pylibseekdb>"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_seekdb_bin}" "$<TARGET_FILE_DIR:pylibseekdb>")
+                "${_seekdb_lib}" "$<TARGET_FILE_DIR:pylibseekdb>")
+    if(NOT SEEKDB_IN_PROCESS)
+        add_custom_command(TARGET pylibseekdb POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_seekdb_bin}" "$<TARGET_FILE_DIR:pylibseekdb>")
+    endif()
 endif()
 
 if (SEEKDB_PYTHON_STANDALONE)
     install(TARGETS pylibseekdb LIBRARY DESTINATION pylibseekdb)
     install(FILES "${_seekdb_lib}" DESTINATION pylibseekdb)
-    install(PROGRAMS "${_seekdb_bin}" DESTINATION pylibseekdb)
+    if(NOT SEEKDB_IN_PROCESS)
+        install(PROGRAMS "${_seekdb_bin}" DESTINATION pylibseekdb)
+    endif()
     install(FILES "${SEEKDB_LIB_DIR}/libaio.so.1"
             DESTINATION pylibseekdb
             OPTIONAL)
@@ -115,7 +121,7 @@ if (SEEKDB_PYTHON_STANDALONE)
     endif()
 endif()
 
-if (NOT SEEKDB_PYTHON_STANDALONE)
+if (NOT SEEKDB_PYTHON_STANDALONE AND NOT SEEKDB_IN_PROCESS)
     add_custom_target(wheel
         COMMAND ${CMAKE_COMMAND} -E env
                 "SEEKDB_BIN=${SEEKDB_BIN}"

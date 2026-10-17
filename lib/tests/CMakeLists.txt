@@ -9,7 +9,7 @@ set(_seekdb_test_includes
     "${CMAKE_SOURCE_DIR}/deps/mariadb-connector-c/include"
     "${CMAKE_BINARY_DIR}/deps/mariadb-connector-c/include")
 
-if (NOT WIN32)
+if (NOT WIN32 AND NOT SEEKDB_IN_PROCESS)
     if (SEEKDB_BIN)
         set(_seekdb_open_error_bin "${SEEKDB_BIN}")
     else()
@@ -54,13 +54,16 @@ if (NOT WIN32)
     gtest_discover_tests(test_process_spawn DISCOVERY_MODE PRE_TEST)
 endif()
 
-add_executable(test_two_clients_threads test_two_clients_threads.cc)
-target_include_directories(test_two_clients_threads PRIVATE ${_seekdb_test_includes})
-target_compile_definitions(test_two_clients_threads PRIVATE
-    SEEKDB_TEST_DATA_ROOT="${SEEKDB_TEST_DATA_ROOT}")
-target_link_libraries(test_two_clients_threads PRIVATE
-    seekdb GTest::gtest_main)
-gtest_discover_tests(test_two_clients_threads DISCOVERY_MODE PRE_TEST)
+if(NOT SEEKDB_IN_PROCESS)
+    add_executable(test_two_clients_threads test_two_clients_threads.cc)
+    target_include_directories(test_two_clients_threads PRIVATE ${_seekdb_test_includes})
+    target_compile_definitions(test_two_clients_threads PRIVATE
+        SEEKDB_TEST_DATA_ROOT="${SEEKDB_TEST_DATA_ROOT}")
+    target_link_libraries(test_two_clients_threads PRIVATE
+        seekdb GTest::gtest_main)
+    gtest_discover_tests(test_two_clients_threads DISCOVERY_MODE PRE_TEST)
+
+endif()
 
 add_executable(test_connection_options test_connection_options.cc)
 target_include_directories(test_connection_options PRIVATE ${_seekdb_test_includes})
@@ -68,8 +71,18 @@ target_link_libraries(test_connection_options PRIVATE
     seekdb GTest::gtest_main)
 gtest_discover_tests(test_connection_options DISCOVERY_MODE PRE_TEST)
 
-add_custom_target(seekdb_tests DEPENDS test_two_clients_threads test_connection_options)
-if (NOT WIN32)
+add_custom_target(seekdb_tests DEPENDS test_connection_options)
+if(NOT SEEKDB_IN_PROCESS)
+    add_dependencies(seekdb_tests test_two_clients_threads)
+elseif(NOT WIN32)
+    add_executable(test_in_process test_in_process.c)
+    target_link_libraries(test_in_process PRIVATE seekdb Threads::Threads)
+    add_dependencies(seekdb_tests test_in_process)
+    add_test(NAME test_in_process COMMAND test_in_process)
+    set_tests_properties(test_in_process PROPERTIES TIMEOUT 240
+        PASS_REGULAR_EXPRESSION "IN_PROCESS_COMPLETED")
+endif()
+if (NOT WIN32 AND NOT SEEKDB_IN_PROCESS)
     add_dependencies(seekdb_tests test_one_client_process test_parameter_persistence
         test_open_parameters test_process_spawn test_open_error)
 endif()
