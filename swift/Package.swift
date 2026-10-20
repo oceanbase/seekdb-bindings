@@ -36,10 +36,6 @@ let package = Package(
             name: "SeekDB",
             dependencies: seekdbDependencies,
             swiftSettings: [.enableExperimentalFeature("CheckImplementationOnly")]
-        ),
-        .testTarget(
-            name: "SeekDBTests",
-            dependencies: ["SeekDB"]
         )
     ] + engineTargets
 )

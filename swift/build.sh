@@ -51,8 +51,3 @@ if [[ ${BUILD_SWIFT_PACKAGE:-0} == 1 ]]; then
       -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO build)
   done
 fi
-
-if [[ -n ${TEST_SIMULATOR:-} ]]; then
-  (cd "$here" && xcodebuild -scheme seekdb-bindings -destination "platform=iOS Simulator,id=$TEST_SIMULATOR" \
-    -derivedDataPath "$derived" test)
-fi

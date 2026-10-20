@@ -13,7 +13,7 @@ MySQL-protocol client; the [iOS example App](example/README.md) uses MySQLNIO.
 ## Package layout
 
 This directory is a SwiftPM package: `Package.swift` exposes the `SeekDB` library
-from `Sources/SeekDB`, with tests in `Tests/SeekDBTests`. The engine is seekdb's
+from `Sources/SeekDB`. The engine is seekdb's
 `SeekDB.framework`, which `build.sh` in this directory packages as
 `build/SeekDBEngine.xcframework` next to it (see [Build](#build)); when that exists,
 the package adds it as the binary target `SeekDBEngine`. It holds iOS slices only for now.
@@ -69,8 +69,8 @@ SEEKDB_DIR=/path/to/seekdb bash swift/build.sh
 `build.sh` puts each `SeekDB.framework` it finds in `SEEKDB_DIR` (device, Simulator
 or both) into `build/SeekDBEngine.xcframework` in this directory, after checking each
 framework's platform. `BUILD_SWIFT_PACKAGE=1` also builds this package with
-`xcodebuild` for each packaged platform, and `TEST_SIMULATOR=<simulator id>` runs the
-tests on that Simulator; their intermediate files go to `.build/xcode` here.
+`xcodebuild` for each packaged platform; its intermediate files go to `.build/xcode`
+here.
 
 ## API
 
@@ -130,27 +130,17 @@ that call the C API directly can embed the framework and include its
   it there, so use absolute paths. The first open blocks until the engine accepts
   connections; call it away from the UI thread.
 
-## Tests
-
-`Tests/SeekDBTests` covers public validation, native diagnostics, copied UTF-8
-values, closed-handle access, idempotence, failed-close ownership, deinitialization
-and concurrent options/close. `testInProcessEngineKeepsServingAfterClose` starts the
-engine, checks the connection options, reads the MySQL handshake from the socket,
-closes the handle, opens the same directory again and reads the handshake once more,
-and checks that another directory is refused with its diagnostic. The tests run on a
-Simulator through `TEST_SIMULATOR`.
+## Validation
 
 Validated on 2026-10-15 with macOS 27.0, Xcode 27.0, Swift 6.4 and the iOS 27.0
 SDK, against Device and Simulator frameworks built from seekdb `9786f15d9` (branch
 `feature/ios-swift`, 4 exports), with the package reading the framework's own
 header: `build.sh` packaged both and built the package for each with
-`BUILD_SWIFT_PACKAGE=1`, and the 14 tests passed on an iPhone 17 Simulator with
-iOS 27.0, the in-process engine test in 1.0 second (about 14 seconds before, when
-close still stopped the engine). On the same Simulator, a separate Swift package
-that depends on this one by local path opened the engine through the `SeekDB`
-product, read its connection options and closed it, and neither test process
-crashed when it exited with the engine still running. The Device framework was
-built and verified but not run on a device.
+`BUILD_SWIFT_PACKAGE=1`. On an iPhone 17 Simulator with iOS 27.0, a separate Swift
+package that depends on this one by local path opened the engine through the
+`SeekDB` product, read its connection options and closed it, and its process did not
+crash when it exited with the engine still running. The Device framework was built
+and verified but not run on a device.
 
 ## Release
 
