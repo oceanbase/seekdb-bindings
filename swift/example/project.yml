@@ -18,7 +18,7 @@ options:
     iOS: "18.0"
 packages:
   SeekDB:
-    path: ../../swift
+    path: ..
   MySQLNIO:
     url: https://github.com/vapor/mysql-nio.git
     from: "1.0.0"

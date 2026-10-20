@@ -8,7 +8,7 @@ cannot start the separate SeekDB process that libseekdb launches on desktop syst
 and Android. The API follows the Java bindings. It has no third-party Swift
 dependencies and does not include a SQL client, construct connection URLs, execute
 queries, or decode result sets. Applications choose and configure their own
-MySQL-protocol client; the [iOS example App](../ios/README.md) uses MySQLNIO.
+MySQL-protocol client; the [iOS example App](example/README.md) uses MySQLNIO.
 
 ## Package layout
 

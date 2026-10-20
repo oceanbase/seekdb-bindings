@@ -17,7 +17,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
-simulator=${1:?Usage: ios/example/run.sh SIMULATOR_UDID}
+simulator=${1:?Usage: swift/example/run.sh SIMULATOR_UDID}
 bundle=org.seekdb.example
 derived="$here/build"
 

@@ -1,9 +1,9 @@
 # iOS example App
 
-`example/` is a SwiftUI App that uses the Swift package in `swift/` the way an
+This directory is a SwiftUI App that uses the Swift package in `swift/` the way an
 application would. It depends on that package and on the
 `swift/build/SeekDBEngine.xcframework` that `swift/build.sh` packages from seekdb's
-`SeekDB.framework`; the [Swift bindings](../swift/README.md#build) describe how to
+`SeekDB.framework`; the [Swift bindings](../README.md#build) describe how to
 build both, and the runtime constraints apps have to follow.
 
 On launch the App opens a database in its `Documents/seekdb` directory with
@@ -12,21 +12,21 @@ On launch the App opens a database in its `Documents/seekdb` directory with
 `SELECT 1`, closes the handle and writes `{"select_1":1}` to `Documents/select1.json`,
 or `{"error": ...}` when a step fails. MySQLNIO always assumes the
 `CLIENT_DEPRECATE_EOF` capability, which seekdb does not announce, so its own
-`simpleQuery` returns no rows from seekdb; `example/Sources/TextQuery.swift` is a
+`simpleQuery` returns no rows from seekdb; `Sources/TextQuery.swift` is a
 `MySQLCommand` that reads a text result set either way.
 
-The Xcode project is generated from `example/project.yml` with
+The Xcode project is generated from `project.yml` with
 [XcodeGen](https://github.com/yonaskolb/XcodeGen). It depends on the package in
 `swift/` by local path and on MySQLNIO and SwiftNIO from GitHub, and it signs ad hoc
-for the Simulator; to run on a device, open the generated `example/SeekDBExample.xcodeproj`
-in Xcode and choose a team. `example/run.sh` generates the project, builds the App for
-a Simulator into `example/build`, installs and launches it, and waits up to 300
+for the Simulator; to run on a device, open the generated `SeekDBExample.xcodeproj`
+in Xcode and choose a team. `run.sh` generates the project, builds the App for
+a Simulator into `build/`, installs and launches it, and waits up to 300
 seconds for `select1.json`; it fails unless the result is 1. Package the framework
 with `swift/build.sh` first.
 
 ```sh
 brew install xcodegen
-bash ios/example/run.sh SIMULATOR_UDID
+bash swift/example/run.sh SIMULATOR_UDID
 ```
 
 Validated on 2026-10-15 on an iPhone 17 Simulator with iOS 27.0, against frameworks
