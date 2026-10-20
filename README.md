@@ -5,8 +5,9 @@ C library, CLI, Python, Java, Android, Node.js, and Swift bindings for [seekdb](
 Java and Swift expose instance lifecycle and connection information independently
 of the application's SQL client. See [Java bindings](java/README.md) and
 [Swift bindings](swift/README.md); the Android build, packaging and tests are in
-[android/](android/README.md). `swift/` is a SwiftPM package whose `Package.swift`
-exposes the product `SeekDB`; it runs seekdb in process through seekdb's
+[android/](android/README.md). `swift/` is a submodule of
+[oceanbase/seekdb-swift](https://github.com/oceanbase/seekdb-swift), a SwiftPM package whose
+`Package.swift` exposes the product `SeekDB`; it runs seekdb in process through seekdb's
 `SeekDB.framework`, which `swift/build.sh` packages, and [swift/example/](swift/example/README.md)
 holds an iOS example App that uses it.
 
@@ -24,7 +25,7 @@ seekdb-bindings/
 ├── typescript/                 Node.js lifecycle binding + TypeScript package
 ├── java/                       Java lifecycle API and JNI bridge
 ├── android/                    Android packaging and examples
-├── swift/                      Swift lifecycle binding: SwiftPM package, XCFramework packaging
+├── swift/                      submodule oceanbase/seekdb-swift: Swift lifecycle binding, XCFramework packaging
 │   └── example/                iOS example App
 ├── scripts/                    wheel build, seekdb manylinux build, verify-wheel, etc.
 └── deps/                       vendored mariadb-connector-c, googletest
@@ -32,7 +33,7 @@ seekdb-bindings/
 
 ## Clone
 
-The repo uses git submodules (mariadb-connector-c, googletest). Clone with `--recursive`:
+The repo uses git submodules (mariadb-connector-c, googletest, openssl, and seekdb-swift in `swift/`). Clone with `--recursive`:
 
 ```sh
 git clone --recursive https://github.com/cao1629/seekdb-bindings.git

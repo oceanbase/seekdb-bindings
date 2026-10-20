@@ -8,3 +8,6 @@
 	path = deps/openssl
 	url = https://github.com/openssl/openssl.git
 	shallow = true
+[submodule "swift"]
+	path = swift
+	url = https://github.com/oceanbase/seekdb-swift.git
