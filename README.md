@@ -14,6 +14,7 @@ seekdb-bindings/
 │   └── tests/                  gtest cases
 ├── python/                     nanobind module + cibuildwheel config
 ├── typescript/                 Node.js lifecycle binding + TypeScript package
+├── rust/                       Rust lifecycle binding (initial source-checkout version)
 ├── java/                       Java lifecycle API and JNI bridge
 ├── android/                    Android packaging and examples
 ├── scripts/                    wheel build, seekdb manylinux build, verify-wheel, etc.

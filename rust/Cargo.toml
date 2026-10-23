@@ -1,0 +1,17 @@
+[package]
+name = "seekdb"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Local seekdb lifecycle bindings for Rust"
+publish = false
+build = "build.rs"
+
+[dependencies]
+libloading = "0.8"
+
+[build-dependencies]
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

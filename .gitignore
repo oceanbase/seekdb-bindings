@@ -7,6 +7,7 @@ compile_commands.json
 *.a
 *.so
 *.dylib
+rust/target/
 .cache/
 .vscode/
 .idea/
