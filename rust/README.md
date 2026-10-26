@@ -12,9 +12,10 @@ Build on Linux x86_64:
 cargo test --manifest-path rust/Cargo.toml
 ```
 
-The build requires `curl` and `tar`. On the first Linux x86_64 build, `build.rs`
-downloads the prebuilt `libseekdb` runtime bundle from OSS, verifies its pinned
-SHA-256, and extracts it into Cargo's build output directory. The bundle
+On the first Linux x86_64 build, `build.rs` downloads the prebuilt `libseekdb`
+runtime bundle from OSS, verifies its pinned SHA-256, and extracts it into
+Cargo's build output directory. Downloading honors standard proxy environment
+variables and requires no external `curl` or `tar` executable. The bundle
 contains the C library, seekdb executable, and their native dependencies. To
 build offline, or on another platform with an existing bundle, point
 `SEEKDB_NATIVE_DIR` to its `lib/` directory:

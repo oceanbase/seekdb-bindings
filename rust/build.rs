@@ -1,9 +1,14 @@
+use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::thread;
+use std::time::Duration;
+use tempfile::{Builder, NamedTempFile};
+
+const DOWNLOAD_RETRIES: u32 = 3;
 
 struct Asset {
     url: &'static str,
@@ -36,18 +41,6 @@ fn asset(target: &str) -> Option<Asset> {
     }
 }
 
-fn run(command: &mut Command) -> Result<(), String> {
-    let description = format!("{command:?}");
-    let status = command
-        .status()
-        .map_err(|error| format!("run {description}: {error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("{description} failed with {status}"))
-    }
-}
-
 fn sha256(path: &Path) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut digest = Sha256::new();
@@ -60,6 +53,66 @@ fn sha256(path: &Path) -> io::Result<String> {
         digest.update(&buffer[..count]);
     }
     Ok(format!("{:x}", digest.finalize()))
+}
+
+fn download(asset: &Asset, out_dir: &Path, package: &Path) -> Result<(), String> {
+    // The default agent honors proxy environment variables, including NO_PROXY.
+    let agent = ureq::Agent::config_builder()
+        .https_only(true)
+        .max_redirects(10)
+        .timeout_connect(Some(Duration::from_secs(20)))
+        .timeout_global(Some(Duration::from_secs(300)))
+        .build()
+        .new_agent();
+
+    for attempt in 0..=DOWNLOAD_RETRIES {
+        let mut temporary = NamedTempFile::new_in(out_dir)
+            .map_err(|error| format!("create temporary download: {error}"))?;
+        let result = agent.get(asset.url).call().map_err(|error| {
+            let retryable = match error {
+                ureq::Error::StatusCode(code) => code == 408 || code == 429 || code >= 500,
+                ureq::Error::RequireHttpsOnly(_) => false,
+                _ => true,
+            };
+            (format!("download {}: {error}", asset.url), retryable)
+        });
+        let result = result.and_then(|mut response| {
+            io::copy(
+                &mut response.body_mut().as_reader(),
+                temporary.as_file_mut(),
+            )
+            .map_err(|error| (format!("read {}: {error}", asset.url), true))?;
+            let actual = sha256(temporary.path())
+                .map_err(|error| (format!("hash temporary download: {error}"), false))?;
+            if actual != asset.sha256 {
+                return Err((
+                    format!(
+                        "SHA-256 mismatch for {}: expected {}, got {actual}",
+                        asset.url, asset.sha256
+                    ),
+                    true,
+                ));
+            }
+            Ok(())
+        });
+        match result {
+            Ok(()) => {
+                temporary
+                    .persist(package)
+                    .map_err(|error| format!("cache {}: {error}", package.display()))?;
+                return Ok(());
+            }
+            Err((message, retryable)) if retryable && attempt < DOWNLOAD_RETRIES => {
+                println!(
+                    "cargo:warning={message}; retrying ({}/{DOWNLOAD_RETRIES})",
+                    attempt + 1
+                );
+                thread::sleep(Duration::from_secs(1 << attempt));
+            }
+            Err((message, _)) => return Err(message),
+        }
+    }
+    unreachable!()
 }
 
 fn validate_native_dir(directory: &Path, library: &str) -> Result<PathBuf, String> {
@@ -113,31 +166,7 @@ fn get_native_dir(out_dir: &Path, target: &str) -> Result<PathBuf, String> {
 
     let package = out_dir.join(asset.name);
     if !package.exists() || sha256(&package).map_err(|error| error.to_string())? != asset.sha256 {
-        let temporary = package.with_extension("download");
-        run(Command::new("curl")
-            .args([
-                "--fail",
-                "--location",
-                "--retry",
-                "3",
-                "--proto",
-                "=https",
-                "--proto-redir",
-                "=https",
-                "--silent",
-                "--show-error",
-                "--output",
-            ])
-            .arg(&temporary)
-            .arg(asset.url))?;
-        let actual = sha256(&temporary).map_err(|error| error.to_string())?;
-        if actual != asset.sha256 {
-            return Err(format!(
-                "SHA-256 mismatch for {}: expected {}, got {actual}",
-                asset.url, asset.sha256
-            ));
-        }
-        fs::rename(&temporary, &package).map_err(|error| error.to_string())?;
+        download(&asset, out_dir, &package)?;
     }
 
     let expanded = out_dir.join(format!("native-{}", &asset.sha256[..12]));
@@ -150,15 +179,19 @@ fn get_native_dir(out_dir: &Path, target: &str) -> Result<PathBuf, String> {
         }
         fs::remove_dir_all(&expanded).map_err(|error| error.to_string())?;
     }
-    fs::create_dir_all(&expanded).map_err(|error| error.to_string())?;
-    run(Command::new("tar")
-        .arg("-xzf")
-        .arg(&package)
-        .arg("-C")
-        .arg(&expanded))?;
-    let directory = find_native_dir(&expanded, asset.library)?;
-    fs::write(&marker, b"complete\n").map_err(|error| error.to_string())?;
-    Ok(directory)
+    let staging = Builder::new()
+        .prefix("native-extract-")
+        .tempdir_in(out_dir)
+        .map_err(|error| format!("create temporary extraction directory: {error}"))?;
+    let archive = GzDecoder::new(File::open(&package).map_err(|error| error.to_string())?);
+    tar::Archive::new(archive)
+        .unpack(staging.path())
+        .map_err(|error| format!("extract {}: {error}", package.display()))?;
+    find_native_dir(staging.path(), asset.library)?;
+    fs::write(staging.path().join(".complete"), b"complete\n")
+        .map_err(|error| error.to_string())?;
+    fs::rename(staging.path(), &expanded).map_err(|error| error.to_string())?;
+    find_native_dir(&expanded, asset.library)
 }
 
 fn main() {
