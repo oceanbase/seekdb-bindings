@@ -18,22 +18,28 @@ publishing that library does not automatically publish the downloaded archive.
 The final application or native library includes the embedded bytes when it
 links the binding's runtime code.
 
-## Shared build download cache
+## One cache for builds and runtime
 
-Keep the embedding design while caching verified source archives under the
-build user's platform cache directory. Linux uses an absolute `XDG_CACHE_HOME`
-or `~/.cache`; macOS uses `~/Library/Caches`. The entry is
-`<user-cache>/seekdb/downloads/<target>/<native-version>/<full-sha256>/<archive>`.
-This cache is independent of the runtime extraction directory and of Cargo's
-target/profile directories. Use a process-safe download lock, SHA-256 validation,
-and atomic file publication. A valid existing `OUT_DIR` archive can seed or
-repair this cache without a download. An unavailable user cache falls back to
-Cargo's `OUT_DIR`.
+Use the same `<root>/<target>/<native-version>/<full-sha256>` entry for both
+phases. Keep the verified source archive as `bundle.tar.gz` alongside the
+extracted native bundle and `.complete` manifest. Builds and runtime share the
+same implementation, process-safe lock, validation, and atomic extraction.
+Building prepares files without loading the library or launching the server.
+A subsequent run with the same user, cache root, and bundle identity reuses the
+prepared native files directly. The compressed copy is not a required runtime
+file and can be repaired independently without replacing mapped libraries.
+
+Use the platform default described below, or `SEEKDB_CACHE_DIR` during both
+build and runtime. The Rust API can override the runtime root; build.rs cannot
+know an application's future API configuration. With a different root or on a
+different machine, runtime uses the embedded archive to prepare its own entry.
 
 Copy the verified archive into `OUT_DIR` before embedding, rather than making
 the compiler depend on a user-cache path that can be cleaned independently.
-The build cache holds compressed files and needs no execution permission.
-`SEEKDB_CACHE_DIR` and the Rust API only select the runtime extraction location.
+An existing valid `OUT_DIR` archive can populate the shared entry offline.
+Build-time cache preparation is best effort and falls back to `OUT_DIR` with a
+warning if unavailable. Building needs writable storage, while native execution
+and its `noexec` check occur at runtime.
 
 Continue embedding the archive in compiled applications and libraries. Accept
 the artifact size cost for now; reconsider the delivery strategy if measured
@@ -84,8 +90,8 @@ call that tries to change it afterward must fail clearly. Libraries B and C
 sharing that dependency therefore use the application-selected location. Each
 subsequent open still checks and repairs the extraction at the selected path.
 
-`SEEKDB_CACHE_DIR` only controls where the embedded archive is extracted. It
-does not select externally supplied native files. The removed
+`SEEKDB_CACHE_DIR` selects the shared build/runtime bundle cache. It does not
+select externally supplied native files. The removed
 `SEEKDB_NATIVE_DIR` and `SEEKDB_BUILD_NATIVE_DIR` overrides remain unsupported.
 The Rust API is `seekdb::set_runtime_cache_dir(absolute_path)`. Explicit API and
 environment overrides must be non-empty absolute paths.

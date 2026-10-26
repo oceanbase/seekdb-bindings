@@ -36,30 +36,43 @@ endpoint is valid only while its lifecycle handle remains open.
 ## Embedded native runtime
 
 On the first build, `build.rs` downloads the pinned seekdb 1.4.0.0 revision 1
-native archive from OSS and verifies its SHA-256. The binding embeds that
-compressed archive with `include_bytes!`. Builds share verified downloads in
-`<user-cache>/seekdb/downloads/<target>/<native-version>/<full-archive-sha256>/`.
-On Linux, `<user-cache>` is an absolute `XDG_CACHE_HOME` or `~/.cache`; on macOS,
-it is `~/Library/Caches`. This avoids downloading again for another project,
-profile, or Cargo target directory, including after `cargo clean`.
+native archive from OSS, verifies its SHA-256, and prepares the native cache.
+The binding embeds the compressed archive with `include_bytes!`. Downloads
+honor standard proxy variables and use Rust HTTP libraries; no external `curl`
+or `tar` command is required.
 
-A process-safe lock coordinates downloads and every cached archive is checked
-against its pinned SHA-256 before reuse. Builds with an existing valid archive
-in `OUT_DIR` can seed the shared cache without downloading. If the user cache
-cannot be created or locked, the build falls back to `OUT_DIR`. The verified
-archive is also copied into `OUT_DIR` as a stable compiler input, so clearing
-the shared cache cannot remove a file needed by `include_bytes!`. This download
-cache contains archives, so it does not need executable mount permissions.
-`SEEKDB_CACHE_DIR` and the Rust cache API configure runtime extraction only.
+Builds and running applications use one cache entry:
 
-Downloads honor standard proxy variables and use Rust HTTP libraries; no
-external `curl` or `tar` command is required.
+```text
+<cache-root>/<target>/<native-version>/<full-archive-sha256>/
+  bundle.tar.gz       # verified compressed bundle for later builds
+  .complete           # native file completeness manifest
+  ...                 # original bundle layout, including its lib/ directory
+```
 
-At runtime, the binding extracts the embedded archive into a user cache, loads
-libseekdb by its absolute path, and launches the bundled seekdb server. This
-needs no runtime download and does not depend on Cargo's build directory,
+The default root is `<user-cache>/seekdb/native`: on Linux `<user-cache>` is an
+absolute `XDG_CACHE_HOME` or `~/.cache`; on macOS it is `~/Library/Caches`.
+`SEEKDB_CACHE_DIR` selects a custom root for both the build and runtime.
+Builds reuse the verified archive across projects, profiles, and Cargo target
+directories, including after `cargo clean`. They also extract the native files
+using the same process-safe lock, staging rename, and completion manifest as
+runtime initialization. Building does not load libseekdb or start its server.
+
+On the same machine, user, root, and target/version/hash, runtime initialization
+reuses these files without extracting again. On another machine, in another
+cache root, or after cache cleanup, it restores the entry from the embedded
+archive without a download. libseekdb loads by its absolute path and starts
+the bundled seekdb server. This does not depend on Cargo's build directory,
 loader environment variables, or a `lib/` directory beside the application.
 The archive's directories, symlinks, and executable permissions are preserved.
+
+A valid existing `OUT_DIR` archive can seed or repair the shared cache offline.
+If that cache cannot be prepared, the build warns and uses `OUT_DIR`. Each build
+keeps an independently verified archive snapshot in `OUT_DIR` as its compiler
+input, so clearing the user cache cannot remove a file needed by `include_bytes!`.
+Build-time extraction needs writable storage; only runtime use needs permission
+to load native code and execute the server. An explicit Rust API override is
+runtime-only and may choose a different root from the build's cache.
 
 Cargo's standard `CARGO_TARGET_DIR`, `--target-dir`, profiles, and supported
 `--target` configuration still apply. For example:
@@ -104,8 +117,7 @@ A successful native initialization freezes the selected root for this copy of
 the Rust dependency. Later API changes return an error. Libraries sharing the
 same resolved seekdb dependency use this configuration; the final application
 should configure it before any dependency opens a database. Failed setup can
-be retried after correcting the directory. The cache setting only selects the
-extraction location; the removed `SEEKDB_NATIVE_DIR` and
+be retried after correcting the directory. The cache setting selects where this bundle is cached and extracted; the removed `SEEKDB_NATIVE_DIR` and
 `SEEKDB_BUILD_NATIVE_DIR` overrides remain unsupported.
 
 The cache must be user-owned, writable, not writable by other users, and allow
@@ -210,7 +222,8 @@ cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo clippy --manifest-path rust/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-Tests cover shared build downloads, cache precedence, concurrent extraction, layout preservation,
+Tests cover build/runtime cache reuse, shared downloads, cache precedence,
+concurrent extraction, layout preservation,
 missing-file recovery with libseekdb loaded, Linux `noexec` diagnostics,
 lifecycle ownership, and SQL access across shared handles. CI runs both SQL
 examples and a downstream application installed by Cargo, then hides the build

@@ -1,14 +1,8 @@
-use crate::Error;
-use flate2::read::GzDecoder;
-use fs2::FileExt;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use crate::{native_cache, Error};
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read};
+use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 mod embedded {
     include!(concat!(env!("OUT_DIR"), "/native_bundle.rs"));
@@ -21,26 +15,6 @@ pub(crate) struct Bundle<'a> {
     target: &'a str,
     version: &'a str,
     library: &'a str,
-}
-
-#[derive(Deserialize, Serialize)]
-struct Manifest {
-    hash: String,
-    native_dir: PathBuf,
-    entries: Vec<Entry>,
-}
-
-#[derive(Deserialize, Serialize)]
-struct Entry {
-    path: PathBuf,
-    kind: Kind,
-}
-
-#[derive(Deserialize, Serialize)]
-enum Kind {
-    Directory,
-    File { length: u64, executable: bool },
-    Symlink { target: PathBuf },
 }
 
 pub(crate) fn absolute_root(path: &Path) -> Result<PathBuf, Error> {
@@ -81,17 +55,7 @@ fn select_root(
 
 impl Bundle<'static> {
     pub(crate) fn embedded(explicit: Option<&Path>) -> Result<Self, Error> {
-        let default = dirs::cache_dir().map(|path| {
-            let path = path.join("seekdb");
-            // On Windows, cache_dir resolves LocalAppData, which also contains
-            // non-cache application data. Windows native bundles are not yet supported.
-            let path = if cfg!(windows) {
-                path.join("cache")
-            } else {
-                path
-            };
-            path.join("native")
-        });
+        let default = native_cache::default_root();
         let root = select_root(explicit, std::env::var_os("SEEKDB_CACHE_DIR"), default)?;
         Ok(Self {
             root,
@@ -110,24 +74,6 @@ fn cache_error(path: &Path, operation: &'static str, source: io::Error) -> Error
         operation,
         source,
     }
-}
-
-fn private_directory(path: &Path) -> Result<(), Error> {
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)
-        .map_err(|error| cache_error(path, "create cache directory", error))?;
-    let metadata =
-        fs::metadata(path).map_err(|error| cache_error(path, "inspect cache directory", error))?;
-    // SAFETY: geteuid has no preconditions and does not change process state.
-    if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o022 != 0 {
-        return Err(Error::Setup(format!(
-            "seekdb cache directory {} must be owned by the current user and not writable by other users; select another directory with SEEKDB_CACHE_DIR or set_runtime_cache_dir",
-            path.display()
-        )));
-    }
-    Ok(())
 }
 
 fn check_executable_mount(path: &Path) -> Result<(), Error> {
@@ -156,213 +102,36 @@ fn check_executable_mount(path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-fn relative(path: &Path) -> bool {
-    !path.as_os_str().is_empty()
-        && path
-            .components()
-            .all(|part| matches!(part, Component::Normal(_)))
-}
-
-fn native_directory(root: &Path, library: &str) -> io::Result<PathBuf> {
-    let mut candidates = vec![root.join("lib")];
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            candidates.push(entry.path().join("lib"));
-        }
-    }
-    let mut matches = candidates
-        .into_iter()
-        .filter(|path| path.join(library).is_file() && path.join("seekdb").is_file());
-    let directory = matches.next().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("bundle is missing a lib/ directory containing {library} and seekdb"),
-        )
-    })?;
-    if matches.next().is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "bundle contains multiple native lib/ directories",
-        ));
-    }
-    if fs::metadata(directory.join("seekdb"))?.permissions().mode() & 0o111 == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "bundled seekdb is not executable",
-        ));
-    }
-    Ok(directory)
-}
-
-fn inventory(root: &Path, directory: &Path, entries: &mut Vec<Entry>) -> io::Result<()> {
-    for item in fs::read_dir(directory)? {
-        let item = item?;
-        let path = item.path();
-        let metadata = fs::symlink_metadata(&path)?;
-        let kind = if metadata.file_type().is_symlink() {
-            if !path.canonicalize()?.starts_with(root) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "bundle symlink escapes extraction directory",
-                ));
-            }
-            Kind::Symlink {
-                target: fs::read_link(&path)?,
-            }
-        } else if metadata.is_dir() {
-            inventory(root, &path, entries)?;
-            Kind::Directory
-        } else if metadata.is_file() {
-            Kind::File {
-                length: metadata.len(),
-                executable: metadata.permissions().mode() & 0o111 != 0,
-            }
-        } else {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unsupported file type in native bundle",
-            ));
-        };
-        entries.push(Entry {
-            path: path.strip_prefix(root).unwrap().to_path_buf(),
-            kind,
-        });
-    }
-    Ok(())
-}
-
 impl Bundle<'_> {
+    fn cache(&self) -> native_cache::NativeCache<'_> {
+        native_cache::NativeCache {
+            root: self.root.clone(),
+            hash: self.hash,
+            target: self.target,
+            version: self.version,
+            library: self.library,
+        }
+    }
+
+    #[cfg(test)]
     fn expanded(&self) -> PathBuf {
-        self.root
-            .join(self.target)
-            .join(self.version)
-            .join(self.hash)
+        self.cache().entry()
     }
 
-    fn valid_cache(&self, root: &Path) -> io::Result<PathBuf> {
-        let canonical_root = root.canonicalize()?;
-        let mut bytes = Vec::new();
-        File::open(root.join(".complete"))?
-            .take(1024 * 1024)
-            .read_to_end(&mut bytes)?;
-        let manifest: Manifest = serde_json::from_slice(&bytes)?;
-        if manifest.hash != self.hash
-            || !relative(&manifest.native_dir)
-            || manifest.entries.is_empty()
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "invalid native cache manifest",
-            ));
-        }
-        for entry in &manifest.entries {
-            if !relative(&entry.path) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid path in native cache manifest",
-                ));
-            }
-            let path = root.join(&entry.path);
-            let metadata = fs::symlink_metadata(&path)?;
-            let valid = match &entry.kind {
-                Kind::Directory => metadata.is_dir(),
-                Kind::File { length, executable } => {
-                    metadata.is_file()
-                        && metadata.len() == *length
-                        && (!executable || metadata.permissions().mode() & 0o111 != 0)
-                }
-                Kind::Symlink { target } => {
-                    metadata.file_type().is_symlink() && fs::read_link(&path)? == *target
-                }
-            };
-            if !valid || !path.canonicalize()?.starts_with(&canonical_root) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "native cache entry is incomplete",
-                ));
-            }
-        }
-        let native = native_directory(root, self.library)?;
-        if native != root.join(manifest.native_dir) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "native cache layout changed",
-            ));
-        }
-        Ok(native.join(self.library))
-    }
-
-    /// Check on every open, including after Native's function pointers are cached.
     pub(crate) fn ensure(&self) -> Result<PathBuf, Error> {
-        private_directory(&self.root)?;
+        let cache = self.cache();
+        let _lock = cache.lock().map_err(map_cache_error)?;
+        // Builds can prepare files on noexec mounts; only runtime use requires execution.
         check_executable_mount(&self.root)?;
-        let expanded = self.expanded();
-        let parent = expanded.parent().unwrap();
-        private_directory(parent)?;
-        let lock_path = parent.join(format!(".{}.lock", self.hash));
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&lock_path)
-            .map_err(|error| cache_error(&lock_path, "open cache lock", error))?;
-        lock.lock_exclusive()
-            .map_err(|error| cache_error(&lock_path, "lock cache", error))?;
-        // The lock lives outside the replaceable entry and unlocks on file drop.
-        if let Ok(path) = self.valid_cache(&expanded) {
-            return Ok(path);
-        }
-        if format!("{:x}", Sha256::digest(self.archive)) != self.hash {
-            return Err(Error::Setup(
-                "embedded seekdb archive SHA-256 mismatch".into(),
-            ));
-        }
-        let staging = tempfile::Builder::new()
-            .prefix(".extract-")
-            .tempdir_in(parent)
-            .map_err(|error| cache_error(parent, "create staging directory", error))?;
-        tar::Archive::new(GzDecoder::new(self.archive))
-            .unpack(staging.path())
-            .map_err(|error| cache_error(staging.path(), "extract embedded archive", error))?;
-        let native = native_directory(staging.path(), self.library)
-            .map_err(|error| cache_error(staging.path(), "validate native layout", error))?;
-        let mut entries = Vec::new();
-        // Canonical paths also validate that archive symlinks stay within the bundle.
-        let canonical_staging = staging
-            .path()
-            .canonicalize()
-            .map_err(|error| cache_error(staging.path(), "resolve staging directory", error))?;
-        inventory(&canonical_staging, &canonical_staging, &mut entries)
-            .map_err(|error| cache_error(staging.path(), "inventory native bundle", error))?;
-        let manifest = Manifest {
-            hash: self.hash.into(),
-            native_dir: native.strip_prefix(staging.path()).unwrap().into(),
-            entries,
-        };
-        let marker = staging.path().join(".complete");
-        let bytes =
-            serde_json::to_vec(&manifest).map_err(|error| Error::Setup(error.to_string()))?;
-        fs::write(&marker, bytes)
-            .map_err(|error| cache_error(&marker, "write completion manifest", error))?;
-        if fs::symlink_metadata(&expanded).is_ok() {
-            // Never truncate or overwrite files mapped by another process. Keep
-            // incomplete entries aside: their files may still be in active use.
-            let retired = tempfile::Builder::new()
-                .prefix(".retired-")
-                .tempdir_in(parent)
-                .map_err(|error| cache_error(parent, "create retired entry directory", error))?;
-            fs::rename(&expanded, retired.path().join("bundle"))
-                .map_err(|error| cache_error(&expanded, "retire incomplete cache", error))?;
-            let _ = retired.keep();
-        }
-        fs::rename(staging.path(), &expanded)
-            .map_err(|error| cache_error(&expanded, "publish native cache", error))?;
-        self.valid_cache(&expanded)
-            .map_err(|error| cache_error(&expanded, "validate native cache", error))
+        cache.ensure_locked(self.archive).map_err(map_cache_error)
+    }
+}
+
+fn map_cache_error(error: native_cache::CacheError) -> Error {
+    Error::RuntimeCache {
+        path: error.path,
+        operation: error.operation,
+        source: error.source,
     }
 }
 
@@ -370,7 +139,10 @@ impl Bundle<'_> {
 mod tests {
     use super::*;
     use flate2::{write::GzEncoder, Compression};
+    use sha2::{Digest, Sha256};
+    use std::fs::{self, File};
     use std::io::Write;
+    use std::os::unix::fs::MetadataExt;
 
     fn archive() -> Vec<u8> {
         let mut archive = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::fast()));

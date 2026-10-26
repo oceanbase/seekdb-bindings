@@ -1,6 +1,8 @@
 //! Start a local seekdb instance and obtain its MySQL-protocol endpoint.
 //! SQL connections are managed by the caller's chosen MySQL client.
 
+#[path = "../native_cache.rs"]
+mod native_cache;
 mod runtime;
 
 use libloading::Library;

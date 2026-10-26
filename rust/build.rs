@@ -1,4 +1,5 @@
 mod build_cache;
+mod native_cache;
 
 use build_cache::{prepare_archive, sha256};
 use std::env;
@@ -110,21 +111,22 @@ fn prepare_bundle(out_dir: &Path, target: &str) -> Result<(), String> {
             "native bundle URL is not configured for {target}; automatic builds currently require Linux x86_64 with glibc 2.28 or newer"
         ));
     }
-    let shared = dirs::cache_dir().map(|root| {
-        let root = root.join("seekdb");
-        let root = if cfg!(windows) {
-            root.join("cache")
-        } else {
-            root
-        };
-        root.join("downloads")
-            .join(target)
-            .join(NATIVE_VERSION)
-            .join(asset.sha256)
+    let root = env::var_os("SEEKDB_CACHE_DIR")
+        .map(PathBuf::from)
+        .or_else(native_cache::default_root);
+    if root.as_ref().is_some_and(|path| !path.is_absolute()) {
+        return Err("SEEKDB_CACHE_DIR must be a non-empty absolute path".into());
+    }
+    let cache = root.map(|root| native_cache::NativeCache {
+        root,
+        target,
+        version: NATIVE_VERSION,
+        hash: asset.sha256,
+        library: asset.library,
     });
     prepare_archive(
         out_dir,
-        shared.as_deref(),
+        cache.as_ref(),
         asset.name,
         asset.sha256,
         |directory, package| download(&asset, directory, package),
@@ -153,7 +155,14 @@ fn main() {
 fn build() -> Result<(), String> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_cache.rs");
-    for variable in ["XDG_CACHE_HOME", "HOME", "LOCALAPPDATA", "USERPROFILE"] {
+    println!("cargo:rerun-if-changed=native_cache.rs");
+    for variable in [
+        "SEEKDB_CACHE_DIR",
+        "XDG_CACHE_HOME",
+        "HOME",
+        "LOCALAPPDATA",
+        "USERPROFILE",
+    ] {
         println!("cargo:rerun-if-env-changed={variable}");
     }
     let target = env::var("TARGET").map_err(|error| error.to_string())?;

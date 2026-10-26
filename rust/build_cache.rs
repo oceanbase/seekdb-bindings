@@ -1,6 +1,6 @@
-use fs2::FileExt;
+use crate::native_cache::NativeCache;
 use sha2::{Digest, Sha256};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -21,27 +21,6 @@ pub(crate) fn sha256(path: &Path) -> io::Result<String> {
 
 fn valid(path: &Path, expected: &str) -> bool {
     sha256(path).is_ok_and(|actual| actual == expected)
-}
-
-fn lock_cache(directory: &Path) -> io::Result<File> {
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
-    builder.create(directory)?;
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let lock = options.open(directory.join(".download.lock"))?;
-    lock.lock_exclusive()?;
-    Ok(lock)
 }
 
 fn copy_verified(source: &Path, destination: &Path, expected: &str) -> Result<(), String> {
@@ -73,40 +52,45 @@ fn copy_verified(source: &Path, destination: &Path, expected: &str) -> Result<()
 /// Share verified downloads while keeping include_bytes! inputs in Cargo's OUT_DIR.
 pub(crate) fn prepare_archive(
     out_dir: &Path,
-    shared_directory: Option<&Path>,
+    shared_cache: Option<&NativeCache<'_>>,
     name: &str,
     expected: &str,
     download: impl Fn(&Path, &Path) -> Result<(), String>,
 ) -> Result<PathBuf, String> {
     let package = out_dir.join(name);
     let local_valid = valid(&package, expected);
-    if let Some(directory) = shared_directory {
-        match lock_cache(directory) {
+    if let Some(cache) = shared_cache {
+        match cache.lock() {
             Ok(_lock) => {
-                let shared = directory.join(name);
-                if !valid(&shared, expected) {
-                    if local_valid {
-                        // A build predating the shared cache can seed it offline.
-                        if let Err(error) = copy_verified(&package, &shared, expected) {
-                            println!("cargo:warning=cannot populate shared seekdb download cache: {error}; using OUT_DIR");
-                        }
-                        return Ok(package);
-                    }
-                    download(directory, &shared)?;
-                    if !valid(&shared, expected) {
-                        return Err(format!("SHA-256 mismatch for {}", shared.display()));
-                    }
-                }
+                let shared = cache.archive_path();
                 if !local_valid {
-                    copy_verified(&shared, &package, expected)?;
+                    if valid(&shared, expected) {
+                        copy_verified(&shared, &package, expected)?;
+                    } else {
+                        download(out_dir, &package)?;
+                        if !valid(&package, expected) {
+                            return Err(format!("SHA-256 mismatch for {}", package.display()));
+                        }
+                    }
                 }
-                // The file handle releases the lock on return. OUT_DIR gets a
-                // copy, so later cache cleanup cannot remove a compiler input.
+                let bytes = fs::read(&package)
+                    .map_err(|error| format!("read {}: {error}", package.display()))?;
+                match cache.ensure_locked(&bytes) {
+                    Ok(_) => {
+                        if !valid(&shared, expected) {
+                            if let Err(error) = cache.store_archive_locked(&cache.entry(), &bytes) {
+                                println!("cargo:warning=cannot cache seekdb archive: {error}; using OUT_DIR");
+                            }
+                        }
+                    }
+                    Err(error) => println!("cargo:warning=cannot prepare shared seekdb native cache: {error}; using OUT_DIR"),
+                }
+                // Both build and runtime use this lock, manifest, and native
+                // entry. Cargo still embeds an independent OUT_DIR snapshot.
                 return Ok(package);
             }
             Err(error) => println!(
-                "cargo:warning=cannot use shared seekdb download cache {}: {error}; using OUT_DIR",
-                directory.display()
+                "cargo:warning=cannot use shared seekdb native cache: {error}; using OUT_DIR"
             ),
         }
     }
