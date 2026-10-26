@@ -14,7 +14,6 @@ type Handle = *mut c_void;
 type OpenFn = unsafe extern "C" fn(*const c_char, *const *const c_char, *mut Handle) -> c_int;
 type LastOpenErrorFn = unsafe extern "C" fn() -> *const c_char;
 type CloseFn = unsafe extern "C" fn(Handle) -> c_int;
-type SetBinaryPathFn = unsafe extern "C" fn(*const c_char) -> c_int;
 type ConnectionOptionsFn = unsafe extern "C" fn(Handle, *mut RawConnectionOptions) -> c_int;
 
 #[repr(C)]
@@ -57,19 +56,18 @@ impl Native {
         Ok(NATIVE.get().expect("native library was initialized"))
     }
 
-    fn directory(library_name: &str) -> Result<PathBuf, String> {
-        if let Some(directory) = std::env::var_os("SEEKDB_NATIVE_DIR") {
-            return Self::validate_directory(Path::new(&directory), library_name);
+    fn library_path(executable: &Path, library_name: &str) -> Result<PathBuf, String> {
+        let parent = executable
+            .parent()
+            .ok_or("application has no parent directory")?;
+        let staged = parent.join("lib");
+        if staged.join(library_name).exists() || staged.join("seekdb").exists() {
+            return Self::validate_directory(&staged, library_name)
+                .map(|directory| directory.join(library_name));
         }
-        if let Ok(executable) = std::env::current_exe() {
-            if let Some(parent) = executable.parent() {
-                let staged = parent.join("lib");
-                if staged.join(library_name).exists() || staged.join("seekdb").exists() {
-                    return Self::validate_directory(&staged, library_name);
-                }
-            }
-        }
-        Self::validate_directory(Path::new(env!("SEEKDB_BUILD_NATIVE_DIR")), library_name)
+        // Cargo supplies the native loader search path during development.
+        // There is no embedded build-machine path or SeekDB-specific override.
+        Ok(PathBuf::from(library_name))
     }
 
     fn validate_directory(directory: &Path, library_name: &str) -> Result<PathBuf, String> {
@@ -90,16 +88,18 @@ impl Native {
         } else {
             "libseekdb.so"
         };
-        let directory = Self::directory(library_name)?;
-        let library_path = directory.join(library_name);
-        let binary_path = directory.join("seekdb");
-        let binary = CString::new(binary_path.as_os_str().as_bytes())
-            .map_err(|_| "seekdb executable path contains NUL".to_string())?;
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("resolve application executable: {error}"))?;
+        let library_path = Self::library_path(&executable, library_name)?;
         // SAFETY: The library remains owned by Native for as long as the copied
         // function pointers can be called. Function signatures match seekdb.h.
         unsafe {
-            let library = Library::new(&library_path)
-                .map_err(|error| format!("load {}: {error}", library_path.display()))?;
+            let library = Library::new(&library_path).map_err(|error| {
+                format!(
+                    "load {}: {error}; use cargo run during development, or deploy the complete native lib/ directory beside the application",
+                    library_path.display()
+                )
+            })?;
             let open = *library
                 .get::<OpenFn>(b"seekdb_open\0")
                 .map_err(|error| error.to_string())?;
@@ -109,18 +109,10 @@ impl Native {
             let close = *library
                 .get::<CloseFn>(b"seekdb_close\0")
                 .map_err(|error| error.to_string())?;
-            let set_binary_path = *library
-                .get::<SetBinaryPathFn>(b"seekdb_set_binary_path\0")
-                .map_err(|error| error.to_string())?;
             let connection_options = *library
                 .get::<ConnectionOptionsFn>(b"seekdb_connection_options\0")
                 .map_err(|error| error.to_string())?;
-            if set_binary_path(binary.as_ptr()) != 0 {
-                return Err(format!(
-                    "seekdb_set_binary_path rejected {}",
-                    binary_path.display()
-                ));
-            }
+            // libseekdb locates its server executable beside the loaded library.
             Ok(Self {
                 _library: library,
                 open,
@@ -168,6 +160,11 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// An open local seekdb lifecycle handle. Close MySQL clients before closing it.
+///
+/// Opening waits synchronously for server readiness. This handle is neither
+/// Send nor Sync: keep it on its owning thread. Async applications can open,
+/// use, and close it within a blocking task while SQL runs on their async
+/// runtime; see examples/async_query.rs.
 pub struct Seekdb {
     handle: Option<NonNull<c_void>>,
     native: &'static Native,
@@ -318,22 +315,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_load_can_retry_after_missing_directory() {
+    fn staged_library_requires_the_complete_bundle() {
         let temporary = tempfile::tempdir().unwrap();
-        let database_dir = temporary.path().join("database");
-        let previous = std::env::var_os("SEEKDB_NATIVE_DIR");
-
-        std::env::set_var("SEEKDB_NATIVE_DIR", temporary.path().join("missing"));
-        assert!(matches!(Seekdb::open(&database_dir), Err(Error::Setup(_))));
-
-        std::env::set_var("SEEKDB_NATIVE_DIR", env!("SEEKDB_BUILD_NATIVE_DIR"));
-        let database = Seekdb::open(&database_dir).unwrap();
-        database.close().unwrap();
-
-        if let Some(directory) = previous {
-            std::env::set_var("SEEKDB_NATIVE_DIR", directory);
-        } else {
-            std::env::remove_var("SEEKDB_NATIVE_DIR");
-        }
+        let executable = temporary.path().join("my-app");
+        let directory = temporary.path().join("lib");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join("libseekdb.so"), []).unwrap();
+        assert!(Native::library_path(&executable, "libseekdb.so")
+            .unwrap_err()
+            .contains("seekdb is missing"));
+        std::fs::write(directory.join("seekdb"), []).unwrap();
+        assert_eq!(
+            Native::library_path(&executable, "libseekdb.so").unwrap(),
+            directory.canonicalize().unwrap().join("libseekdb.so")
+        );
     }
 }

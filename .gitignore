@@ -12,6 +12,7 @@ rust/target/
 .vscode/
 .idea/
 .DS_Store
+__pycache__/
 
 # cibuildwheel output
 wheelhouse/

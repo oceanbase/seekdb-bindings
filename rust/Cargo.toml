@@ -1,6 +1,6 @@
 [package]
 name = "seekdb"
-version = "0.1.0"
+version = "1.4.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Local seekdb lifecycle bindings for Rust"
@@ -18,4 +18,7 @@ tempfile = "3"
 ureq = "3.5"
 
 [dev-dependencies]
+mysql = { version = "28", default-features = false, features = ["minimal-rust"] }
+mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust"] }
 tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

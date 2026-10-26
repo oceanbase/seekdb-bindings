@@ -155,12 +155,9 @@ fn find_native_dir(root: &Path, library: &str) -> Result<PathBuf, String> {
 
 fn get_native_dir(out_dir: &Path, target: &str) -> Result<PathBuf, String> {
     let asset = asset(target).ok_or_else(|| format!("unsupported seekdb target {target}"))?;
-    if let Some(directory) = env::var_os("SEEKDB_NATIVE_DIR") {
-        return validate_native_dir(Path::new(&directory), asset.library);
-    }
     if asset.url.is_empty() {
         return Err(format!(
-            "native bundle URL is not configured for {target}; set SEEKDB_NATIVE_DIR to a compatible lib/ directory"
+            "native bundle URL is not configured for {target}; automatic builds currently require Linux x86_64 with glibc 2.28 or newer"
         ));
     }
 
@@ -201,13 +198,13 @@ fn main() {
 }
 
 fn build() -> Result<(), String> {
-    println!("cargo:rerun-if-env-changed=SEEKDB_NATIVE_DIR");
+    println!("cargo:rerun-if-changed=build.rs");
     let target = env::var("TARGET").map_err(|error| error.to_string())?;
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?);
     let native_dir = get_native_dir(&out_dir, &target)?;
-    println!(
-        "cargo:rustc-env=SEEKDB_BUILD_NATIVE_DIR={}",
-        native_dir.display()
-    );
+    // Cargo adds native search paths inside its target directory to the loader
+    // path for `cargo run` and `cargo test`, including a custom target directory.
+    // Keep build artifacts in OUT_DIR; deployed apps carry their own lib/.
+    println!("cargo:rustc-link-search=native={}", native_dir.display());
     Ok(())
 }
