@@ -34,39 +34,5 @@ jobs:
         run: |
           cargo run --manifest-path rust/Cargo.toml --locked --example first_query -- "$(mktemp -d)/database"
           cargo run --manifest-path rust/Cargo.toml --locked --example async_query -- "$(mktemp -d)/database"
-      - name: Install a transitive consumer and build a dynamic library
-        run: |
-          cargo install --path rust/tests/consumer/app --root "$RUNNER_TEMP/seekdb-installed" --debug --locked
-          cargo build --manifest-path rust/tests/consumer/Cargo.toml --package seekdb-consumer-ffi --locked
-      - name: Run deployed artifacts with fresh caches and no build directory
-        shell: bash
-        run: |
-          set -euo pipefail
-          app_dir="$(mktemp -d)"
-          cp "$CARGO_TARGET_DIR/debug/libseekdb_consumer_ffi.so" "$app_dir/"
-          mv "$CARGO_TARGET_DIR" "$CARGO_TARGET_DIR.hidden"
-          noexec_dir=""
-          trap 'if [ -n "$noexec_dir" ] && mountpoint -q "$noexec_dir"; then sudo umount "$noexec_dir"; fi; mv "$CARGO_TARGET_DIR.hidden" "$CARGO_TARGET_DIR"' EXIT
-          cd "$app_dir"
-          app="$RUNNER_TEMP/seekdb-installed/bin/seekdb-consumer-app"
-          env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH SEEKDB_CACHE_DIR="$app_dir/cache" "$app" "$app_dir/database-1"
-          rm -rf "$app_dir/cache"
-          env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH SEEKDB_CACHE_DIR="$app_dir/cache" "$app" "$app_dir/database-2"
-          env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH SEEKDB_CACHE_DIR="$app_dir/ffi-cache" python3 - <<'PYCODE'
-          import ctypes
-          from pathlib import Path
-          library = ctypes.CDLL(str(Path("libseekdb_consumer_ffi.so").resolve()))
-          library.seekdb_consumer_probe.argtypes = [ctypes.c_char_p]
-          library.seekdb_consumer_probe.restype = ctypes.c_int
-          assert library.seekdb_consumer_probe(str(Path("ffi-database").resolve()).encode()) == 0
-          PYCODE
-          noexec_dir="$(mktemp -d)"
-          sudo mount -t tmpfs -o noexec,nosuid,nodev,size=1m tmpfs "$noexec_dir"
-          sudo chown "$(id -u):$(id -g)" "$noexec_dir"
-          chmod 700 "$noexec_dir"
-          if SEEKDB_CACHE_DIR="$noexec_dir" "$app" "$app_dir/noexec-database" > "$app_dir/noexec.log" 2>&1; then
-            echo "Expected a noexec error" >&2
-            exit 1
-          fi
-          grep -F 'noexec' "$app_dir/noexec.log"
-          grep -Fq 'SEEKDB_CACHE_DIR' "$app_dir/noexec.log"
+      - name: Test application and dynamic-library deployment
+        run: bash rust/tests/consumer/test-deployment.sh --check-noexec

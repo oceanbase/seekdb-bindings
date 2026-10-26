@@ -241,3 +241,8 @@ missing-file recovery with libseekdb loaded, Linux `noexec` diagnostics,
 lifecycle ownership, and SQL access across shared handles. CI runs both SQL
 examples and a downstream application installed by Cargo, then hides the build
 directory and runs with loader variables cleared and fresh or deleted caches.
+
+Run the same application and dynamic-library deployment checks locally with
+`bash rust/tests/consumer/test-deployment.sh` from the repository root. CI adds
+`--check-noexec` to test a mounted `noexec` filesystem; that option requires
+`sudo`. See [the consumer test instructions](tests/consumer/README.md).
