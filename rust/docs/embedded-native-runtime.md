@@ -93,9 +93,7 @@ call that tries to change it afterward must fail clearly. Libraries B and C
 sharing that dependency therefore use the application-selected location. Each
 subsequent open still checks and repairs the extraction at the selected path.
 
-`SEEKDB_CACHE_DIR` selects the shared build/runtime bundle cache. It does not
-select externally supplied native files. The removed
-`SEEKDB_NATIVE_DIR` and `SEEKDB_BUILD_NATIVE_DIR` overrides remain unsupported.
+`SEEKDB_CACHE_DIR` selects the shared build/runtime bundle cache.
 The Rust API is `seekdb::set_runtime_cache_dir(absolute_path)`. Explicit API and
 environment overrides must be non-empty absolute paths.
 

@@ -118,8 +118,7 @@ the Rust dependency. Later API changes return an error. Libraries sharing the
 same resolved seekdb dependency use this configuration; the final application
 should configure it before any dependency opens a database. Failed setup can
 be retried after correcting the directory. The cache setting selects where the
-bundle is cached and extracted; the removed `SEEKDB_NATIVE_DIR` and
-`SEEKDB_BUILD_NATIVE_DIR` overrides remain unsupported.
+bundle is cached and extracted.
 
 The cache must be user-owned, not writable by other users, and permit native
 library loading and server execution. Creating or repairing it requires writable
