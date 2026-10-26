@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/seekdb-rust-target
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.rust-target
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
