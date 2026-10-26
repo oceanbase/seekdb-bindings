@@ -1,6 +1,8 @@
 //! Start a local seekdb instance and obtain its MySQL-protocol endpoint.
 //! SQL connections are managed by the caller's chosen MySQL client.
 
+mod runtime;
+
 use libloading::Library;
 use std::collections::BTreeMap;
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
@@ -29,6 +31,7 @@ struct RawConnectionOptions {
 
 struct Native {
     _library: Library,
+    bundle: runtime::Bundle<'static>,
     open: OpenFn,
     last_open_error: LastOpenErrorFn,
     close: CloseFn,
@@ -36,67 +39,52 @@ struct Native {
 }
 
 static NATIVE: OnceLock<Native> = OnceLock::new();
-static NATIVE_INIT: Mutex<()> = Mutex::new(());
+static NATIVE_INIT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Override the extraction root for this copy of the seekdb dependency.
+///
+/// Call before the first successful native initialization. The absolute path
+/// takes precedence over SEEKDB_CACHE_DIR and the platform's default cache.
+/// The directory must be user-owned, writable, and permit native execution.
+pub fn set_runtime_cache_dir(directory: impl AsRef<Path>) -> Result<(), Error> {
+    let directory = runtime::absolute_root(directory.as_ref())?;
+    let mut configured = NATIVE_INIT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if NATIVE.get().is_some() {
+        return Err(Error::InvalidInput(
+            "seekdb runtime is already initialized; configure its cache directory before the first Seekdb::open".into(),
+        ));
+    }
+    *configured = Some(directory);
+    Ok(())
+}
 
 impl Native {
     fn get() -> Result<&'static Self, Error> {
-        if let Some(native) = NATIVE.get() {
-            return Ok(native);
-        }
-        let _guard = NATIVE_INIT
+        let configured = NATIVE_INIT
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         if let Some(native) = NATIVE.get() {
+            // Cached function pointers survive cache cleanup. The server and
+            // dependencies must still be restored before another open.
+            native.bundle.ensure()?;
             return Ok(native);
         }
-        let native = Self::load().map_err(Error::Setup)?;
-        // The mutex ensures only this thread can initialize NATIVE. Failed
-        // loads are left uncached so a corrected runtime path can be retried.
+        let bundle = runtime::Bundle::embedded(configured.as_deref())?;
+        let library_path = bundle.ensure()?;
+        let native = Self::load(bundle, &library_path).map_err(Error::Setup)?;
         let _ = NATIVE.set(native);
         Ok(NATIVE.get().expect("native library was initialized"))
     }
 
-    fn library_path(executable: &Path, library_name: &str) -> Result<PathBuf, String> {
-        let parent = executable
-            .parent()
-            .ok_or("application has no parent directory")?;
-        let staged = parent.join("lib");
-        if staged.join(library_name).exists() || staged.join("seekdb").exists() {
-            return Self::validate_directory(&staged, library_name)
-                .map(|directory| directory.join(library_name));
-        }
-        // Cargo supplies the native loader search path during development.
-        // There is no embedded build-machine path or SeekDB-specific override.
-        Ok(PathBuf::from(library_name))
-    }
-
-    fn validate_directory(directory: &Path, library_name: &str) -> Result<PathBuf, String> {
-        let directory = directory
-            .canonicalize()
-            .map_err(|error| format!("resolve {}: {error}", directory.display()))?;
-        for name in [library_name, "seekdb"] {
-            if !directory.join(name).is_file() {
-                return Err(format!("{} is missing", directory.join(name).display()));
-            }
-        }
-        Ok(directory)
-    }
-
-    fn load() -> Result<Self, String> {
-        let library_name = if cfg!(target_os = "macos") {
-            "libseekdb.dylib"
-        } else {
-            "libseekdb.so"
-        };
-        let executable = std::env::current_exe()
-            .map_err(|error| format!("resolve application executable: {error}"))?;
-        let library_path = Self::library_path(&executable, library_name)?;
+    fn load(bundle: runtime::Bundle<'static>, library_path: &Path) -> Result<Self, String> {
         // SAFETY: The library remains owned by Native for as long as the copied
         // function pointers can be called. Function signatures match seekdb.h.
         unsafe {
-            let library = Library::new(&library_path).map_err(|error| {
+            let library = Library::new(library_path).map_err(|error| {
                 format!(
-                    "load {}: {error}; use cargo run during development, or deploy the complete native lib/ directory beside the application",
+                    "load {}: {error}; verify cache permissions and execution policy, or select another cache with SEEKDB_CACHE_DIR or set_runtime_cache_dir",
                     library_path.display()
                 )
             })?;
@@ -115,6 +103,7 @@ impl Native {
             // libseekdb locates its server executable beside the loaded library.
             Ok(Self {
                 _library: library,
+                bundle,
                 open,
                 last_open_error,
                 close,
@@ -145,19 +134,41 @@ pub struct ConnectionOptions {
 pub enum Error {
     InvalidInput(String),
     Setup(String),
-    Native { code: i32, message: String },
+    RuntimeCache {
+        path: PathBuf,
+        operation: &'static str,
+        source: std::io::Error,
+    },
+    RuntimeCacheNoExec {
+        path: PathBuf,
+    },
+    Native {
+        code: i32,
+        message: String,
+    },
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput(message) | Self::Setup(message) => formatter.write_str(message),
+            Self::RuntimeCache { path, operation, source } => write!(formatter,
+                "seekdb runtime cache: {operation} at {}: {source}; configure another directory with SEEKDB_CACHE_DIR or set_runtime_cache_dir", path.display()),
+            Self::RuntimeCacheNoExec { path } => write!(formatter,
+                "seekdb runtime cache {} is on a filesystem mounted with noexec; configure a directory that permits native library loading and server execution with SEEKDB_CACHE_DIR or set_runtime_cache_dir", path.display()),
             Self::Native { code, message } => write!(formatter, "{message} (seekdb code {code})"),
         }
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RuntimeCache { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 /// An open local seekdb lifecycle handle. Close MySQL clients before closing it.
 ///
@@ -307,27 +318,5 @@ unsafe fn optional_string(pointer: *const c_char) -> Option<String> {
         None
     } else {
         Some(CStr::from_ptr(pointer).to_string_lossy().into_owned())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn staged_library_requires_the_complete_bundle() {
-        let temporary = tempfile::tempdir().unwrap();
-        let executable = temporary.path().join("my-app");
-        let directory = temporary.path().join("lib");
-        std::fs::create_dir(&directory).unwrap();
-        std::fs::write(directory.join("libseekdb.so"), []).unwrap();
-        assert!(Native::library_path(&executable, "libseekdb.so")
-            .unwrap_err()
-            .contains("seekdb is missing"));
-        std::fs::write(directory.join("seekdb"), []).unwrap();
-        assert_eq!(
-            Native::library_path(&executable, "libseekdb.so").unwrap(),
-            directory.canonicalize().unwrap().join("libseekdb.so")
-        );
     }
 }

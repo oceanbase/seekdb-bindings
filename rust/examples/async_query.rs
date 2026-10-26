@@ -33,7 +33,14 @@ async fn query(endpoint: ConnectionOptions) -> Result<(), AppError> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), AppError> {
+async fn main() {
+    if let Err(error) = run().await {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), AppError> {
     let directory = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)

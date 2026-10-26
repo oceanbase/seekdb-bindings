@@ -3,7 +3,14 @@ use seekdb::Seekdb;
 use std::error::Error;
 use std::path::PathBuf;
 
-fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     let directory = std::env::args_os()
         .nth(1)
         .map(PathBuf::from)

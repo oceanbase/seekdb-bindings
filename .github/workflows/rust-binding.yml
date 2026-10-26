@@ -19,29 +19,54 @@ jobs:
     timeout-minutes: 20
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.rust-target
+      SEEKDB_CACHE_DIR: ${{ github.workspace }}/.rust-runtime-cache
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - name: Test the OSS bundle on Linux x86_64
         run: cargo test --manifest-path rust/Cargo.toml --locked
-      - name: Check formatting and packaging
+      - name: Check formatting
         run: |
           cargo fmt --manifest-path rust/Cargo.toml --all -- --check
-          python3 -m unittest discover -s rust/scripts -p 'test_*.py'
+          cargo fmt --manifest-path rust/tests/consumer/Cargo.toml --all -- --check
       - name: Run synchronous and Tokio SQL examples
         run: |
           cargo run --manifest-path rust/Cargo.toml --locked --example first_query -- "$(mktemp -d)/database"
           cargo run --manifest-path rust/Cargo.toml --locked --example async_query -- "$(mktemp -d)/database"
-      - name: Package and run without the build directory
+      - name: Install a transitive consumer and build a dynamic library
+        run: |
+          cargo install --path rust/tests/consumer/app --root "$RUNNER_TEMP/seekdb-installed" --debug --locked
+          cargo build --manifest-path rust/tests/consumer/Cargo.toml --package seekdb-consumer-ffi --locked
+      - name: Run deployed artifacts with fresh caches and no build directory
         shell: bash
         run: |
           set -euo pipefail
           app_dir="$(mktemp -d)"
-          python3 rust/scripts/package.py \
-            --manifest-path rust/Cargo.toml \
-            --example first_query --profile dev --output "$app_dir/app"
+          cp "$CARGO_TARGET_DIR/debug/libseekdb_consumer_ffi.so" "$app_dir/"
           mv "$CARGO_TARGET_DIR" "$CARGO_TARGET_DIR.hidden"
-          trap 'mv "$CARGO_TARGET_DIR.hidden" "$CARGO_TARGET_DIR"' EXIT
+          noexec_dir=""
+          trap 'if [ -n "$noexec_dir" ] && mountpoint -q "$noexec_dir"; then sudo umount "$noexec_dir"; fi; mv "$CARGO_TARGET_DIR.hidden" "$CARGO_TARGET_DIR"' EXIT
           cd "$app_dir"
-          env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH ./app/first_query "$app_dir/database"
+          app="$RUNNER_TEMP/seekdb-installed/bin/seekdb-consumer-app"
+          env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH SEEKDB_CACHE_DIR="$app_dir/cache" "$app" "$app_dir/database-1"
+          rm -rf "$app_dir/cache"
+          env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH SEEKDB_CACHE_DIR="$app_dir/cache" "$app" "$app_dir/database-2"
+          env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH SEEKDB_CACHE_DIR="$app_dir/ffi-cache" python3 - <<'PYCODE'
+          import ctypes
+          from pathlib import Path
+          library = ctypes.CDLL(str(Path("libseekdb_consumer_ffi.so").resolve()))
+          library.seekdb_consumer_probe.argtypes = [ctypes.c_char_p]
+          library.seekdb_consumer_probe.restype = ctypes.c_int
+          assert library.seekdb_consumer_probe(str(Path("ffi-database").resolve()).encode()) == 0
+          PYCODE
+          noexec_dir="$(mktemp -d)"
+          sudo mount -t tmpfs -o noexec,nosuid,nodev,size=1m tmpfs "$noexec_dir"
+          sudo chown "$(id -u):$(id -g)" "$noexec_dir"
+          chmod 700 "$noexec_dir"
+          if SEEKDB_CACHE_DIR="$noexec_dir" "$app" "$app_dir/noexec-database" > "$app_dir/noexec.log" 2>&1; then
+            echo "Expected a noexec error" >&2
+            exit 1
+          fi
+          rg 'noexec' "$app_dir/noexec.log"
+          rg 'SEEKDB_CACHE_DIR' "$app_dir/noexec.log"
