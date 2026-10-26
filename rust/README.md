@@ -37,9 +37,23 @@ endpoint is valid only while its lifecycle handle remains open.
 
 On the first build, `build.rs` downloads the pinned seekdb 1.4.0.0 revision 1
 native archive from OSS and verifies its SHA-256. The binding embeds that
-compressed archive with `include_bytes!`. Later builds reuse the verified
-archive in Cargo's `OUT_DIR`. Downloads honor standard proxy variables and use
-Rust HTTP libraries; no external `curl` or `tar` command is required.
+compressed archive with `include_bytes!`. Builds share verified downloads in
+`<user-cache>/seekdb/downloads/<target>/<native-version>/<full-archive-sha256>/`.
+On Linux, `<user-cache>` is an absolute `XDG_CACHE_HOME` or `~/.cache`; on macOS,
+it is `~/Library/Caches`. This avoids downloading again for another project,
+profile, or Cargo target directory, including after `cargo clean`.
+
+A process-safe lock coordinates downloads and every cached archive is checked
+against its pinned SHA-256 before reuse. Builds with an existing valid archive
+in `OUT_DIR` can seed the shared cache without downloading. If the user cache
+cannot be created or locked, the build falls back to `OUT_DIR`. The verified
+archive is also copied into `OUT_DIR` as a stable compiler input, so clearing
+the shared cache cannot remove a file needed by `include_bytes!`. This download
+cache contains archives, so it does not need executable mount permissions.
+`SEEKDB_CACHE_DIR` and the Rust cache API configure runtime extraction only.
+
+Downloads honor standard proxy variables and use Rust HTTP libraries; no
+external `curl` or `tar` command is required.
 
 At runtime, the binding extracts the embedded archive into a user cache, loads
 libseekdb by its absolute path, and launches the bundled seekdb server. This
@@ -196,7 +210,7 @@ cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo clippy --manifest-path rust/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-Tests cover cache precedence, concurrent extraction, layout preservation,
+Tests cover shared build downloads, cache precedence, concurrent extraction, layout preservation,
 missing-file recovery with libseekdb loaded, Linux `noexec` diagnostics,
 lifecycle ownership, and SQL access across shared handles. CI runs both SQL
 examples and a downstream application installed by Cargo, then hides the build

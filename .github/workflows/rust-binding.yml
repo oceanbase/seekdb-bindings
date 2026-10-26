@@ -68,5 +68,5 @@ jobs:
             echo "Expected a noexec error" >&2
             exit 1
           fi
-          rg 'noexec' "$app_dir/noexec.log"
-          rg 'SEEKDB_CACHE_DIR' "$app_dir/noexec.log"
+          grep -F 'noexec' "$app_dir/noexec.log"
+          grep -Fq 'SEEKDB_CACHE_DIR' "$app_dir/noexec.log"

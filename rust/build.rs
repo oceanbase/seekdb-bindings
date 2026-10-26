@@ -1,7 +1,9 @@
-use sha2::{Digest, Sha256};
+mod build_cache;
+
+use build_cache::{prepare_archive, sha256};
 use std::env;
-use std::fs::{self, File};
-use std::io::{self, Read};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -39,20 +41,6 @@ fn asset(target: &str) -> Option<Asset> {
         }),
         _ => None,
     }
-}
-
-fn sha256(path: &Path) -> io::Result<String> {
-    let mut file = File::open(path)?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", digest.finalize()))
 }
 
 fn download(asset: &Asset, out_dir: &Path, package: &Path) -> Result<(), String> {
@@ -122,10 +110,25 @@ fn prepare_bundle(out_dir: &Path, target: &str) -> Result<(), String> {
             "native bundle URL is not configured for {target}; automatic builds currently require Linux x86_64 with glibc 2.28 or newer"
         ));
     }
-    let package = out_dir.join(asset.name);
-    if !package.exists() || sha256(&package).map_err(|error| error.to_string())? != asset.sha256 {
-        download(&asset, out_dir, &package)?;
-    }
+    let shared = dirs::cache_dir().map(|root| {
+        let root = root.join("seekdb");
+        let root = if cfg!(windows) {
+            root.join("cache")
+        } else {
+            root
+        };
+        root.join("downloads")
+            .join(target)
+            .join(NATIVE_VERSION)
+            .join(asset.sha256)
+    });
+    prepare_archive(
+        out_dir,
+        shared.as_deref(),
+        asset.name,
+        asset.sha256,
+        |directory, package| download(&asset, directory, package),
+    )?;
     let source = format!(
         "pub const ARCHIVE: &[u8] = include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{name}\"));\n\
          pub const TARGET: &str = {target:?};\n\
@@ -149,6 +152,10 @@ fn main() {
 
 fn build() -> Result<(), String> {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=build_cache.rs");
+    for variable in ["XDG_CACHE_HOME", "HOME", "LOCALAPPDATA", "USERPROFILE"] {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
     let target = env::var("TARGET").map_err(|error| error.to_string())?;
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?);
     prepare_bundle(&out_dir, &target)

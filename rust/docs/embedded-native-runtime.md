@@ -18,6 +18,27 @@ publishing that library does not automatically publish the downloaded archive.
 The final application or native library includes the embedded bytes when it
 links the binding's runtime code.
 
+## Shared build download cache
+
+Keep the embedding design while caching verified source archives under the
+build user's platform cache directory. Linux uses an absolute `XDG_CACHE_HOME`
+or `~/.cache`; macOS uses `~/Library/Caches`. The entry is
+`<user-cache>/seekdb/downloads/<target>/<native-version>/<full-sha256>/<archive>`.
+This cache is independent of the runtime extraction directory and of Cargo's
+target/profile directories. Use a process-safe download lock, SHA-256 validation,
+and atomic file publication. A valid existing `OUT_DIR` archive can seed or
+repair this cache without a download. An unavailable user cache falls back to
+Cargo's `OUT_DIR`.
+
+Copy the verified archive into `OUT_DIR` before embedding, rather than making
+the compiler depend on a user-cache path that can be cleaned independently.
+The build cache holds compressed files and needs no execution permission.
+`SEEKDB_CACHE_DIR` and the Rust API only select the runtime extraction location.
+
+Continue embedding the archive in compiled applications and libraries. Accept
+the artifact size cost for now; reconsider the delivery strategy if measured
+application size or deployment needs justify a change.
+
 ## Extraction location
 
 Use a per-user cache with an entry identified by the target triple, native
