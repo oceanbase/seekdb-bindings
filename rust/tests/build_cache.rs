@@ -41,7 +41,7 @@ fn native_cache<'a>(root: std::path::PathBuf, hash: &'a str) -> NativeCache<'a> 
 }
 
 #[test]
-fn builds_and_runtime_share_one_prepared_entry_and_lock() {
+fn builds_and_runtime_share_one_prepared_entry() {
     let temporary = tempfile::tempdir().unwrap();
     let bytes = archive();
     let hash = format!("{:x}", Sha256::digest(&bytes));
@@ -69,16 +69,14 @@ fn builds_and_runtime_share_one_prepared_entry_and_lock() {
             assert_eq!(fs::read(thread.join().unwrap()).unwrap(), bytes);
         }
     });
-    assert_eq!(downloads.load(Ordering::SeqCst), 1);
+    assert!((1..=4).contains(&downloads.load(Ordering::SeqCst)));
     assert_eq!(fs::read(native.archive_path()).unwrap(), bytes);
     assert!(native.entry().join(".complete").is_file());
     let library = native.entry().join("package/lib/libseekdb.so");
     let inode = fs::metadata(&library).unwrap().ino();
     // This is the same cache operation used by Bundle::ensure at runtime.
-    let lock = native.lock().unwrap();
-    assert_eq!(native.ensure_locked(&bytes).unwrap(), library);
+    assert_eq!(native.ensure(&bytes).unwrap(), library);
     assert_eq!(fs::metadata(&library).unwrap().ino(), inode);
-    drop(lock);
     fs::remove_dir_all(&native.root).unwrap();
     assert_eq!(
         fs::read(temporary.path().join("build-0").join(NAME)).unwrap(),

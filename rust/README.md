@@ -55,7 +55,7 @@ absolute `XDG_CACHE_HOME` or `~/.cache`; on macOS it is `~/Library/Caches`.
 `SEEKDB_CACHE_DIR` selects a custom root for both the build and runtime.
 Builds reuse the verified archive across projects, profiles, and Cargo target
 directories, including after `cargo clean`. They also extract the native files
-using the same process-safe lock, staging rename, and completion manifest as
+using the same private staging, atomic rename, and completion manifest as
 runtime initialization. Building does not load libseekdb or start its server.
 
 On the same machine, user, root, and target/version/hash, runtime initialization
@@ -117,11 +117,13 @@ A successful native initialization freezes the selected root for this copy of
 the Rust dependency. Later API changes return an error. Libraries sharing the
 same resolved seekdb dependency use this configuration; the final application
 should configure it before any dependency opens a database. Failed setup can
-be retried after correcting the directory. The cache setting selects where this bundle is cached and extracted; the removed `SEEKDB_NATIVE_DIR` and
+be retried after correcting the directory. The cache setting selects where the
+bundle is cached and extracted; the removed `SEEKDB_NATIVE_DIR` and
 `SEEKDB_BUILD_NATIVE_DIR` overrides remain unsupported.
 
-The cache must be user-owned, writable, not writable by other users, and allow
-native library loading and server execution. Linux mounts with `noexec` produce
+The cache must be user-owned, not writable by other users, and permit native
+library loading and server execution. Creating or repairing it requires writable
+storage. Linux mounts with `noexec` produce
 `Error::RuntimeCacheNoExec` containing the path and configuration guidance.
 Filesystem failures preserve the path, operation, and underlying `io::Error` in
 `Error::RuntimeCache`; other loader/security-policy errors retain their original
@@ -130,9 +132,19 @@ message rather than being labeled `noexec`.
 Every `Seekdb::open` checks the selected entry, including required files,
 symlinks, executable bits, and file sizes. A missing or incomplete cache is
 restored from the embedded bytes, even if libseekdb is already loaded. A
-process-safe file lock and staging-directory rename coordinate concurrent
-initialization. This is a completeness check, not a cryptographic check of every
-cached file on each open. Keep the cache protected from untrusted writers.
+directory rename publishes a complete entry. Concurrent publishers reuse a
+winner when one is already available and discard their own staging directories.
+They may independently download or extract the same bundle during a cold start;
+there is no cache file lock.
+
+A damaged nonempty entry is repaired with atomic directory exchange
+(`renameat2(RENAME_EXCHANGE)` on Linux; `renamex_np(RENAME_SWAP)` on macOS),
+keeping the library path present throughout replacement. Filesystems that do
+not support exchange return a cache error during such repairs; select another
+cache filesystem or remove the damaged entry when no instance uses it. Archive
+repairs use a sibling temporary file and atomic file rename. Cache validation
+checks completeness, not a cryptographic hash of every cached file on each
+open. Keep the cache protected from untrusted writers.
 
 Database data stays in the separate directory passed to `Seekdb::open`. On
 Linux, unlinking already mapped native files generally leaves an active instance
@@ -222,7 +234,8 @@ cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo clippy --manifest-path rust/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
-Tests cover build/runtime cache reuse, shared downloads, cache precedence,
+Tests cover multi-process rename publication and repair, build/runtime cache
+reuse, shared downloads, cache precedence,
 concurrent extraction, layout preservation,
 missing-file recovery with libseekdb loaded, Linux `noexec` diagnostics,
 lifecycle ownership, and SQL access across shared handles. CI runs both SQL

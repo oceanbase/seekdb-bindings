@@ -23,7 +23,10 @@ links the binding's runtime code.
 Use the same `<root>/<target>/<native-version>/<full-sha256>` entry for both
 phases. Keep the verified source archive as `bundle.tar.gz` alongside the
 extracted native bundle and `.complete` manifest. Builds and runtime share the
-same implementation, process-safe lock, validation, and atomic extraction.
+same implementation, validation, and atomic directory publication. Each process
+uses a private staging directory next to the final entry. It renames a complete
+entry into place or reuses another process's winning entry; no cache file lock
+is used. Concurrent cold starts may duplicate downloads and extraction.
 Building prepares files without loading the library or launching the server.
 A subsequent run with the same user, cache root, and bundle identity reuses the
 prepared native files directly. The compressed copy is not a required runtime
@@ -100,10 +103,19 @@ Database data stays in the directory explicitly selected by the caller, outside
 this disposable runtime cache.
 
 Preserve the bundle's directories, permissions, symlinks, and relative native
-loader paths. Use a process-safe lock, extract into a staging directory, validate
-the required files, and publish the completed entry atomically. A completion
+loader paths. Extract into a private staging directory, validate the required
+files, and publish the completed entry through rename. A completion
 marker alone is insufficient if required files have subsequently disappeared.
 Compatible callers can reuse the same completed cache entry.
+
+Repairing a nonempty damaged directory uses Linux `renameat2(RENAME_EXCHANGE)`
+or macOS `renamex_np(RENAME_SWAP)`. This also handles a stale repair decision:
+if another publisher installed a healthy entry in the meantime, exchanging two
+complete copies keeps the final path available. Preserve the replaced directory
+for processes that still map its files. A filesystem without atomic-exchange
+support reports a cache error during repair; use another cache filesystem or
+remove the damaged entry when no instance uses it. Keep archive staging files
+beside the entry so directory exchange cannot invalidate their source paths.
 
 ## Accepted risks and implementation requirements
 
@@ -116,7 +128,7 @@ It therefore has these deployment constraints:
 | The default cache is read-only, on a `noexec` mount, or blocked by execution policy. | Allow a caller-selected writable cache through the Rust API or `SEEKDB_CACHE_DIR`. On Linux, diagnose a confirmed `noexec` mount before native initialization, for example using `statvfs` flags. Report the actual path, failed operation, and underlying system error; do not classify every permission failure as `noexec`. Explain how to select a different cache root. Embedding cannot bypass host execution policy. |
 | The cache is cleared before use or an extraction is interrupted. | Treat this as a recoverable cache miss: recreate the missing or incomplete entry from the embedded bytes without a download. Check before each `Seekdb::open` that may start a server, even when libseekdb is already loaded. The cost is extraction time and disk writes; database data is outside this cache. |
 | An external cleaner deletes cache files while an instance is running. | On Linux, unlinking an executable or shared library does not invalidate its existing memory mappings, so deletion alone generally does not stop an already running server. Later file opens, deferred library loads, or server starts can still require the deleted paths. Restore the bundle before operations controlled by the binding; do not promise transparent recovery from arbitrary deletion during native execution. SDK-managed cleanup must avoid entries in use and must never overwrite active mapped files in place. |
-| Several applications initialize the same bundle concurrently. | Coordinate with a process-safe lock and publish only a complete, validated extraction. |
+| Several applications initialize the same bundle concurrently. | Prepare independently and publish complete entries with rename, reusing an already valid winner. Accept duplicate cold-start work. Repair nonempty entries with atomic directory exchange so concurrent readers never see a missing directory. |
 | Cache contents are modified by another user. | Use a user-owned cache with appropriate access permissions and safely extract archive paths. A completion marker is not an integrity guarantee. |
 | Native artifacts increase application size, first-use latency, and disk usage. | Document that the compressed archive remains in the compiled artifact and the extracted runtime consumes additional disk space. Different versions can leave separate cache entries. |
 | Different SDK versions or separately built modules embed multiple archives. | Keep cache entries distinct by target, native version, and archive hash. Cargo can share a resolved Rust dependency within one build graph, but cannot deduplicate payloads across independently built dynamic libraries. |

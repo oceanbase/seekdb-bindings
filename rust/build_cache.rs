@@ -60,8 +60,8 @@ pub(crate) fn prepare_archive(
     let package = out_dir.join(name);
     let local_valid = valid(&package, expected);
     if let Some(cache) = shared_cache {
-        match cache.lock() {
-            Ok(_lock) => {
+        match cache.prepare_directory() {
+            Ok(()) => {
                 let shared = cache.archive_path();
                 if !local_valid {
                     if valid(&shared, expected) {
@@ -75,18 +75,18 @@ pub(crate) fn prepare_archive(
                 }
                 let bytes = fs::read(&package)
                     .map_err(|error| format!("read {}: {error}", package.display()))?;
-                match cache.ensure_locked(&bytes) {
+                match cache.ensure(&bytes) {
                     Ok(_) => {
                         if !valid(&shared, expected) {
-                            if let Err(error) = cache.store_archive_locked(&cache.entry(), &bytes) {
+                            if let Err(error) = cache.store_archive(&cache.entry(), &bytes) {
                                 println!("cargo:warning=cannot cache seekdb archive: {error}; using OUT_DIR");
                             }
                         }
                     }
                     Err(error) => println!("cargo:warning=cannot prepare shared seekdb native cache: {error}; using OUT_DIR"),
                 }
-                // Both build and runtime use this lock, manifest, and native
-                // entry. Cargo still embeds an independent OUT_DIR snapshot.
+                // Build and runtime publish independently and reuse the winning
+                // complete entry. Cargo embeds an independent OUT_DIR snapshot.
                 return Ok(package);
             }
             Err(error) => println!(

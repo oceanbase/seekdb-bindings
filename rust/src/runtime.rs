@@ -120,10 +120,10 @@ impl Bundle<'_> {
 
     pub(crate) fn ensure(&self) -> Result<PathBuf, Error> {
         let cache = self.cache();
-        let _lock = cache.lock().map_err(map_cache_error)?;
+        cache.prepare_directory().map_err(map_cache_error)?;
         // Builds can prepare files on noexec mounts; only runtime use requires execution.
         check_executable_mount(&self.root)?;
-        cache.ensure_locked(self.archive).map_err(map_cache_error)
+        cache.ensure(self.archive).map_err(map_cache_error)
     }
 }
 

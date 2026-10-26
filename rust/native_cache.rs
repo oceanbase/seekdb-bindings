@@ -1,10 +1,10 @@
 use flate2::read::GzDecoder;
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 
 pub(crate) const ARCHIVE_NAME: &str = "bundle.tar.gz";
@@ -186,25 +186,9 @@ impl NativeCache<'_> {
         self.entry().join(ARCHIVE_NAME)
     }
 
-    /// Shared by builds and running applications; lock stays outside the entry.
-    pub(crate) fn lock(&self) -> Result<File, CacheError> {
+    pub(crate) fn prepare_directory(&self) -> Result<(), CacheError> {
         private_directory(&self.root)?;
-        let entry = self.entry();
-        let parent = entry.parent().unwrap();
-        private_directory(parent)?;
-        let path = parent.join(format!(".{}.lock", self.hash));
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)
-            .map_err(|error| cache_error(&path, "open cache lock", error))?;
-        file.lock_exclusive()
-            .map_err(|error| cache_error(&path, "lock cache", error))?;
-        Ok(file)
+        private_directory(self.entry().parent().unwrap())
     }
 
     fn valid_cache(&self, root: &Path) -> io::Result<PathBuf> {
@@ -260,8 +244,9 @@ impl NativeCache<'_> {
         Ok(native.join(self.library))
     }
 
-    /// Caller must hold lock(). Reuse a complete entry or publish a full replacement.
-    pub(crate) fn ensure_locked(&self, archive: &[u8]) -> Result<PathBuf, CacheError> {
+    /// Prepare independently, then publish or reuse another process's complete entry.
+    pub(crate) fn ensure(&self, archive: &[u8]) -> Result<PathBuf, CacheError> {
+        self.prepare_directory()?;
         let expanded = self.entry();
         if let Ok(path) = self.valid_cache(&expanded) {
             return Ok(path);
@@ -303,26 +288,75 @@ impl NativeCache<'_> {
         };
         // The archive is a build input, not a required native runtime file. Keep
         // it out of the inventory so builds can repair it without replacing .so files.
-        self.store_archive_locked(staging.path(), archive)?;
+        self.store_archive(staging.path(), archive)?;
         let marker = staging.path().join(".complete");
         let bytes = serde_json::to_vec(&manifest)
             .map_err(|error| cache_error(&marker, "serialize completion manifest", error.into()))?;
         fs::write(&marker, bytes)
             .map_err(|error| cache_error(&marker, "write completion manifest", error))?;
-        if fs::symlink_metadata(&expanded).is_ok() {
-            // Other processes may still map these files. Never overwrite them in place.
-            let retired = tempfile::Builder::new()
-                .prefix(".retired-")
-                .tempdir_in(parent)
-                .map_err(|error| cache_error(parent, "create retired entry directory", error))?;
-            fs::rename(&expanded, retired.path().join("bundle"))
-                .map_err(|error| cache_error(&expanded, "retire incomplete cache", error))?;
-            let _ = retired.keep();
+        self.publish(staging)
+    }
+
+    fn publish(&self, staging: tempfile::TempDir) -> Result<PathBuf, CacheError> {
+        let expanded = self.entry();
+        for _ in 0..8 {
+            if let Ok(path) = self.valid_cache(&expanded) {
+                return Ok(path); // A concurrent publisher won; drop our private staging tree.
+            }
+            match fs::rename(staging.path(), &expanded) {
+                Ok(()) => {
+                    return self
+                        .valid_cache(&expanded)
+                        .map_err(|error| cache_error(&expanded, "validate published cache", error))
+                }
+                Err(error) => {
+                    if let Ok(path) = self.valid_cache(&expanded) {
+                        return Ok(path);
+                    }
+                    match fs::symlink_metadata(&expanded) {
+                        Err(missing) if missing.kind() == io::ErrorKind::NotFound => continue,
+                        Err(_) => {
+                            return Err(cache_error(&expanded, "publish native cache", error))
+                        }
+                        Ok(_) => {}
+                    }
+                }
+            }
+            // Replacing a nonempty directory needs an atomic exchange. Two plain
+            // renames would leave a gap and could retire a concurrent winner.
+            match exchange_directories(staging.path(), &expanded) {
+                Ok(()) => {
+                    // Staging now holds the previous entry. Keep its mapped files
+                    // alive even if another publisher just replaced a healthy entry.
+                    let old = staging.keep();
+                    let parent = expanded.parent().unwrap();
+                    if let Ok(retired) = tempfile::Builder::new()
+                        .prefix(".retired-")
+                        .tempdir_in(parent)
+                    {
+                        if fs::rename(&old, retired.path().join("bundle")).is_ok() {
+                            let _ = retired.keep();
+                        }
+                    }
+                    return self
+                        .valid_cache(&expanded)
+                        .map_err(|error| cache_error(&expanded, "validate replaced cache", error));
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(cache_error(
+                        &expanded,
+                        "atomically replace incomplete cache",
+                        error,
+                    ))
+                }
+            }
         }
-        fs::rename(staging.path(), &expanded)
-            .map_err(|error| cache_error(&expanded, "publish native cache", error))?;
-        self.valid_cache(&expanded)
-            .map_err(|error| cache_error(&expanded, "validate native cache", error))
+        Err(cache_error(
+            &expanded,
+            "publish native cache",
+            io::Error::other("cache directory repeatedly disappeared during publication"),
+        ))
     }
 
     fn verify_archive(&self, archive: &[u8]) -> Result<(), CacheError> {
@@ -339,16 +373,15 @@ impl NativeCache<'_> {
         Ok(())
     }
 
-    /// Caller must hold lock(). Repair only the compressed copy, leaving loaded code intact.
-    pub(crate) fn store_archive_locked(
-        &self,
-        entry: &Path,
-        archive: &[u8],
-    ) -> Result<(), CacheError> {
+    /// Publish only the compressed copy, leaving native files intact.
+    pub(crate) fn store_archive(&self, entry: &Path, archive: &[u8]) -> Result<(), CacheError> {
         self.verify_archive(archive)?;
         let path = entry.join(ARCHIVE_NAME);
-        let mut temporary = tempfile::NamedTempFile::new_in(entry)
-            .map_err(|error| cache_error(entry, "create archive staging file", error))?;
+        // Keep the staging file beside the cache entry, because another process
+        // may exchange the entry directory while this file is being written.
+        let parent = entry.parent().unwrap();
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)
+            .map_err(|error| cache_error(parent, "create archive staging file", error))?;
         temporary
             .write_all(archive)
             .map_err(|error| cache_error(&path, "write cached archive", error))?;
@@ -356,5 +389,38 @@ impl NativeCache<'_> {
             .persist(&path)
             .map_err(|error| cache_error(&path, "publish cached archive", error.error))?;
         Ok(())
+    }
+}
+
+fn exchange_directories(left: &Path, right: &Path) -> io::Result<()> {
+    let left = std::ffi::CString::new(left.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "cache path contains NUL"))?;
+    let right = std::ffi::CString::new(right.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "cache path contains NUL"))?;
+    #[cfg(target_os = "linux")]
+    // SAFETY: Both paths are NUL-terminated. renameat2 atomically exchanges names
+    // on the same filesystem and never modifies files that other processes map.
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            left.as_ptr(),
+            libc::AT_FDCWD,
+            right.as_ptr(),
+            libc::RENAME_EXCHANGE,
+        )
+    };
+    #[cfg(target_os = "macos")]
+    // SAFETY: Both paths are valid C strings; RENAME_SWAP provides the same exchange.
+    let result = unsafe { libc::renamex_np(left.as_ptr(), right.as_ptr(), libc::RENAME_SWAP) };
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    return Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "atomic cache directory exchange is unsupported on this platform",
+    ));
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
 }

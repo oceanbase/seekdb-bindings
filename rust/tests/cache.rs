@@ -46,6 +46,18 @@ fn api_configuration_is_frozen_and_cache_recovers_with_library_loaded() {
         .unwrap();
 
     let extracted = find_bundle(&root).expect("API-selected root contains the extracted bundle");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(extracted.join(".complete")).unwrap()).unwrap();
+    let native_dir = extracted.join(manifest["native_dir"].as_str().unwrap());
+    fs::remove_file(native_dir.join("seekdb")).unwrap();
+    let repaired = Seekdb::open(&data).unwrap();
+    assert!(native_dir.join("seekdb").is_file());
+    let value: Option<u64> = connection
+        .query_first("SELECT value FROM cache_recovery")
+        .unwrap();
+    assert_eq!(value, Some(42));
+    repaired.close().unwrap();
+
     fs::remove_dir_all(&extracted).unwrap();
     // Already mapped code and the active server remain usable on Linux. The
     // next open must restore files even though Native's OnceLock is populated.
