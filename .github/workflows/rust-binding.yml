@@ -17,24 +17,22 @@ jobs:
   linux-x86_64:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.rust-target
+      SEEKDB_CACHE_DIR: ${{ github.workspace }}/.rust-runtime-cache
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
       - name: Test the OSS bundle on Linux x86_64
         run: cargo test --manifest-path rust/Cargo.toml --locked
-      - name: Test a relocated executable with a staged bundle
-        shell: bash
+      - name: Check formatting
         run: |
-          set -euo pipefail
-          native_library="$(find rust/target/debug/build -path '*/native-*/*/lib/libseekdb.so' -print -quit)"
-          test -n "$native_library"
-          native_dir="${native_library%/libseekdb.so}"
-          test_binary="$(find rust/target/debug/deps -maxdepth 1 -type f -name 'lifecycle-*' -perm /111 -print -quit)"
-          test -n "$test_binary"
-          app_dir="$(mktemp -d)"
-          cp "$test_binary" "$app_dir/lifecycle"
-          cp -a "$native_dir" "$app_dir/lib"
-          mv "$native_dir" "$native_dir.hidden"
-          trap 'mv "$native_dir.hidden" "$native_dir"' EXIT
-          env -u SEEKDB_NATIVE_DIR "$app_dir/lifecycle" --exact open_endpoint_and_close
+          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+          cargo fmt --manifest-path rust/tests/consumer/Cargo.toml --all -- --check
+      - name: Run synchronous and Tokio SQL examples
+        run: |
+          cargo run --manifest-path rust/Cargo.toml --locked --example first_query -- "$(mktemp -d)/database"
+          cargo run --manifest-path rust/Cargo.toml --locked --example async_query -- "$(mktemp -d)/database"
+      - name: Test application and dynamic-library deployment
+        run: bash rust/tests/consumer/test-deployment.sh --check-noexec

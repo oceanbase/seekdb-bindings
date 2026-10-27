@@ -1,0 +1,10 @@
+[package]
+name = "seekdb-consumer-app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+seekdb-consumer-b = { path = "../b" }
+seekdb-consumer-c = { path = "../c" }
+mysql = { version = "28", default-features = false, features = ["minimal-rust"] }
