@@ -74,8 +74,7 @@ fn download(asset: &Asset, out_dir: &Path, package: &Path) -> Result<(), String>
         });
         match result {
             Ok(()) => {
-                temporary
-                    .persist(package)
+                native_cache::publish_file(temporary, package)
                     .map_err(|error| format!("cache {}: {error}", package.display()))?;
                 return Ok(());
             }

@@ -11,6 +11,22 @@ use std::path::{Component, Path, PathBuf};
 
 pub(crate) const ARCHIVE_NAME: &str = "bundle.tar.gz";
 
+/// Publish a complete staged file without overwriting a reader's file in place.
+/// Keep this shared by build inputs, metadata and runtime completion markers:
+/// std::fs::rename can retry Windows replacement with POSIX semantics, unlike
+/// tempfile::persist's MoveFileExW-only implementation.
+pub(crate) fn publish_file(
+    temporary: tempfile::NamedTempFile,
+    destination: &Path,
+) -> io::Result<()> {
+    let (file, staging) = temporary.keep().map_err(|e| e.error)?;
+    drop(file);
+    let mut staging = tempfile::TempPath::try_from_path(staging)?;
+    fs::rename(&staging, destination)?;
+    staging.disable_cleanup(true);
+    Ok(())
+}
+
 pub(crate) struct NativeCache<'a> {
     pub root: PathBuf,
     pub hash: &'a str,
@@ -480,9 +496,8 @@ impl NativeCache<'_> {
             .map_err(|e| cache_error(&expanded, "create completion staging file", e))?;
         serde_json::to_writer(marker.as_file_mut(), &manifest)
             .map_err(|e| cache_error(&expanded, "write completion manifest", e.into()))?;
-        marker
-            .persist(expanded.join(".complete"))
-            .map_err(|e| cache_error(&expanded, "publish completion manifest", e.error))?;
+        publish_file(marker, &expanded.join(".complete"))
+            .map_err(|e| cache_error(&expanded, "publish completion manifest", e))?;
         self.store_archive(
             &expanded,
             &fs::read(destination.join(ARCHIVE_NAME))
@@ -518,9 +533,8 @@ impl NativeCache<'_> {
         temporary
             .write_all(archive)
             .map_err(|error| cache_error(&path, "write cached archive", error))?;
-        temporary
-            .persist(&path)
-            .map_err(|error| cache_error(&path, "publish cached archive", error.error))?;
+        publish_file(temporary, &path)
+            .map_err(|error| cache_error(&path, "publish cached archive", error))?;
         Ok(())
     }
 }

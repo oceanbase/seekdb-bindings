@@ -214,3 +214,37 @@ fn repairs_retain_previous_generations_for_existing_readers() {
     }
     assert_eq!(fs::read(native.archive_path()).unwrap(), bytes);
 }
+
+#[test]
+fn repair_preserves_open_completion_and_archive_readers() {
+    use std::io::Read;
+    let temporary = tempfile::tempdir().unwrap();
+    let bytes = archive();
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    let native = cache(temporary.path(), &hash);
+    let library = native.ensure(&bytes).unwrap();
+    let marker = native.entry().join(".complete");
+    let old_manifest = fs::read(&marker).unwrap();
+    let mut manifest_reader = fs::File::open(&marker).unwrap();
+    let mut archive_reader = fs::File::open(native.archive_path()).unwrap();
+    fs::remove_file(library.with_file_name("seekdb")).unwrap();
+    let repaired = native.ensure(&bytes).unwrap();
+    assert_eq!(fs::read(&repaired).unwrap(), b"native");
+    assert!(repaired.with_file_name("seekdb").is_file());
+    assert_eq!(fs::read(native.archive_path()).unwrap(), bytes);
+    let mut observed_manifest = Vec::new();
+    manifest_reader.read_to_end(&mut observed_manifest).unwrap();
+    assert_eq!(observed_manifest, old_manifest);
+    let mut observed_archive = Vec::new();
+    archive_reader.read_to_end(&mut observed_archive).unwrap();
+    assert_eq!(observed_archive, bytes);
+    let completed: serde_json::Value = serde_json::from_slice(&fs::read(marker).unwrap()).unwrap();
+    assert_eq!(completed["hash"], hash);
+    assert_eq!(
+        native
+            .entry()
+            .join(completed["native_dir"].as_str().unwrap())
+            .join("libseekdb.so"),
+        repaired
+    );
+}

@@ -1,6 +1,6 @@
 //! Build-time metadata cache. Runtime code never downloads a manifest.
 use crate::bundle_manifest::Config;
-use crate::native_cache::private_directory;
+use crate::native_cache::{private_directory, publish_file};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -32,19 +32,8 @@ fn publish(path: &Path, bytes: &[u8]) -> Result<(), String> {
     temporary
         .write_all(bytes)
         .map_err(|e| format!("write native manifest: {e}"))?;
-    // Clear Windows' temporary-file attribute, close our handle, and keep
-    // cleanup armed if publication fails. std::fs::rename can retry Windows
-    // replacement using FileRenameInfoEx/POSIX semantics; tempfile::persist
-    // only uses MoveFileExW and fails when an existing reader remains open.
-    let (file, staging) = temporary
-        .keep()
-        .map_err(|e| format!("prepare native manifest publication: {e}"))?;
-    drop(file);
-    let mut staging = tempfile::TempPath::try_from_path(staging)
-        .map_err(|e| format!("guard native manifest staging path: {e}"))?;
-    fs::rename(&staging, path)
+    publish_file(temporary, path)
         .map_err(|e| format!("publish native manifest at {}: {e}", path.display()))?;
-    staging.disable_cleanup(true);
     Ok(())
 }
 
