@@ -23,7 +23,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tar = "0.4"
-tempfile = "3"
+tempfile = "3.27.0"
 
 [build-dependencies]
 dirs = "6"
@@ -33,7 +33,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tar = "0.4"
-tempfile = "3"
+tempfile = "3.27.0"
 ureq = { version = "3.5", features = ["platform-verifier"] }
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 url = "2"
@@ -43,5 +43,5 @@ toml = { version = "0.9", default-features = false, features = ["parse", "serde"
 url = "2"
 mysql = { version = "28", default-features = false, features = ["minimal-rust"] }
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust"] }
-tempfile = "3"
+tempfile = "3.27.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

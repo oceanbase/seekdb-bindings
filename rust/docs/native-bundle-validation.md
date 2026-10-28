@@ -101,6 +101,18 @@ Windows cache permissions inherit the containing directory's DACL; use a private
 user directory. Long paths, UNC paths, or characters outside the active ANSI
 code page are rejected instead of silently changing paths.
 
+The pinned r2 C driver retains a spawned process in its reaper bookkeeping
+when readiness times out; it does not synchronously terminate that server.
+A server that never completes startup may therefore outlive the failed open.
+The engine's last-client shutdown mechanism is asynchronous. The Python race
+runner kills and reaps only its directly owned consumer processes, and does
+not promise termination of native grandchildren after arbitrary hangs.
+Changing C source in this bindings repository would not change the prebuilt
+r2 libraries Rust embeds. A native-layer timeout/ownership change needs its own
+cross-platform regression tests and a newly published, verified native revision.
+In particular, a termination policy must account for concurrent clients that
+can already have attached through the ready-server fast path.
+
 Neither runtime embedding nor static binary inspection proves compatibility
 with all host CPU features or security policies. Linux/macOS damaged-directory
 repair requires filesystem atomic exchange support. Old directories/generations

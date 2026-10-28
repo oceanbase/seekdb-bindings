@@ -21,7 +21,11 @@ proxies point at an unreachable address to catch accidental network dependency.
 The library is `.so` on Linux, `.dylib` on macOS, and `.dll` on Windows; this is
 only a test artifact, not an added SDK dependency. Windows cleanup retries while
 child processes release mapped files; cache deletion during execution is not
-claimed to work there.
+claimed to work there. Timeout or partial-spawn failures terminate and reap the
+runner's own consumer processes before cleanup. Native servers are separate
+children of those consumers; r2's asynchronous shutdown/readiness-timeout
+behavior is described in the [native limitations](../../docs/native-bundle-validation.md).
+The runner does not claim to kill every native descendant after arbitrary hangs.
 
 To also check the error returned for a `noexec` cache filesystem, as CI does:
 
