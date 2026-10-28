@@ -13,10 +13,20 @@ Run from this repository on a platform listed below:
 cargo run --manifest-path rust/Cargo.toml --example first_query -- /tmp/seekdb-rust-demo
 ```
 
-The example opens the database, connects using the returned Unix socket (Linux/macOS) or TCP host and
-random port (Windows), as `root` with an empty password to database `test`, runs `SELECT 1`, and prints `SELECT 1 = 1`.
+The example opens the database and connects using the returned Unix socket
+(Linux/macOS) or TCP host and random port (Windows), as `root` with an empty
+password to database `test`. It runs `SELECT 1` and prints `SELECT 1 = 1`.
 It closes the SQL connection before releasing the lifecycle handle. The complete
 source is in [`examples/first_query.rs`](examples/first_query.rs).
+
+On Windows PowerShell, use a local data path, for example:
+
+```powershell
+cargo run --manifest-path rust/Cargo.toml --example first_query -- .\seekdb-rust-demo
+```
+
+The application's own Rust/MSVC runtime dependencies still apply on Windows;
+embedding the native bundle does not change its compiler's CRT linkage.
 
 To use the binding in your own application, add these dependencies to its
 `Cargo.toml`, adjusting the checkout path:
@@ -159,6 +169,12 @@ An operator can change the location without rebuilding the application:
 ```sh
 SEEKDB_CACHE_DIR=/data/my-app/runtime-cache ./my-app /data/my-app/database
 ```
+
+For Windows PowerShell, an absolute short local-drive root can be selected with
+`$env:SEEKDB_CACHE_DIR = 'C:\seekdb-cache'`; create a private directory writable
+by your account. The default LocalAppData cache avoids requiring a drive-root
+write permission. Use the same absolute local path convention for the Rust API.
+
 
 A successful native initialization freezes the selected root for this copy of
 the Rust dependency. Later API changes return an error. Libraries sharing the

@@ -42,19 +42,42 @@ repair without a missing published-library path. Windows native tests also
 exercise generation-based repair; external deletion of mapped DLLs is excluded
 because Windows denies it.
 
-Cross-target `cargo check`/Clippy on Linux establishes compilation only. Native
-GitHub Actions jobs are configured for Ubuntu x86_64/ARM64, macOS 15 Intel/ARM64,
-and Windows Server 2022. Their status must be read from the PR's checks; the
-presence of these jobs is not a test-pass claim. The manifest itself explicitly
-records that its publisher did not run Linux ARM64 smoke tests.
+## Native CI evidence
+
+The implementation commit `07f5f13d8c0d931dcc87101068275ea224ac3460` passed
+all five jobs in the [native workflow run](https://github.com/hnwyllmm/seekdb-bindings/actions/runs/40651204407).
+These are actual native runs with the official pinned runtime bundle:
+
+| Target | Native runner | Full workflow result |
+| --- | --- | --- |
+| Linux x86_64 GNU | Ubuntu 24.04 x86_64 | Passed |
+| Linux ARM64 GNU | Ubuntu 24.04 ARM64 | Passed |
+| macOS Intel | macOS 15 Intel | Passed |
+| macOS ARM64 | macOS 15 Apple Silicon | Passed |
+| Windows x86_64 MSVC | Windows Server 2022 | Passed |
+
+Each job passed lifecycle/SQL/cache tests, formatting and Clippy, synchronous
+and Tokio SQL examples, installed/copied applications, SQL through the deployed
+Rust cdylib, concurrent cold/repair consumers, and a real source-package check.
+Both Linux jobs additionally mounted and tested an explicit noexec tmpfs. The
+Windows tests exercised retained-generation repair while the driver was loaded
+and checked that prior generations remain readable. Whole-cache deletion was
+tested between consumers on Windows, rather than unlinking mapped executables.
+
+Local cross-target checks establish compilation only; the native CI results
+above provide separate execution evidence. The manifest publisher did not run
+Linux ARM64 smoke tests, but this implementation has now passed native ARM64 CI.
+The evidence refers to the implementation commit; subsequent documentation-only
+commits do not change these native sources. For the latest commit, read the
+[PR checks](https://github.com/oceanbase/seekdb-bindings/pull/84/checks).
 
 ## Remaining limits and publishing
 
 The Linux tests did not run on a glibc 2.28 machine; that lower bound comes from
 the manifest and ELF version requirements. The Windows manifest gives no
 minimum OS version. Windows Server 2022 is the CI baseline; older versions are
-not established by this work. Windows remains preview pending native CI and
-maintainer review of its ANSI/local-path limits and generation retention.
+not established by this work. Windows remains preview while maintainers review native CI evidence, its
+unspecified minimum OS, ANSI/local-path limits, and generation retention.
 Windows cache permissions inherit the containing directory's DACL; use a private
 user directory. Long paths, UNC paths, or characters outside the active ANSI
 code page are rejected instead of silently changing paths.
