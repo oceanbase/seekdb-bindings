@@ -298,3 +298,57 @@ fn concurrent_builds_publish_complete_manifests_without_locks() {
     assert_eq!(fs::read(&shared).unwrap(), bytes);
     assert_eq!(fs::read_dir(shared.parent().unwrap()).unwrap().count(), 1);
 }
+
+#[cfg(windows)]
+#[test]
+fn foreign_windows_readers_preserve_build_inputs_and_can_defer_shared_repair() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let temporary = tempfile::tempdir().unwrap();
+    let (config, bundled, bytes) = release();
+    let root = temporary.path().join("cache");
+    manifest_cache::prepare_manifest(temporary.path(), Some(&root), &config, &bundled, || {
+        Ok(bytes.clone())
+    })
+    .unwrap();
+    let shared = manifest_cache::cache_path(&root, &config);
+    fs::write(&shared, b"corrupt cache").unwrap();
+    // Emulate a foreign reader that does not grant FILE_SHARE_DELETE.
+    // The SDK never takes a cache file lock of its own.
+    let mut reader = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1 | 2)
+        .open(&shared)
+        .unwrap();
+    assert_eq!(
+        manifest_cache::prepare_manifest(
+            temporary.path(),
+            Some(&root),
+            &config,
+            &bundled,
+            || panic!("must reuse verified build copy")
+        )
+        .unwrap(),
+        bytes
+    );
+    let published = fs::read(&shared).unwrap();
+    assert!(
+        published == bytes || published == b"corrupt cache",
+        "the shared name must expose a complete old or new file"
+    );
+    let mut old_bytes = Vec::new();
+    reader.read_to_end(&mut old_bytes).unwrap();
+    assert_eq!(
+        old_bytes, b"corrupt cache",
+        "never overwrite a reader's file in place"
+    );
+    assert_eq!(
+        fs::read(temporary.path().join(config.manifest_name())).unwrap(),
+        bytes
+    );
+    drop(reader);
+    manifest_cache::prepare_manifest(temporary.path(), Some(&root), &config, &bundled, || {
+        panic!("must repair without network")
+    })
+    .unwrap();
+    assert_eq!(fs::read(shared).unwrap(), bytes);
+}

@@ -151,7 +151,11 @@ root selected by `SEEKDB_CACHE_DIR` (or the platform default):
 Each build also keeps its own verified manifest in `OUT_DIR`. Missing/corrupt
 metadata is repaired through verified copies or a new request. Publishers stage
 complete files and publish with atomic rename, without file locks. An unavailable
-shared metadata cache warns and uses `OUT_DIR`, as the bundle cache does. Runtime
+shared metadata cache warns and uses `OUT_DIR`, as the bundle cache does.
+On Windows, metadata publication uses standard Rust rename handling for open
+readers. If a foreign handle or filesystem policy still denies replacement,
+the verified build-local copy remains usable and a later build can repair the
+shared copy after the handle closes. Runtime
 never reads this metadata cache or contacts OSS; its embedded archive and
 `<root>/<target>/<native-version>/<full-archive-sha256>` entry are unchanged.
 After preparing the cache with `SEEKDB_CACHE_DIR` explicitly set,
