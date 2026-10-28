@@ -1,0 +1,2 @@
+# Release manifests are pinned by their exact bytes, including line endings.
+manifest-*.json -text
