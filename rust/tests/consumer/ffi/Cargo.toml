@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 seekdb-consumer-b = { path = "../b" }
+mysql = { version = "28", default-features = false, features = ["minimal-rust"] }

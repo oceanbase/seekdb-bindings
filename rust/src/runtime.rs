@@ -1,6 +1,8 @@
 use crate::{native_cache, Error};
 use std::ffi::OsString;
+#[cfg(target_os = "linux")]
 use std::io;
+#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -29,7 +31,7 @@ pub(crate) fn absolute_root(path: &Path) -> Result<PathBuf, Error> {
             path.display()
         )));
     }
-    if path.as_os_str().as_bytes().contains(&0) {
+    if path.as_os_str().as_encoded_bytes().contains(&0) {
         return Err(Error::InvalidInput(
             "seekdb cache directory contains NUL".into(),
         ));
@@ -68,6 +70,7 @@ impl Bundle<'static> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn cache_error(path: &Path, operation: &'static str, source: io::Error) -> Error {
     Error::RuntimeCache {
         path: path.to_path_buf(),
@@ -142,6 +145,7 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::fs::{self, File};
     use std::io::Write;
+    #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 
     fn archive() -> Vec<u8> {
@@ -159,40 +163,51 @@ mod tests {
                 .append_data(&mut header, name, bytes.as_bytes())
                 .unwrap();
         }
-        let mut header = tar::Header::new_gnu();
-        header.set_entry_type(tar::EntryType::Symlink);
-        header.set_size(0);
-        header.set_mode(0o777);
-        header.set_link_name(".libs/libaio.so.1").unwrap();
-        header.set_cksum();
-        archive
-            .append_data(&mut header, "package/lib/libaio.so.1", io::empty())
-            .unwrap();
+        #[cfg(unix)]
+        {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_link_name(".libs/libaio.so.1").unwrap();
+            header.set_cksum();
+            archive
+                .append_data(&mut header, "package/lib/libaio.so.1", std::io::empty())
+                .unwrap();
+        }
         archive.into_inner().unwrap().finish().unwrap()
     }
 
     #[test]
     fn root_precedence_and_invalid_override() {
-        let default = Some(PathBuf::from("/default"));
+        let temporary = tempfile::tempdir().unwrap();
+        let api = temporary.path().join("api");
+        let environment = temporary.path().join("env");
+        let default = temporary.path().join("default");
         assert_eq!(
             select_root(
-                Some(Path::new("/api")),
-                Some("/env".into()),
-                default.clone()
+                Some(&api),
+                Some(environment.clone().into()),
+                Some(default.clone())
             )
             .unwrap(),
-            Path::new("/api")
+            api
         );
         assert_eq!(
-            select_root(None, Some("/env".into()), default.clone()).unwrap(),
-            Path::new("/env")
+            select_root(
+                None,
+                Some(environment.clone().into()),
+                Some(default.clone())
+            )
+            .unwrap(),
+            environment
         );
         assert_eq!(
-            select_root(None, None, default).unwrap(),
-            Path::new("/default")
+            select_root(None, None, Some(default.clone())).unwrap(),
+            default
         );
-        assert!(select_root(None, Some("relative".into()), Some("/default".into())).is_err());
-        assert!(select_root(None, Some("".into()), Some("/default".into())).is_err());
+        assert!(select_root(None, Some("relative".into()), Some(default.clone())).is_err());
+        assert!(select_root(None, Some("".into()), Some(default)).is_err());
     }
 
     #[test]
@@ -217,23 +232,31 @@ mod tests {
             }
         });
         let path = bundle.ensure().unwrap();
+        #[cfg(unix)]
         let original = fs::metadata(&path).unwrap().ino();
+        #[cfg(unix)]
         assert_eq!(
             fs::metadata(bundle.ensure().unwrap()).unwrap().ino(),
             original
         );
         let native = path.parent().unwrap();
+        #[cfg(unix)]
         assert!(fs::symlink_metadata(native.join("libaio.so.1"))
             .unwrap()
             .file_type()
             .is_symlink());
+        #[cfg(unix)]
         assert_ne!(
             fs::metadata(native.join("seekdb")).unwrap().mode() & 0o111,
             0
         );
         fs::remove_file(native.join(".libs/libaio.so.1")).unwrap();
-        bundle.ensure().unwrap();
-        assert_eq!(fs::read(native.join("libaio.so.1")).unwrap(), b"dependency");
+        let repaired = bundle.ensure().unwrap();
+        assert_eq!(
+            fs::read(repaired.parent().unwrap().join(".libs/libaio.so.1")).unwrap(),
+            b"dependency"
+        );
+        #[cfg(unix)]
         assert_ne!(fs::metadata(&path).unwrap().ino(), original);
         fs::remove_dir_all(bundle.expanded()).unwrap();
         assert!(bundle.ensure().unwrap().is_file());

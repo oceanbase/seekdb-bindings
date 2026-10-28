@@ -8,6 +8,7 @@ use flate2::{write::GzEncoder, Compression};
 use native_cache::NativeCache;
 use sha2::{Digest, Sha256};
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -73,9 +74,11 @@ fn builds_and_runtime_share_one_prepared_entry() {
     assert_eq!(fs::read(native.archive_path()).unwrap(), bytes);
     assert!(native.entry().join(".complete").is_file());
     let library = native.entry().join("package/lib/libseekdb.so");
+    #[cfg(unix)]
     let inode = fs::metadata(&library).unwrap().ino();
     // This is the same cache operation used by Bundle::ensure at runtime.
     assert_eq!(native.ensure(&bytes).unwrap(), library);
+    #[cfg(unix)]
     assert_eq!(fs::metadata(&library).unwrap().ino(), inode);
     fs::remove_dir_all(&native.root).unwrap();
     assert_eq!(
@@ -97,7 +100,9 @@ fn archive_repair_preserves_the_prepared_native_files() {
         panic!("must not download")
     })
     .unwrap();
+    #[cfg(unix)]
     let library = native.entry().join("package/lib/libseekdb.so");
+    #[cfg(unix)]
     let inode = fs::metadata(&library).unwrap().ino();
     fs::write(native.archive_path(), b"corrupt cached archive").unwrap();
     cache::prepare_archive(&out, Some(&native), NAME, &hash, |_, _| {
@@ -105,6 +110,7 @@ fn archive_repair_preserves_the_prepared_native_files() {
     })
     .unwrap();
     assert_eq!(fs::read(native.archive_path()).unwrap(), bytes);
+    #[cfg(unix)]
     assert_eq!(fs::metadata(&library).unwrap().ino(), inode);
 }
 
@@ -145,4 +151,51 @@ fn unavailable_user_cache_falls_back_to_cargo_output() {
         })
         .unwrap();
     assert_eq!(fs::read(package).unwrap(), bytes);
+}
+
+#[test]
+fn windows_bundle_layout_is_normalized_without_discarding_files() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::fast()));
+    for (path, contents) in [
+        ("package/lib/seekdb.dll", "driver"),
+        ("package/lib/dependency.dll", "dependency"),
+        ("package/bin/seekdb.exe", "server"),
+        ("package/licenses/LICENSE", "license"),
+    ] {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(contents.len() as u64);
+        header.set_mode(0o666);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, path, contents.as_bytes())
+            .unwrap();
+    }
+    let bytes = builder.into_inner().unwrap().finish().unwrap();
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    let native = NativeCache {
+        root: temporary.path().join("cache"),
+        target: "x86_64-pc-windows-msvc",
+        version: "test",
+        hash: &hash,
+        library: "seekdb.dll",
+    };
+    let library = native.ensure(&bytes).unwrap();
+    assert_eq!(library, native.entry().join("lib/seekdb.dll"));
+    assert_eq!(
+        fs::read(library.with_file_name("seekdb.exe")).unwrap(),
+        b"server"
+    );
+    assert_eq!(
+        fs::read(native.entry().join("bin/seekdb.exe")).unwrap(),
+        b"server"
+    );
+    assert_eq!(
+        fs::read(native.entry().join("licenses/LICENSE")).unwrap(),
+        b"license"
+    );
+    assert_eq!(
+        fs::read(native.entry().join("lib/dependency.dll")).unwrap(),
+        b"dependency"
+    );
 }

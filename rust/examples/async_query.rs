@@ -6,11 +6,12 @@ use std::path::PathBuf;
 type AppError = Box<dyn Error + Send + Sync>;
 
 async fn query(endpoint: ConnectionOptions) -> Result<(), AppError> {
-    let socket = endpoint
-        .unix_socket
-        .ok_or("expected a Unix socket endpoint")?;
+    // POSIX defaults to a Unix socket; Windows defaults to a random TCP port.
+    // Use the returned endpoint rather than assuming port 3306.
     let options = OptsBuilder::default()
-        .socket(Some(socket))
+        .ip_or_hostname(endpoint.host.unwrap_or_else(|| "127.0.0.1".into()))
+        .tcp_port(endpoint.port.unwrap_or(0))
+        .socket(endpoint.unix_socket)
         .user(Some(endpoint.user))
         .pass(Some(""))
         .db_name(Some("test"));

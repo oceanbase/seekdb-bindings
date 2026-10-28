@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 
@@ -77,14 +79,18 @@ enum Kind {
 }
 
 fn private_directory(path: &Path) -> Result<(), CacheError> {
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(0o700);
+    builder
         .create(path)
         .map_err(|error| cache_error(path, "create cache directory", error))?;
+    #[cfg(unix)]
     let metadata =
         fs::metadata(path).map_err(|error| cache_error(path, "inspect cache directory", error))?;
     // SAFETY: geteuid has no preconditions and does not change process state.
+    #[cfg(unix)]
     if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o022 != 0 {
         return Err(cache_error(
             path,
@@ -96,6 +102,26 @@ fn private_directory(path: &Path) -> Result<(), CacheError> {
         ));
     }
     Ok(())
+}
+
+fn executable(metadata: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        true
+    }
+}
+
+fn server_name(library: &str) -> &'static str {
+    if library == "seekdb.dll" {
+        "seekdb.exe"
+    } else {
+        "seekdb"
+    }
 }
 
 fn relative(path: &Path) -> bool {
@@ -115,11 +141,11 @@ fn native_directory(root: &Path, library: &str) -> io::Result<PathBuf> {
     }
     let mut matches = candidates
         .into_iter()
-        .filter(|path| path.join(library).is_file() && path.join("seekdb").is_file());
+        .filter(|path| path.join(library).is_file() && path.join(server_name(library)).is_file());
     let directory = matches.next().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("bundle is missing a lib/ directory containing {library} and seekdb"),
+            format!("bundle is missing a lib/ directory containing {library} and its server"),
         )
     })?;
     if matches.next().is_some() {
@@ -128,7 +154,8 @@ fn native_directory(root: &Path, library: &str) -> io::Result<PathBuf> {
             "bundle contains multiple native lib/ directories",
         ));
     }
-    if fs::metadata(directory.join("seekdb"))?.permissions().mode() & 0o111 == 0 {
+    if library != "seekdb.dll" && !executable(&fs::metadata(directory.join(server_name(library)))?)
+    {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "bundled seekdb is not executable",
@@ -158,7 +185,7 @@ fn inventory(root: &Path, directory: &Path, entries: &mut Vec<Entry>) -> io::Res
         } else if metadata.is_file() {
             Kind::File {
                 length: metadata.len(),
-                executable: metadata.permissions().mode() & 0o111 != 0,
+                executable: executable(&metadata),
             }
         } else {
             return Err(io::Error::new(
@@ -221,7 +248,7 @@ impl NativeCache<'_> {
                 Kind::File { length, executable } => {
                     metadata.is_file()
                         && metadata.len() == *length
-                        && (!executable || metadata.permissions().mode() & 0o111 != 0)
+                        && (!executable || self::executable(&metadata))
                 }
                 Kind::Symlink { target } => {
                     metadata.file_type().is_symlink() && fs::read_link(&path)? == *target
@@ -234,7 +261,18 @@ impl NativeCache<'_> {
                 ));
             }
         }
+        #[cfg(unix)]
         let native = native_directory(root, self.library)?;
+        #[cfg(windows)]
+        let native = root.join(&manifest.native_dir);
+        #[cfg(windows)]
+        if !native.join(self.library).is_file() || !native.join(server_name(self.library)).is_file()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "native cache layout changed",
+            ));
+        }
         if native != root.join(manifest.native_dir) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -272,6 +310,39 @@ impl NativeCache<'_> {
                 ));
             }
         }
+        // Normalize the Windows wrapper directory to keep the native A API
+        // paths below MAX_PATH, retaining every file and the lib/bin layout.
+        // This is driven by the asset, including when cross-compiling on Unix.
+        if self.library == "seekdb.dll" {
+            let package = fs::read_dir(staging.path())
+                .map_err(|e| cache_error(staging.path(), "read native layout", e))?
+                .filter_map(Result::ok)
+                .find(|e| e.path().join("lib/seekdb.dll").is_file())
+                .ok_or_else(|| {
+                    cache_error(
+                        staging.path(),
+                        "validate native layout",
+                        io::Error::new(io::ErrorKind::InvalidData, "missing Windows driver"),
+                    )
+                })?
+                .path();
+            for item in fs::read_dir(&package)
+                .map_err(|e| cache_error(&package, "read Windows package", e))?
+            {
+                let item =
+                    item.map_err(|e| cache_error(&package, "read Windows package entry", e))?;
+                fs::rename(item.path(), staging.path().join(item.file_name()))
+                    .map_err(|e| cache_error(&package, "normalize Windows layout", e))?;
+            }
+            fs::remove_dir(&package)
+                .map_err(|e| cache_error(&package, "remove empty Windows wrapper", e))?;
+            // Colocate the server with its DLL dependencies; do not mutate PATH.
+            fs::copy(
+                staging.path().join("bin/seekdb.exe"),
+                staging.path().join("lib/seekdb.exe"),
+            )
+            .map_err(|e| cache_error(staging.path(), "colocate Windows server", e))?;
+        }
         let native = native_directory(staging.path(), self.library)
             .map_err(|error| cache_error(staging.path(), "validate native layout", error))?;
         let canonical = staging
@@ -297,6 +368,7 @@ impl NativeCache<'_> {
         self.publish(staging)
     }
 
+    #[cfg(unix)]
     fn publish(&self, staging: tempfile::TempDir) -> Result<PathBuf, CacheError> {
         let expanded = self.entry();
         for _ in 0..8 {
@@ -359,6 +431,67 @@ impl NativeCache<'_> {
         ))
     }
 
+    /// Windows cannot atomically exchange nonempty directories. Publish a
+    /// complete immutable generation inside the entry, then atomically rename
+    /// its inventory over .complete. Keep every previous generation (and DLL)
+    /// for existing users. No reader follows an unfinished generation.
+    #[cfg(windows)]
+    fn publish(&self, staging: tempfile::TempDir) -> Result<PathBuf, CacheError> {
+        let expanded = self.entry();
+        if let Ok(path) = self.valid_cache(&expanded) {
+            return Ok(path);
+        }
+        match fs::rename(staging.path(), &expanded) {
+            Ok(()) => {
+                return self
+                    .valid_cache(&expanded)
+                    .map_err(|e| cache_error(&expanded, "validate published cache", e))
+            }
+            Err(error) if !expanded.is_dir() => {
+                return Err(cache_error(&expanded, "publish native cache", error))
+            }
+            Err(_) => {}
+        }
+        if let Ok(path) = self.valid_cache(&expanded) {
+            return Ok(path);
+        }
+        let holder = tempfile::Builder::new()
+            .prefix(".generation-")
+            .tempdir_in(&expanded)
+            .map_err(|e| cache_error(&expanded, "create generation directory", e))?;
+        let generation = holder.path().file_name().unwrap().to_owned();
+        let destination = holder.path().join("bundle");
+        let mut manifest: Manifest = serde_json::from_slice(
+            &fs::read(staging.path().join(".complete"))
+                .map_err(|e| cache_error(staging.path(), "read generation inventory", e))?,
+        )
+        .map_err(|e| cache_error(staging.path(), "parse generation inventory", e.into()))?;
+        let prefix = PathBuf::from(generation).join("bundle");
+        manifest.native_dir = prefix.join(&manifest.native_dir);
+        for entry in &mut manifest.entries {
+            entry.path = prefix.join(&entry.path);
+        }
+        fs::rename(staging.path(), &destination)
+            .map_err(|e| cache_error(&destination, "publish native generation", e))?;
+        // Do not remove this generation even if another process wins: a reader
+        // might already have opened it following our completion marker.
+        let _ = holder.keep();
+        let mut marker = tempfile::NamedTempFile::new_in(&expanded)
+            .map_err(|e| cache_error(&expanded, "create completion staging file", e))?;
+        serde_json::to_writer(marker.as_file_mut(), &manifest)
+            .map_err(|e| cache_error(&expanded, "write completion manifest", e.into()))?;
+        marker
+            .persist(expanded.join(".complete"))
+            .map_err(|e| cache_error(&expanded, "publish completion manifest", e.error))?;
+        self.store_archive(
+            &expanded,
+            &fs::read(destination.join(ARCHIVE_NAME))
+                .map_err(|e| cache_error(&destination, "read generation archive", e))?,
+        )?;
+        self.valid_cache(&expanded)
+            .map_err(|e| cache_error(&expanded, "validate published generation", e))
+    }
+
     fn verify_archive(&self, archive: &[u8]) -> Result<(), CacheError> {
         if format!("{:x}", Sha256::digest(archive)) != self.hash {
             return Err(cache_error(
@@ -392,6 +525,7 @@ impl NativeCache<'_> {
     }
 }
 
+#[cfg(unix)]
 fn exchange_directories(left: &Path, right: &Path) -> io::Result<()> {
     let left = std::ffi::CString::new(left.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "cache path contains NUL"))?;

@@ -17,11 +17,12 @@ fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         .ok_or("usage: first_query <database-directory>")?;
     let database = Seekdb::open(directory)?;
     let endpoint = database.connection_options()?;
-    let socket = endpoint
-        .unix_socket
-        .ok_or("expected a Unix socket endpoint")?;
+    // POSIX defaults to a Unix socket; Windows defaults to a random TCP port.
+    // Use the returned endpoint rather than assuming port 3306.
     let options = OptsBuilder::new()
-        .socket(Some(socket))
+        .ip_or_hostname(Some(endpoint.host.unwrap_or_else(|| "127.0.0.1".into())))
+        .tcp_port(endpoint.port.unwrap_or(0))
+        .socket(endpoint.unix_socket)
         .user(Some(endpoint.user))
         .pass(Some(""))
         .db_name(Some("test"));

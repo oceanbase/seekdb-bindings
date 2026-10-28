@@ -17,7 +17,7 @@ def main():
     result = library.seekdb_consumer_probe(str(args.database.resolve()).encode())
     if result != 0:
         raise SystemExit(f"seekdb_consumer_probe failed with code {result}")
-    print("Deployed Rust cdylib: opened and closed seekdb")
+    print("Deployed Rust cdylib: queried SQL and closed seekdb")
 
 
 if __name__ == "__main__":
