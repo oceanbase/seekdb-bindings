@@ -47,6 +47,8 @@ jobs:
           rustup update stable --no-self-update
           rustup default stable
           rustup component add rustfmt clippy
+      - name: Test validation-script process cleanup
+        run: python rust/tests/test_runners.py
       - name: Test the pinned release bundle
         run: cargo test --manifest-path rust/Cargo.toml --locked
       - name: Check formatting

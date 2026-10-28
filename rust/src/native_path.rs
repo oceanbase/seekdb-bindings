@@ -10,6 +10,24 @@ pub(crate) fn c_path(path: &Path) -> Result<CString, Error> {
         .map_err(|_| Error::InvalidInput("native path contains NUL".into()))
 }
 
+// Validate the Windows path spelling independently of the host OS, so the
+// drive/UNC/device-path rules can also be covered by non-Windows unit tests.
+#[cfg(any(windows, test))]
+fn windows_drive_path(text: &str) -> Result<&str, Error> {
+    let text = text.strip_prefix(r"\\?\").unwrap_or(text);
+    let bytes = text.as_bytes();
+    if bytes.len() < 3
+        || !bytes[0].is_ascii_alphabetic()
+        || bytes[1] != b':'
+        || !matches!(bytes[2], b'\\' | b'/')
+    {
+        return Err(Error::InvalidInput(
+            "the r2 Windows driver requires an absolute local drive path".into(),
+        ));
+    }
+    Ok(text)
+}
+
 #[cfg(windows)]
 pub(crate) fn c_path(path: &Path) -> Result<CString, Error> {
     use std::os::windows::ffi::OsStrExt;
@@ -32,12 +50,7 @@ pub(crate) fn c_path(path: &Path) -> Result<CString, Error> {
     let text = path
         .to_str()
         .ok_or_else(|| Error::InvalidInput("native path contains invalid Unicode".into()))?;
-    let text = text.strip_prefix(r"\\?\").unwrap_or(text);
-    if text.starts_with("UNC\\") || text.starts_with(r"\\") {
-        return Err(Error::InvalidInput(
-            "the r2 Windows driver requires a local drive path".into(),
-        ));
-    }
+    let text = windows_drive_path(text)?;
     let wide: Vec<u16> = std::ffi::OsStr::new(text).encode_wide().collect();
     if wide.contains(&0) || wide.len() >= 240 {
         return Err(Error::InvalidInput(
@@ -81,6 +94,33 @@ mod tests {
     fn rejects_nul_in_native_path() {
         assert!(c_path(Path::new("bad\0path")).is_err());
     }
+    #[test]
+    fn windows_path_validation_accepts_only_drive_rooted_local_paths() {
+        for (input, expected) in [
+            (r"C:\data with spaces\db", r"C:\data with spaces\db"),
+            ("c:/data/db", "c:/data/db"),
+            (r"\\?\C:\data\db", r"C:\data\db"),
+        ] {
+            assert_eq!(windows_drive_path(input).unwrap(), expected);
+        }
+        for input in [
+            "",
+            "relative",
+            r"C:relative",
+            r"\root-relative",
+            "9:/invalid-drive",
+            r"\\server\share\db",
+            r"\\?\UNC\server\share\db",
+            r"\\?\unc\server\share\db",
+            r"\\?\UnC\server\share\db",
+            r"\\?\Volume{12345678-1234-1234-1234-123456789abc}\data",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\data",
+            r"\\.\C:\data",
+        ] {
+            assert!(windows_drive_path(input).is_err(), "{input}");
+        }
+    }
+
     #[cfg(windows)]
     #[test]
     fn windows_normalizes_verbatim_paths_and_checks_native_limits() {

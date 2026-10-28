@@ -34,6 +34,21 @@ def remove_tree(path):
             time.sleep(1)
 
 
+def run_parallel(command, *, env, cwd, count=3, timeout=180):
+    children = []
+    try:
+        for _ in range(count):
+            children.append(subprocess.Popen(command, env=env, cwd=cwd))
+        return [child.wait(timeout=timeout) for child in children]
+    finally:
+        # Reap every child before filesystem cleanup, including when waiting
+        # times out or a later spawn fails after earlier consumers started.
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+            child.wait()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check-noexec', action='store_true')
@@ -88,8 +103,7 @@ def main():
                 (native / ('seekdb.lib' if system == 'Windows' else 'seekdb')).unlink()
             else:
                 remove_tree(cache)
-            children = [subprocess.Popen([str(copied), str(deployed / 'db-race')], env=env, cwd=deployed) for _ in range(3)]
-            statuses = [child.wait(timeout=180) for child in children]
+            statuses = run_parallel([str(copied), str(deployed / 'db-race')], env=env, cwd=deployed)
             assert statuses == [0, 0, 0], statuses
         ffi_env = dict(env, SEEKDB_CACHE_DIR=str(deployed / 'ffi-cache'))
         run([sys.executable, CONSUMER / 'probe_dynamic_library.py', deployed / library_name, deployed / 'ffi-db'], env=ffi_env, cwd=deployed)
