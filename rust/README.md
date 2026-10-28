@@ -47,9 +47,16 @@ endpoint is valid only while its lifecycle handle remains open.
 
 On the first build, `build.rs` downloads the pinned seekdb 1.4.0.0 revision 2
 native archive from OSS, verifies its size and SHA-256, and prepares the native cache.
-The exact release [manifest](bundles/manifest-1.4.0.0-r2.json) is checked into
-and distributed with this crate. `bundle_manifest.rs` maps Cargo `TARGET`
-(including ABI) to that manifest; it never selects `HOST` or fetches a latest
+The release version and manifest SHA-256 are pinned in
+`Cargo.toml` under `[package.metadata.seekdb]`. `build.rs` obtains the matching
+`manifest-<native-version>.json` from the configured download directory on a
+metadata cache miss and verifies its exact bytes against that pin. It reuses
+verified copies in `OUT_DIR` or the shared manifest cache before making a request.
+The exact [release snapshot](bundles/manifest-1.4.0.0-r2.json) is also distributed
+with the crate as a fallback when the request fails. A remote response with an
+incorrect digest, schema or release identity fails the build; it is not silently
+replaced with the snapshot. `bundle_manifest.rs` maps Cargo `TARGET` (including
+ABI) to the verified manifest; it never selects `HOST` or fetches a latest
 manifest. The crate version remains **1.4.0**; the independent native bundle
 version is **1.4.0.0-r2**. Debug-symbol archives are not embedded.
 The binding embeds the compressed archive with `include_bytes!`. Downloads
@@ -98,6 +105,79 @@ Cargo's standard `CARGO_TARGET_DIR`, `--target-dir`, profiles, and supported
 ```sh
 CARGO_TARGET_DIR=/tmp/seekdb-target cargo test --manifest-path rust/Cargo.toml --locked
 ```
+
+## Build-time download configuration and upgrades
+
+The independent native release is selected by source-controlled Cargo metadata:
+
+```toml
+[package.metadata.seekdb]
+native-version = "1.4.0.0-r2"
+manifest-sha256 = "e423d7820050fd5918b1c07748b068d4fc6f3746af61767980a9d8bc1d4f9b49"
+```
+
+The default download directory is
+`https://obbusiness-private.oss-cn-shanghai.aliyuncs.com/download-center/opensource/libseekdb/`.
+To use an HTTPS mirror at build time:
+
+```sh
+SEEKDB_DOWNLOAD_BASE_URL=https://mirror.example/libseekdb/ cargo build --manifest-path rust/Cargo.toml
+```
+
+On PowerShell:
+
+```powershell
+$env:SEEKDB_DOWNLOAD_BASE_URL = 'https://mirror.example/libseekdb/'
+cargo build --manifest-path rust/Cargo.toml
+```
+
+The override applies to both `manifest-<native-version>.json` and the runtime
+archive filenames selected from it. The mirror must serve the exact pinned
+manifest and archives; the override does not change versions, expected hashes,
+or cache identities. A missing trailing slash is added. Only absolute HTTPS
+directory URLs without credentials, query parameters or fragments are accepted.
+Standard proxy settings and platform TLS trust still apply. Cargo reruns the
+build script when the override changes; verified cached contents can still be
+reused without contacting the new mirror. The override is read by `build.rs`;
+changing it when launching an already-built application has no effect.
+
+Manifest metadata is shared across targets in a separate cache under the same
+root selected by `SEEKDB_CACHE_DIR` (or the platform default):
+
+```text
+<cache-root>/manifests/<native-version>/<full-manifest-sha256>/manifest.json
+```
+
+Each build also keeps its own verified manifest in `OUT_DIR`. Missing/corrupt
+metadata is repaired through verified copies or a new request. Publishers stage
+complete files and publish with atomic rename, without file locks. An unavailable
+shared metadata cache warns and uses `OUT_DIR`, as the bundle cache does. Runtime
+never reads this metadata cache or contacts OSS; its embedded archive and
+`<root>/<target>/<native-version>/<full-archive-sha256>` entry are unchanged.
+After preparing the cache with `SEEKDB_CACHE_DIR` explicitly set,
+`python rust/tests/test_manifest_download.py` exercises a cold real manifest
+request without a packaged copy, then Cargo builds using packaged fallback and
+shared metadata with an unreachable download prefix. Linux CI runs these checks.
+
+An offline build needs a verified bundle in `OUT_DIR` or the shared native cache;
+the packaged manifest fallback supplies metadata, not the compressed runtime.
+
+To upgrade a compatible native release:
+
+1. Fetch the exact release manifest, verify its provenance, artifact hashes,
+   architectures, ABI and minimum systems, and record its SHA-256.
+2. Update only `native-version` and `manifest-sha256` in the metadata above.
+   Add the exact JSON as `bundles/manifest-<native-version>.json` for offline
+   fallback and crate source distribution.
+3. Run platform tests, examples, deployments and `python rust/tests/check_package.py`,
+   then update requirements and validation evidence. The package check derives
+   the expected snapshot path from the same Cargo metadata.
+
+Compatible releases need no Rust version literals changed in the downloader,
+parser or file-watch logic. New target mappings, native ABI or layout changes
+still require implementation review. The Rust crate version is maintained
+separately. Once published, crates.io versions cannot be overwritten; shipping
+updated sources/bundles there requires a new Rust crate release.
 
 ## Native platforms and requirements
 

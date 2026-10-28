@@ -6,7 +6,10 @@ The release manifest was retrieved on 2026-10-28 from:
 
 The managed environment's effective HTTP policy was inspected first: the OSS
 host was allowed and enforcement was current. The checked-in JSON preserves the
-release's original contents. Builds use it locally, never a remote latest file.
+release's original contents. Its exact SHA-256 is pinned alongside the native
+version in `[package.metadata.seekdb]`. Builds request only that version on a
+metadata cache miss, verify its digest and identity, and can use the packaged
+snapshot on a transport failure; no remote latest file is used.
 Rust crate version 1.4.0 is unchanged.
 
 ## Official artifacts
@@ -42,7 +45,7 @@ repair without a missing published-library path. Windows native tests also
 exercise generation-based repair; external deletion of mapped DLLs is excluded
 because Windows denies it.
 
-## Native CI evidence
+## Earlier native CI evidence
 
 The implementation commit `07f5f13d8c0d931dcc87101068275ea224ac3460` passed
 all five jobs in the [native workflow run](https://github.com/hnwyllmm/seekdb-bindings/actions/runs/40651204407).
@@ -67,9 +70,25 @@ tested between consumers on Windows, rather than unlinking mapped executables.
 Local cross-target checks establish compilation only; the native CI results
 above provide separate execution evidence. The manifest publisher did not run
 Linux ARM64 smoke tests, but this implementation has now passed native ARM64 CI.
-The evidence refers to the implementation commit; subsequent documentation-only
-commits do not change these native sources. For the latest commit, read the
+The evidence above refers to the original platform implementation commit.
+The subsequent configurable manifest-download change has separate cache/pinning
+and mirror tests; its latest native validation status is available in the
 [PR checks](https://github.com/oceanbase/seekdb-bindings/pull/84/checks).
+
+## Manifest-download validation
+
+The manifest was fetched again from OSS and its SHA-256 remained
+`e423d7820050fd5918b1c07748b068d4fc6f3746af61767980a9d8bc1d4f9b49`.
+Tests cover exact target selection, mirror directory normalization for both
+manifest and archive URLs, rejection of unsafe URL forms, a synthetic future
+release driven only by Cargo metadata, transport fallback, fatal digest/identity
+mismatches, corrupt/missing metadata caches, unavailable user storage, and
+concurrent atomic file publication. The synthetic future release is a test
+fixture, not an existing native bundle or runtime compatibility claim.
+`tests/test_manifest_download.py` also exercises real Cargo builds: a cold
+remote request with the packaged snapshot removed, a request failure using the
+packaged fallback, and shared metadata reuse with an unreachable URL and no
+packaged snapshot. Its isolated native cache is seeded with the official archive.
 
 ## Remaining limits and publishing
 

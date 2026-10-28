@@ -8,7 +8,11 @@ repository = "https://github.com/oceanbase/seekdb-bindings"
 readme = "README.md"
 publish = false
 build = "build.rs"
-include = ["Cargo.toml", "Cargo.lock", "build.rs", "build_cache.rs", "bundle_manifest.rs", "native_cache.rs", "bundles/*.json", "src/**", "examples/**", "tests/*.rs", "LICENSE", "README.md", "docs/**"]
+include = ["Cargo.toml", "Cargo.lock", "build.rs", "build_cache.rs", "bundle_manifest.rs", "manifest_cache.rs", "native_cache.rs", "bundles/*.json", "src/**", "examples/**", "tests/*.rs", "LICENSE", "README.md", "docs/**"]
+
+[package.metadata.seekdb]
+native-version = "1.4.0.0-r2"
+manifest-sha256 = "e423d7820050fd5918b1c07748b068d4fc6f3746af61767980a9d8bc1d4f9b49"
 
 [dependencies]
 dirs = "6"
@@ -31,8 +35,12 @@ sha2 = "0.10"
 tar = "0.4"
 tempfile = "3"
 ureq = { version = "3.5", features = ["platform-verifier"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+url = "2"
 
 [dev-dependencies]
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+url = "2"
 mysql = { version = "28", default-features = false, features = ["minimal-rust"] }
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust"] }
 tempfile = "3"

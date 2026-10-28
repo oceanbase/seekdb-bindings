@@ -8,7 +8,12 @@ x86_64/ARM64, macOS Intel/ARM64, and Windows x86_64 MSVC (preview). See
 
 Embed the compressed native seekdb bundle in compiled artifacts that use the
 binding. During a build, `build.rs` downloads the bundle for the target and
-verifies its pinned SHA-256. The binding includes those bytes with
+verifies its pinned SHA-256. `[package.metadata.seekdb]` pins the native
+version and the SHA-256 of its release manifest. The build obtains that exact
+manifest from verified local copies or the configured HTTPS download directory;
+on a transport failure it can use the matching packaged JSON snapshot. Invalid
+remote metadata is an error. `SEEKDB_DOWNLOAD_BASE_URL` overrides the build-time
+directory for both metadata and archives while retaining all pins. The binding includes the compressed native archive with
 `include_bytes!`. Before loading libseekdb or opening an instance that may start
 a server, ensure a complete extraction exists. Load libseekdb by its absolute
 path. Runtime extraction needs no download.
@@ -24,7 +29,11 @@ links the binding's runtime code.
 Use the same `<root>/<target>/<native-version>/<full-sha256>` entry for both
 phases. Keep the verified source archive as `bundle.tar.gz` alongside the
 extracted native bundle and `.complete` manifest. Builds and runtime share the
-same implementation, validation, and atomic directory publication. Each process
+same implementation, validation, and atomic directory publication. Build-time
+manifest metadata uses `<root>/manifests/<native-version>/<manifest-sha256>/manifest.json`
+and an independent `OUT_DIR` copy, publishing complete files by atomic rename.
+Runtime uses its embedded metadata/archive and never accesses a manifest URL.
+Each process
 uses a private staging directory next to the final entry. It renames a complete
 entry into place or reuses another process's winning entry; no cache file lock
 is used. Linux/macOS replace damaged directories with atomic exchange. Windows

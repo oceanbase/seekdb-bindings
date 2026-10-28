@@ -1,22 +1,23 @@
 mod build_cache;
 mod bundle_manifest;
+mod manifest_cache;
 mod native_cache;
 
 use build_cache::{prepare_archive, sha256};
 use std::env;
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use tempfile::NamedTempFile;
 
 const DOWNLOAD_RETRIES: u32 = 3;
-use bundle_manifest::{asset, Asset};
+use bundle_manifest::{Asset, Config, DownloadBase, MAX_MANIFEST_BYTES};
 
-fn download(asset: &Asset, out_dir: &Path, package: &Path) -> Result<(), String> {
+fn agent() -> ureq::Agent {
     // The default agent honors proxy environment variables, including NO_PROXY.
-    let agent = ureq::Agent::config_builder()
+    ureq::Agent::config_builder()
         .https_only(true)
         .tls_config(
             ureq::tls::TlsConfig::builder()
@@ -27,8 +28,11 @@ fn download(asset: &Asset, out_dir: &Path, package: &Path) -> Result<(), String>
         .timeout_connect(Some(Duration::from_secs(20)))
         .timeout_global(Some(Duration::from_secs(300)))
         .build()
-        .new_agent();
+        .new_agent()
+}
 
+fn download(asset: &Asset, out_dir: &Path, package: &Path) -> Result<(), String> {
+    let agent = agent();
     for attempt in 0..=DOWNLOAD_RETRIES {
         let mut temporary = NamedTempFile::new_in(out_dir)
             .map_err(|error| format!("create temporary download: {error}"))?;
@@ -88,14 +92,68 @@ fn download(asset: &Asset, out_dir: &Path, package: &Path) -> Result<(), String>
     unreachable!()
 }
 
+fn download_manifest(url: &str) -> Result<Vec<u8>, String> {
+    let agent = agent();
+    for attempt in 0..=DOWNLOAD_RETRIES {
+        let response = agent.get(url).call();
+        let retryable = !matches!(&response,
+            Err(ureq::Error::StatusCode(code)) if *code != 408 && *code != 429 && *code < 500);
+        let result = response
+            .map_err(|e| format!("download {url}: {e}"))
+            .and_then(|mut response| {
+                let mut bytes = Vec::new();
+                response
+                    .body_mut()
+                    .as_reader()
+                    .take(MAX_MANIFEST_BYTES + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| format!("read {url}: {e}"))?;
+                Ok(bytes)
+            });
+        match result {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) if retryable && attempt < DOWNLOAD_RETRIES => {
+                println!(
+                    "cargo:warning={error}; retrying ({}/{DOWNLOAD_RETRIES})",
+                    attempt + 1
+                );
+                thread::sleep(Duration::from_secs(1 << attempt));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!()
+}
+
 fn prepare_bundle(out_dir: &Path, target: &str) -> Result<(), String> {
-    let asset = asset(target)?;
+    // Reject unsupported ABIs before requesting any remote metadata.
+    bundle_manifest::target_platform(target)?;
+    let config = Config::from_package(bundle_manifest::PACKAGE_TOML)?;
+    let prefix = env::var("SEEKDB_DOWNLOAD_BASE_URL")
+        .map(Some)
+        .or_else(|e| match e {
+            env::VarError::NotPresent => Ok(None),
+            env::VarError::NotUnicode(_) => {
+                Err("SEEKDB_DOWNLOAD_BASE_URL must be UTF-8".to_string())
+            }
+        })?;
+    let base = DownloadBase::new(prefix.as_deref())?;
+    let bundled =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is missing")?)
+            .join("bundles")
+            .join(config.manifest_name());
+    println!("cargo:rerun-if-changed={}", bundled.display());
     let root = env::var_os("SEEKDB_CACHE_DIR")
         .map(PathBuf::from)
         .or_else(native_cache::default_root);
     if root.as_ref().is_some_and(|path| !path.is_absolute()) {
         return Err("SEEKDB_CACHE_DIR must be a non-empty absolute path".into());
     }
+    let manifest =
+        manifest_cache::prepare_manifest(out_dir, root.as_deref(), &config, &bundled, || {
+            download_manifest(&base.file_url(&config.manifest_name()))
+        })?;
+    let asset = config.asset(&manifest, target, &base)?;
     let cache = root.map(|root| native_cache::NativeCache {
         root,
         target,
@@ -134,11 +192,13 @@ fn main() {
 fn build() -> Result<(), String> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=bundle_manifest.rs");
-    println!("cargo:rerun-if-changed=bundles/manifest-1.4.0.0-r2.json");
+    println!("cargo:rerun-if-changed=manifest_cache.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build_cache.rs");
     println!("cargo:rerun-if-changed=native_cache.rs");
     for variable in [
         "SEEKDB_CACHE_DIR",
+        "SEEKDB_DOWNLOAD_BASE_URL",
         "XDG_CACHE_HOME",
         "HOME",
         "LOCALAPPDATA",

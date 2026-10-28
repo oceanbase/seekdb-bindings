@@ -61,7 +61,7 @@ def main():
             env.pop(name, None)
         # A runtime attempt to download would fail, while embedded extraction
         # continues to work. The application must need only its own artifact.
-        env.update(HTTP_PROXY='http://127.0.0.1:9', HTTPS_PROXY='http://127.0.0.1:9', ALL_PROXY='http://127.0.0.1:9', NO_PROXY='')
+        env.update(SEEKDB_DOWNLOAD_BASE_URL='https://127.0.0.1:9', HTTP_PROXY='http://127.0.0.1:9', HTTPS_PROXY='http://127.0.0.1:9', ALL_PROXY='http://127.0.0.1:9', NO_PROXY='')
         cache = deployed / 'cache'
         env['SEEKDB_CACHE_DIR'] = str(cache)
         run([installed, deployed / 'db-install'], env=env, cwd=deployed)

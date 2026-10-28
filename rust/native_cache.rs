@@ -78,7 +78,7 @@ enum Kind {
     Symlink { target: PathBuf },
 }
 
-fn private_directory(path: &Path) -> Result<(), CacheError> {
+pub(crate) fn private_directory(path: &Path) -> Result<(), CacheError> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
