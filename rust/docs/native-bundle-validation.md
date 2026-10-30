@@ -119,8 +119,10 @@ repair requires filesystem atomic exchange support. Old directories/generations
 remain until operators clean them while no consumer is using them. Complete
 cache deletion during arbitrary native execution is not guaranteed to work.
 
-The package check inspects a real `cargo package` archive and compiles its
-unpacked sources, including the pinned manifest and all build inputs. The crate
-still has `publish = false`; no crates.io publish is performed. Release owners
-must approve platform evidence, Windows preview status, redistribution/licenses,
-crate ownership and metadata before enabling publication.
+The package check now runs `cargo publish --dry-run --locked --registry crates-io`
+with verification enabled. It then runs `cargo package --no-verify`, inspects that
+source archive and compiles its unpacked sources, including the pinned manifest
+and all build inputs. The crate permits crates.io publishing;
+no upload is performed by the check or CI. The [release guide](releasing.md) covers
+the first publication, Windows preview status, the native timeout limitation,
+registry ownership and the remaining third-party redistribution work.

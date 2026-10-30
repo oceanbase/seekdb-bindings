@@ -28,18 +28,21 @@ cargo run --manifest-path rust/Cargo.toml --example first_query -- .\seekdb-rust
 The application's own Rust/MSVC runtime dependencies still apply on Windows;
 embedding the native bundle does not change its compiler's CRT linkage.
 
-To use the binding in your own application, add these dependencies to its
-`Cargo.toml`, adjusting the checkout path:
+The crates.io package name is **`seekdb`**. Once version `1.4.0` is published,
+applications and libraries can use:
 
 ```toml
 [dependencies]
-seekdb = { path = "../seekdb-bindings/rust" }
+seekdb = "1.4.0"
 mysql = { version = "28", default-features = false, features = ["minimal-rust"] }
 ```
 
-The crate is version `1.4.0` and remains `publish = false` while native platform
-coverage is being validated, so it is not yet distributed by this project on
-crates.io. Copy the example's connection setup into your application. On POSIX,
+This repository enables publishing to crates.io, but merging a PR does not
+upload a release. Before the first publication, use
+`seekdb = { path = "../seekdb-bindings/rust" }` with a local checkout, or a Git
+dependency pinned to a reviewed commit. See the [release guide](docs/releasing.md)
+for the publication steps and remaining registry/distribution checks.
+Copy the example's connection setup into your application. On POSIX,
 use `endpoint.unix_socket`; do not assume a TCP listener on port 3306. The
 endpoint is valid only while its lifecycle handle remains open.
 
@@ -201,7 +204,7 @@ Windows minimum OS version; the PE subsystem version alone does not establish
 one. Older Windows versions are not claimed supported. The CI matrix exercises
 these five targets on native runners; adding a job is not a passing result.
 See [validation evidence](docs/native-bundle-validation.md) for the distinction
-between local runtime tests, cross-compilation, and pending CI results.
+between local runtime tests, cross-compilation, and native CI results.
 
 There are no assets for Linux musl, Windows ARM64/GNU, 32-bit systems, Android,
 or iOS in this release manifest. Those targets fail with an explicit diagnostic.
@@ -381,8 +384,11 @@ can carry separate embedded archives.
 
 Publishing a library or application to crates.io publishes its source package,
 not its compiled dependencies or Cargo `OUT_DIR` contents. The downstream build
-obtains the pinned native archive and embeds it. The crate remains
-`publish = false` until its release and native platform coverage are ready.
+obtains the pinned native archive and embeds it. A library published to crates.io
+must declare a registry version of `seekdb`; a local path or Git dependency alone
+cannot supply that registry dependency. Publish `seekdb` first, then the libraries
+that depend on it. The binding itself is a library; `cargo install seekdb` is not
+an application installation command.
 
 ## Validation
 
@@ -420,11 +426,24 @@ artifact. Independently built cdylibs can carry independent SDK state and
 archives; configure each before its first native initialization.
 
 `cargo package` includes the pinned manifest, build/cache sources, runtime
-sources, examples, and documentation through an explicit include list.
-`python rust/tests/check_package.py` inspects the actual `.crate` archive and
-compiles its unpacked sources. Downloaded bundles and Cargo output are not
-source-package inputs. No crates.io publish is performed. `publish = false`
-remains intentional: maintainers still need to approve the platform validation
-(including Windows preview limitations), native-binary/license redistribution,
-crate ownership/release metadata, and enable publishing for a release. Native
-packaging revisions alone do not require a Rust crate version bump.
+sources, examples, licenses/notices, and documentation through an explicit
+include list. `python rust/tests/check_package.py` runs a real
+`cargo publish --dry-run --locked --registry crates-io` with verification enabled.
+It then runs `cargo package --no-verify`, inspects that `.crate`, and compiles its
+unpacked sources. It requires a clean checkout;
+`--allow-dirty` is available for local work in progress only. Nothing is uploaded.
+Downloaded bundles and Cargo output are not source-package inputs.
+
+docs.rs builds the five declared target APIs without downloading or embedding a
+native archive. Its standard `DOCS_RS` build flag selects documentation-only
+metadata from the verified packaged manifest. Such a build cannot open a database;
+normal application builds must leave `DOCS_RS` unset. Changing that flag reruns the
+build script and restores normal embedding. `python rust/tests/check_docs.py`
+checks offline documentation, the runtime diagnostic, and that transition.
+
+The [release guide](docs/releasing.md) records registry ownership checks, platform
+status and the accepted native timeout limitation. See
+[third-party distribution information](THIRD_PARTY_NOTICES.md) before shipping
+applications or cdylibs containing the native bundle. Native packaging revisions
+alone do not require a Rust crate version bump before the first publication;
+updating an already published crate requires a new crate version.

@@ -1,5 +1,10 @@
 //! Start a local seekdb instance and obtain its MySQL-protocol endpoint.
 //! SQL connections are managed by the caller's chosen MySQL client.
+//!
+//! The native runtime is downloaded and verified at build time, embedded in the
+//! application, and restored from its bytes at runtime without network access.
+//! See the [usage and platform requirements](https://github.com/oceanbase/seekdb-bindings/tree/main/rust)
+//! and the [release guide](https://github.com/oceanbase/seekdb-bindings/blob/main/rust/docs/releasing.md).
 
 #[path = "../native_cache.rs"]
 mod native_cache;

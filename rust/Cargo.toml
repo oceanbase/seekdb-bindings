@@ -5,14 +5,22 @@ edition = "2021"
 license = "Apache-2.0"
 description = "Local seekdb lifecycle bindings for Rust"
 repository = "https://github.com/oceanbase/seekdb-bindings"
+homepage = "https://github.com/oceanbase/seekdb-bindings/tree/main/rust"
+documentation = "https://docs.rs/seekdb"
+keywords = ["seekdb", "database", "embedded", "sql"]
+categories = ["database"]
 readme = "README.md"
-publish = false
+publish = ["crates-io"]
 build = "build.rs"
-include = ["Cargo.toml", "Cargo.lock", "build.rs", "build_cache.rs", "bundle_manifest.rs", "manifest_cache.rs", "native_cache.rs", "bundles/*.json", "src/**", "examples/**", "tests/*.rs", "LICENSE", "README.md", "docs/**"]
+include = ["Cargo.toml", "Cargo.lock", "build.rs", "build_cache.rs", "bundle_manifest.rs", "manifest_cache.rs", "native_cache.rs", "bundles/*.json", "src/**", "examples/**", "tests/*.rs", "LICENSE", "NOTICE", "PATENTS", "THIRD_PARTY_NOTICES.md", "README.md", "docs/**"]
 
 [package.metadata.seekdb]
 native-version = "1.4.0.0-r2"
 manifest-sha256 = "e423d7820050fd5918b1c07748b068d4fc6f3746af61767980a9d8bc1d4f9b49"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "aarch64-apple-darwin", "x86_64-pc-windows-msvc"]
 
 [dependencies]
 dirs = "6"

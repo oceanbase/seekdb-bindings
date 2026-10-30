@@ -1,0 +1,3 @@
+# Preserve the verified upstream notice bytes on Windows checkouts.
+NOTICE -text
+PATENTS -text
