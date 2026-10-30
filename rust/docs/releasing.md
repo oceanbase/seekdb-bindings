@@ -7,24 +7,58 @@ version change before its first publication. After publication, crates.io versio
 are immutable, so any later source or embedded-bundle change needs a new crate
 version.
 
-`publish = ["crates-io"]` enables the intended registry. Merging this configuration
-does not publish anything. There is no workflow that uploads the crate and no
-registry credential is required for the checks below.
+`publish = ["crates-io"]` enables the intended registry. Merging changes does not
+publish anything. The manual `publish-rust.yml` workflow uses Trusted Publishing
+to upload a new version after its tests and package checks pass. The validation
+workflow and the checks below never upload, and need no registry credential.
 
 ## Registry name and ownership
 
-On 2026-10-30, the public crates.io API returned 404 (`crate does not exist`) for
-`seekdb`, its owners endpoint, and `seekdb-rust`. This is an observation, not a
-name reservation or a guarantee that registration will succeed. There is no
-existing public `seekdb` owner or `1.4.0` version to verify from those responses.
+Check the current [crate record](https://crates.io/api/v1/crates/seekdb) and
+[owners](https://crates.io/api/v1/crates/seekdb/owners) using the project's intended
+crates.io account. A first publication requires an API token; Trusted Publishing
+is configured on an already published crate. Existing versions cannot be
+overwritten. A dry-run does not authenticate or prove permission to upload.
 
-Before the first upload, the release maintainer must check the current
-[crate record](https://crates.io/api/v1/crates/seekdb) again and use the project's
-intended crates.io publishing account. If the name has since been registered,
-confirm its [owners](https://crates.io/api/v1/crates/seekdb/owners) and ownership
-access; do not silently publish under another name or overwrite the planned
-version. Arrange the project's maintainer/team ownership after a successful first
-publication. A dry-run does not authenticate or prove permission to upload.
+## Configure GitHub Actions publishing
+
+An owner of the published **seekdb** crate must add a GitHub Trusted Publisher in
+its crates.io Settings → Trusted Publishing page:
+
+| Field | Value |
+| --- | --- |
+| Repository owner | `oceanbase` |
+| Repository name | `seekdb-bindings` |
+| Workflow filename | `publish-rust.yml` |
+| Environment | Leave empty; this workflow does not select an environment |
+
+The workflow filename is a basename, not `.github/workflows/publish-rust.yml`.
+Each crate has its own configuration: a trusted publisher on
+`seekdb-jemalloc-sys` does not authorize publishing `seekdb`. No long-lived
+crates.io token or GitHub Secret is used. The publishing job requests an OIDC
+identity with `id-token: write`, and the pinned official
+[crates-io-auth-action](https://github.com/rust-lang/crates-io-auth-action)
+exchanges it for a temporary publish token after preflight succeeds.
+
+After a version-bump PR has passed the five-platform validation workflow and
+merged, trigger publication from `main`:
+
+```sh
+gh workflow run publish-rust.yml --repo oceanbase/seekdb-bindings --ref main
+gh run list --repo oceanbase/seekdb-bindings --workflow publish-rust.yml --limit 1
+```
+
+The GitHub CLI must be authenticated as a user allowed to dispatch workflows on
+the upstream repository. The web equivalent is Actions → Publish seekdb → Run
+workflow, selecting `main`. The workflow must first exist on the default branch.
+
+Only a manual dispatch in `oceanbase/seekdb-bindings` on `main` runs the publish
+job; pushes, PRs and runs on forks do not publish. Concurrent dispatches are
+serialized without cancelling a running upload. The job runs Linux runtime tests
+and the full package dry-run/checker, then authenticates and runs `cargo publish`.
+It publishes the version already declared in `rust/Cargo.toml`; it does not bump
+versions. Do not dispatch for an already published version. The crate version
+remains independent of the pinned native bundle revision.
 
 ## Release scope
 

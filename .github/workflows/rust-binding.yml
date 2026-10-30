@@ -5,10 +5,12 @@ on:
     paths:
       - 'rust/**'
       - '.github/workflows/rust-binding.yml'
+      - '.github/workflows/publish-rust.yml'
   push:
     paths:
       - 'rust/**'
       - '.github/workflows/rust-binding.yml'
+      - '.github/workflows/publish-rust.yml'
 
 permissions:
   contents: read
