@@ -45,6 +45,9 @@ with tempfile.TemporaryDirectory(prefix='pkg-') as directory:
         assert packaged['package']['metadata']['seekdb'] == config
         for notice in ['NOTICE', 'PATENTS']:
             assert source.extractfile(f'{package_root}/{notice}').read() == (crate / notice).read_bytes()
+        # Pin the engine notice from the verified r2 release, independently of
+        # the checkout, so editing both copies cannot silently change it.
+        assert hashlib.sha256(source.extractfile(f'{package_root}/NOTICE').read()).hexdigest() == 'c753aec56c61055ae25ca41d71984674b1f32d2e1c745efbbaa5bdbaf3ab2a0b'
         snapshot = source.extractfile(f'{package_root}/{native_manifest}').read()
         assert hashlib.sha256(snapshot).hexdigest() == config['manifest-sha256']
         assert json.loads(snapshot)['package_version'] == config['native-version']
