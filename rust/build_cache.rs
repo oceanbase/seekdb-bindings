@@ -1,4 +1,4 @@
-use crate::native_cache::NativeCache;
+use crate::native_cache::{publish_file, NativeCache};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -43,8 +43,7 @@ fn copy_verified(source: &Path, destination: &Path, expected: &str) -> Result<()
             source.display()
         ));
     }
-    temporary
-        .persist(destination)
+    publish_file(temporary, destination)
         .map_err(|error| format!("publish {}: {error}", destination.display()))?;
     Ok(())
 }

@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0",
+  "package": "libseekdb",
+  "package_version": "1.4.0.0-r2",
+  "engine_version": "1.4.0.0",
+  "packaging_revision": 2,
+  "created_on": "2026-10-28",
+  "sources": {
+    "seekdb": {
+      "repository": "https://github.com/oceanbase/seekdb",
+      "ref": "release/1.4.0",
+      "commit": "bf450b4c8deb3c45d85efb1bd5f43e282d101914"
+    },
+    "seekdb_bindings": {
+      "repository": "https://github.com/oceanbase/seekdb-bindings",
+      "ref": "main",
+      "commit": "74034975b164e7df5b2ff48b642d2bb36853f6b3"
+    }
+  },
+  "build": {
+    "configuration": "Release (RelWithDebInfo; debug symbols separated)",
+    "seekdb_cmake_extra_args": [],
+    "seekdb_binary_reused": true,
+    "runtime_provenance": "pylibseekdb 1.4.0.post2 platform wheels",
+    "debug_symbols_packaged_separately": true
+  },
+  "checksums_file": "libseekdb-SHA256SUMS",
+  "artifacts": [
+    {
+      "platform": "linux-x86_64-glibc2.28",
+      "os": "linux",
+      "architecture": "x86_64",
+      "minimum_glibc": "2.28",
+      "runtime": {
+        "file": "libseekdb-1.4.0.0-r2-linux-x86_64-glibc2.28-sdbbf450b4c8deb3-bnd74034975b164e.tar.gz",
+        "size_bytes": 53839378,
+        "sha256": "2511230e7e2814fd5e7657450a68f40497f0428c0cdb0d3dfa82cba5a4575d6d"
+      },
+      "debug_symbols": {
+        "file": "libseekdb-1.4.0.0-r2-linux-x86_64-glibc2.28-sdbbf450b4c8deb3-bnd74034975b164e-seekdb-debug.tar.gz",
+        "size_bytes": 295299725,
+        "sha256": "3921628ba5846f4f6ce7f949b9de9d17e0689c6aae7e9b34568d564b35d88b0a"
+      }
+    },
+    {
+      "platform": "linux-aarch64-glibc2.28",
+      "os": "linux",
+      "architecture": "aarch64",
+      "minimum_glibc": "2.28",
+      "runtime": {
+        "file": "libseekdb-1.4.0.0-r2-linux-aarch64-glibc2.28-sdbbf450b4c8deb3-bnd74034975b164e.tar.gz",
+        "size_bytes": 49269129,
+        "sha256": "3df2ac4c83e0d1d2552fa0d9670a024ec9ef56e0dc66b26235ddf095b8451c8f"
+      },
+      "debug_symbols": {
+        "file": "libseekdb-1.4.0.0-r2-linux-aarch64-glibc2.28-sdbbf450b4c8deb3-bnd74034975b164e-seekdb-debug.tar.gz",
+        "size_bytes": 310617399,
+        "sha256": "a4d670540d2476f320fd35012ae2c12cb9bd5559f64f02865f366fbf78af29cc"
+      }
+    },
+    {
+      "platform": "macos15.0-x86_64",
+      "os": "macos",
+      "architecture": "x86_64",
+      "minimum_os_version": "15.0",
+      "runtime": {
+        "file": "libseekdb-1.4.0.0-r2-macos15.0-x86_64-sdbbf450b4c8deb3-bnd74034975b164e.tar.gz",
+        "size_bytes": 63519306,
+        "sha256": "bcf2392105f0f1fd8e912e9b867d49431eaf4b4f1cb36a9de4037bdb761d1330"
+      },
+      "debug_symbols": {
+        "file": "libseekdb-1.4.0.0-r2-macos15.0-x86_64-sdbbf450b4c8deb3-bnd74034975b164e-seekdb-debug.tar.gz",
+        "size_bytes": 63651745,
+        "sha256": "4c39f0ff7de8b5c360ac3dfe548a60de559aea8b326d9b1af114809c4c3cd596"
+      }
+    },
+    {
+      "platform": "macos15.0-arm64",
+      "os": "macos",
+      "architecture": "arm64",
+      "minimum_os_version": "15.0",
+      "runtime": {
+        "file": "libseekdb-1.4.0.0-r2-macos15.0-arm64-sdbbf450b4c8deb3-bnd74034975b164e.tar.gz",
+        "size_bytes": 52134979,
+        "sha256": "ad84a7207b2e1e006d09af8c7d73ba994ecf54aa24be934408e142d9fff87920"
+      },
+      "debug_symbols": {
+        "file": "libseekdb-1.4.0.0-r2-macos15.0-arm64-sdbbf450b4c8deb3-bnd74034975b164e-seekdb-debug.tar.gz",
+        "size_bytes": 344725357,
+        "sha256": "374933cdda8d86844ae1b00f3b351606f1c0d4bc58d20142a5d5e7e3d8bb46c2"
+      }
+    },
+    {
+      "platform": "windows-x86_64",
+      "os": "windows",
+      "architecture": "x86_64",
+      "runtime": {
+        "file": "libseekdb-1.4.0.0-r2-windows-x86_64-sdbbf450b4c8deb3-bnd74034975b164e.tar.gz",
+        "size_bytes": 66028599,
+        "sha256": "3374cf519f78bc5ba5371acea9021a7dcf51371c55aaccc96c6cc13aa7b5660f"
+      },
+      "debug_symbols": {
+        "file": "libseekdb-1.4.0.0-r2-windows-x86_64-sdbbf450b4c8deb3-bnd74034975b164e-seekdb-debug.tar.gz",
+        "size_bytes": 167290353,
+        "sha256": "bc9e03cd805c77214ffd4284e16093e3f6fbdcde3f3080ca771052ea0efbefde"
+      }
+    }
+  ],
+  "verification": {
+    "local_archive_sha256_checks": "passed",
+    "runtime_smoke_test_passed": [
+      "linux-x86_64-glibc2.28",
+      "macos15.0-x86_64",
+      "macos15.0-arm64",
+      "windows-x86_64"
+    ],
+    "runtime_smoke_test_not_run": [
+      "linux-aarch64-glibc2.28"
+    ],
+    "debug_symbol_identity_checked": true
+  }
+}

@@ -15,6 +15,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let endpoint = first.connection_options()?;
     let mut connection = Conn::new(
         OptsBuilder::new()
+            .ip_or_hostname(Some(endpoint.host.unwrap_or_else(|| "127.0.0.1".into())))
+            .tcp_port(endpoint.port.unwrap_or(0))
             .socket(endpoint.unix_socket)
             .user(Some(endpoint.user))
             .pass(Some(""))

@@ -1,5 +1,6 @@
 use seekdb::Seekdb;
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 
@@ -21,16 +22,20 @@ fn runtime_reuses_the_build_prepared_library_without_reextracting() {
         .join(embedded::SHA256);
     let marker = entry.join(".complete");
     let before = fs::metadata(&marker).expect("build.rs prepared the shared native entry");
+    #[cfg(unix)]
     let manifest: serde_json::Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
+    #[cfg(unix)]
     let library = entry
         .join(manifest["native_dir"].as_str().unwrap())
         .join(embedded::LIBRARY);
+    #[cfg(unix)]
     let inode = fs::metadata(&library).unwrap().ino();
     let temporary = tempfile::tempdir().unwrap();
     Seekdb::open(temporary.path().join("database"))
         .unwrap()
         .close()
         .unwrap();
+    #[cfg(unix)]
     assert_eq!(fs::metadata(&library).unwrap().ino(), inode);
     assert_eq!(
         fs::metadata(&marker).unwrap().modified().unwrap(),

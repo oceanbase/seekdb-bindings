@@ -3,13 +3,13 @@
 
 #[path = "../native_cache.rs"]
 mod native_cache;
+mod native_path;
 mod runtime;
 
 use libloading::Library;
 use std::collections::BTreeMap;
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::fmt;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::{Mutex, OnceLock};
@@ -38,6 +38,8 @@ struct Native {
     last_open_error: LastOpenErrorFn,
     close: CloseFn,
     connection_options: ConnectionOptionsFn,
+    #[cfg(windows)]
+    set_binary_path: unsafe extern "C" fn(*const c_char) -> c_int,
 }
 
 static NATIVE: OnceLock<Native> = OnceLock::new();
@@ -70,21 +72,53 @@ impl Native {
         if let Some(native) = NATIVE.get() {
             // Cached function pointers survive cache cleanup. The server and
             // dependencies must still be restored before another open.
-            native.bundle.ensure()?;
+            let path = native.bundle.ensure()?;
+            #[cfg(windows)]
+            native.configure_server(&path)?;
+            #[cfg(not(windows))]
+            let _ = path;
             return Ok(native);
         }
         let bundle = runtime::Bundle::embedded(configured.as_deref())?;
         let library_path = bundle.ensure()?;
         let native = Self::load(bundle, &library_path).map_err(Error::Setup)?;
+        #[cfg(windows)]
+        native.configure_server(&library_path)?;
         let _ = NATIVE.set(native);
         Ok(NATIVE.get().expect("native library was initialized"))
+    }
+
+    #[cfg(windows)]
+    fn configure_server(&self, library_path: &Path) -> Result<(), Error> {
+        // The old DLL can stay mapped while a repaired generation supplies a
+        // new server. All its dependencies are colocated with this executable.
+        let executable = native_path::c_path(&library_path.with_file_name("seekdb.exe"))?;
+        // SAFETY: the C API copies this string and serializes its configuration.
+        let code = unsafe { (self.set_binary_path)(executable.as_ptr()) };
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(Error::Native {
+                code,
+                message: "configure bundled Windows server".into(),
+            })
+        }
     }
 
     fn load(bundle: runtime::Bundle<'static>, library_path: &Path) -> Result<Self, String> {
         // SAFETY: The library remains owned by Native for as long as the copied
         // function pointers can be called. Function signatures match seekdb.h.
         unsafe {
-            let library = Library::new(library_path).map_err(|error| {
+            #[cfg(not(windows))]
+            let loaded = Library::new(library_path);
+            #[cfg(windows)]
+            let loaded = libloading::os::windows::Library::load_with_flags(
+                library_path,
+                libloading::os::windows::LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
+                    | libloading::os::windows::LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
+            )
+            .map(Library::from);
+            let library = loaded.map_err(|error| {
                 format!(
                     "load {}: {error}; verify cache permissions and execution policy, or select another cache with SEEKDB_CACHE_DIR or set_runtime_cache_dir",
                     library_path.display()
@@ -102,6 +136,10 @@ impl Native {
             let connection_options = *library
                 .get::<ConnectionOptionsFn>(b"seekdb_connection_options\0")
                 .map_err(|error| error.to_string())?;
+            #[cfg(windows)]
+            let set_binary_path = *library
+                .get::<unsafe extern "C" fn(*const c_char) -> c_int>(b"seekdb_set_binary_path\0")
+                .map_err(|error| error.to_string())?;
             // libseekdb locates its server executable beside the loaded library.
             Ok(Self {
                 _library: library,
@@ -110,6 +148,8 @@ impl Native {
                 last_open_error,
                 close,
                 connection_options,
+                #[cfg(windows)]
+                set_binary_path,
             })
         }
     }
@@ -207,8 +247,7 @@ impl Seekdb {
         let directory = directory.canonicalize().map_err(|error| {
             Error::InvalidInput(format!("resolve {}: {error}", directory.display()))
         })?;
-        let c_directory = CString::new(directory.as_os_str().as_bytes())
-            .map_err(|_| Error::InvalidInput("database directory contains NUL".into()))?;
+        let c_directory = native_path::c_path(&directory)?;
         let mut strings = Vec::with_capacity(options.parameters.len() * 2);
         for (key, value) in &options.parameters {
             if key.is_empty() {

@@ -1,13 +1,19 @@
 # Embedded native runtime decision
 
-Status: implemented in the Rust binding; native bundle availability currently
-limits automatic builds to Linux x86_64.
+Status: implemented with pinned 1.4.0.0-r2 release assets for GNU/Linux
+x86_64/ARM64, macOS Intel/ARM64, and Windows x86_64 MSVC (preview). See
+[native validation](native-bundle-validation.md) for evidence and remaining limits.
 
 ## Decision
 
 Embed the compressed native seekdb bundle in compiled artifacts that use the
 binding. During a build, `build.rs` downloads the bundle for the target and
-verifies its pinned SHA-256. The binding includes those bytes with
+verifies its pinned SHA-256. `[package.metadata.seekdb]` pins the native
+version and the SHA-256 of its release manifest. The build obtains that exact
+manifest from verified local copies or the configured HTTPS download directory;
+on a transport failure it can use the matching packaged JSON snapshot. Invalid
+remote metadata is an error. `SEEKDB_DOWNLOAD_BASE_URL` overrides the build-time
+directory for both metadata and archives while retaining all pins. The binding includes the compressed native archive with
 `include_bytes!`. Before loading libseekdb or opening an instance that may start
 a server, ensure a complete extraction exists. Load libseekdb by its absolute
 path. Runtime extraction needs no download.
@@ -23,10 +29,16 @@ links the binding's runtime code.
 Use the same `<root>/<target>/<native-version>/<full-sha256>` entry for both
 phases. Keep the verified source archive as `bundle.tar.gz` alongside the
 extracted native bundle and `.complete` manifest. Builds and runtime share the
-same implementation, validation, and atomic directory publication. Each process
+same implementation, validation, and atomic directory publication. Build-time
+manifest metadata uses `<root>/manifests/<native-version>/<manifest-sha256>/manifest.json`
+and an independent `OUT_DIR` copy, publishing complete files by atomic rename.
+Runtime uses its embedded metadata/archive and never accesses a manifest URL.
+Each process
 uses a private staging directory next to the final entry. It renames a complete
 entry into place or reuses another process's winning entry; no cache file lock
-is used. Concurrent cold starts may duplicate downloads and extraction.
+is used. Linux/macOS replace damaged directories with atomic exchange. Windows
+publishes a retained generation and atomically replaces its inventory pointer;
+its entry and previous loaded files stay present throughout repair. Concurrent cold starts may duplicate downloads and extraction.
 Building prepares files without loading the library or launching the server.
 A subsequent run with the same user, cache root, and bundle identity reuses the
 prepared native files directly. The compressed copy is not a required runtime
@@ -61,7 +73,7 @@ Linux:
 macOS:
   ~/Library/Caches/seekdb/native/<target>/<version>/<sha256>/
 
-Windows (directory convention; native bundle support is not available yet):
+Windows:
   %LOCALAPPDATA%\seekdb\cache\native\<target>\<version>\<sha256>\
 ```
 
@@ -115,6 +127,24 @@ support reports a cache error during repair; use another cache filesystem or
 remove the damaged entry when no instance uses it. Keep archive staging files
 beside the entry so directory exchange cannot invalidate their source paths.
 
+Windows has no atomic directory-exchange API. For a damaged entry, rename the
+prepared sibling tree into a unique generation within the entry, then atomically
+replace `.complete` with an inventory referencing only that complete generation.
+Keep all prior files and generations. A stale publisher can replace the inventory
+with another complete generation without removing paths already used by readers.
+The loaded driver is retained; its existing `seekdb_set_binary_path` C API selects
+the server in the latest generation before another open. Windows DLL loading uses
+`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`, and a
+server copy is colocated with the bundled DLLs. No global loader path changes or
+SDK adapter DLL are required. The long archive wrapper directory is removed on
+Windows to keep paths within the pinned ANSI C driver's limits.
+
+This generation scheme changes only Windows repair; Unix continues to use the
+existing atomic-exchange scheme. Windows filesystem/DACL policy is enforced by
+the OS; custom cache roots must remain private to the user. The pinned C driver
+limits native paths to those representable in the active ANSI code page and short
+local-drive paths. The Rust layer rejects unsupported paths explicitly.
+
 ## Accepted risks and implementation requirements
 
 Embedding provides a distributable artifact containing the native bundle, but
@@ -126,7 +156,7 @@ It therefore has these deployment constraints:
 | The default cache is read-only, on a `noexec` mount, or blocked by execution policy. | Allow a caller-selected writable cache through the Rust API or `SEEKDB_CACHE_DIR`. On Linux, diagnose a confirmed `noexec` mount before native initialization, for example using `statvfs` flags. Report the actual path, failed operation, and underlying system error; do not classify every permission failure as `noexec`. Explain how to select a different cache root. Embedding cannot bypass host execution policy. |
 | The cache is cleared before use or an extraction is interrupted. | Treat this as a recoverable cache miss: recreate the missing or incomplete entry from the embedded bytes without a download. Check before each `Seekdb::open` that may start a server, even when libseekdb is already loaded. The cost is extraction time and disk writes; database data is outside this cache. |
 | An external cleaner deletes cache files while an instance is running. | On Linux, unlinking an executable or shared library does not invalidate its existing memory mappings, so deletion alone generally does not stop an already running server. Later file opens, deferred library loads, or server starts can still require the deleted paths. Restore the bundle before operations controlled by the binding; do not promise transparent recovery from arbitrary deletion during native execution. SDK-managed cleanup must avoid entries in use and must never overwrite active mapped files in place. |
-| Several applications initialize the same bundle concurrently. | Prepare independently and publish complete entries with rename, reusing an already valid winner. Accept duplicate cold-start work. Repair nonempty entries with atomic directory exchange so concurrent readers never see a missing directory. |
+| Several applications initialize the same bundle concurrently. | Prepare independently and publish complete entries with rename, reusing an already valid winner. Accept duplicate cold-start work. Use Unix directory exchange or Windows generation/inventory publication, preserving paths held by concurrent readers. |
 | Cache contents are modified by another user. | Use a user-owned cache with appropriate access permissions and safely extract archive paths. A completion marker is not an integrity guarantee. |
 | Native artifacts increase application size, first-use latency, and disk usage. | Document that the compressed archive remains in the compiled artifact and the extracted runtime consumes additional disk space. Different versions can leave separate cache entries. |
 | Different SDK versions or separately built modules embed multiple archives. | Keep cache entries distinct by target, native version, and archive hash. Cargo can share a resolved Rust dependency within one build graph, but cannot deduplicate payloads across independently built dynamic libraries. |

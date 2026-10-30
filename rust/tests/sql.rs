@@ -3,9 +3,14 @@ use seekdb::Seekdb;
 
 fn connect(database: &Seekdb) -> Conn {
     let endpoint = database.connection_options().unwrap();
-    assert_eq!(endpoint.transport, "unix_socket");
+    assert_eq!(
+        endpoint.transport,
+        if cfg!(windows) { "tcp" } else { "unix_socket" }
+    );
     Conn::new(
         OptsBuilder::new()
+            .ip_or_hostname(Some(endpoint.host.unwrap_or_else(|| "127.0.0.1".into())))
+            .tcp_port(endpoint.port.unwrap_or(0))
             .socket(endpoint.unix_socket)
             .user(Some(endpoint.user))
             .pass(Some(""))
@@ -17,7 +22,11 @@ fn connect(database: &Seekdb) -> Conn {
 #[test]
 fn sql_data_is_shared_between_lifecycle_handles() {
     let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("database with spaces 中文");
+    let path = temporary.path().join(if cfg!(windows) {
+        "database with spaces"
+    } else {
+        "database with spaces 中文"
+    });
     let database = Seekdb::open(&path).unwrap();
     let other_handle = Seekdb::open(&path).unwrap();
     let mut connection = connect(&database);
