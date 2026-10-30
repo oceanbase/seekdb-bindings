@@ -73,7 +73,8 @@ python rust/tests/check_docs.py
 CI runs these on all five native targets, with an explicit noexec mount and
 manifest-download/fallback checks on both Linux targets. The package check runs
 `cargo publish --dry-run --locked --registry crates-io` with verification enabled,
-checks the archive's metadata, manifest pin, build sources, examples and notices,
+then runs `cargo package --no-verify` to generate the source archive it inspects.
+It checks that archive's metadata, manifest pin, build sources, examples and notices,
 rejects native binary/archive build outputs, and builds the unpacked crate.
 It never uploads. For local edits only, pass `--allow-dirty` to the package check;
 omit that option for the release. Cargo controls `CARGO_TARGET_DIR` normally.

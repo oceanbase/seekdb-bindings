@@ -23,6 +23,15 @@ The engine NOTICE has SHA-256
 an exact copy is included as [NOTICE](NOTICE) in this crate. It contains notices
 for libev, http_parser, LZ4 (two versions), snappy, zlib and zstd.
 
+The inherited zstd notice refers to a sibling `PATENTS` file. This crate includes
+that [PATENTS](PATENTS) text unchanged from upstream zstd commit
+[`fe007ba8bdea7dcb0ce2fe5f04389252c79212b0`](https://github.com/meta/zstd/blob/fe007ba8bdea7dcb0ce2fe5f04389252c79212b0/PATENTS)
+(tag `v1.3.0`), which carries the historical BSD/PATENTS terms cited by the notice.
+This supplies the referenced document without modifying the verified NOTICE; it
+does not establish that the bundled engine uses zstd version 1.3.0 or complete the
+native dependency inventory below. Both files preserve their original bytes in
+Windows checkouts and are checked in the actual source package.
+
 That NOTICE is not a complete inventory of the prebuilt runtime. In particular:
 
 | Area | Observed dependency/source | Distribution work to verify |

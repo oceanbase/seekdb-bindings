@@ -12,7 +12,7 @@ categories = ["database"]
 readme = "README.md"
 publish = ["crates-io"]
 build = "build.rs"
-include = ["Cargo.toml", "Cargo.lock", "build.rs", "build_cache.rs", "bundle_manifest.rs", "manifest_cache.rs", "native_cache.rs", "bundles/*.json", "src/**", "examples/**", "tests/*.rs", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "README.md", "docs/**"]
+include = ["Cargo.toml", "Cargo.lock", "build.rs", "build_cache.rs", "bundle_manifest.rs", "manifest_cache.rs", "native_cache.rs", "bundles/*.json", "src/**", "examples/**", "tests/*.rs", "LICENSE", "NOTICE", "PATENTS", "THIRD_PARTY_NOTICES.md", "README.md", "docs/**"]
 
 [package.metadata.seekdb]
 native-version = "1.4.0.0-r2"

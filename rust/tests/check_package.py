@@ -33,7 +33,7 @@ if args.allow_dirty:
     command.append('--allow-dirty')
 subprocess.run(command, check=True)
 archive = Path(metadata['target_directory']) / 'package' / f'{package_root}.crate'
-required = ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'docs/releasing.md', 'Cargo.toml', 'Cargo.lock', 'build.rs', 'build_cache.rs', 'native_cache.rs', 'bundle_manifest.rs', 'manifest_cache.rs', native_manifest, 'src/lib.rs', 'src/runtime.rs', 'src/native_path.rs', 'examples/first_query.rs', 'examples/async_query.rs']
+required = ['LICENSE', 'NOTICE', 'PATENTS', 'THIRD_PARTY_NOTICES.md', 'README.md', 'docs/releasing.md', 'Cargo.toml', 'Cargo.lock', 'build.rs', 'build_cache.rs', 'native_cache.rs', 'bundle_manifest.rs', 'manifest_cache.rs', native_manifest, 'src/lib.rs', 'src/runtime.rs', 'src/native_path.rs', 'examples/first_query.rs', 'examples/async_query.rs']
 with tempfile.TemporaryDirectory(prefix='pkg-') as directory:
     with tarfile.open(archive) as source:
         names = set(source.getnames())
@@ -43,7 +43,8 @@ with tempfile.TemporaryDirectory(prefix='pkg-') as directory:
         packaged = tomllib.loads(source.extractfile(f'{package_root}/Cargo.toml').read().decode())
         assert packaged['package']['publish'] == ['crates-io']
         assert packaged['package']['metadata']['seekdb'] == config
-        assert source.extractfile(f'{package_root}/NOTICE').read() == (crate / 'NOTICE').read_bytes()
+        for notice in ['NOTICE', 'PATENTS']:
+            assert source.extractfile(f'{package_root}/{notice}').read() == (crate / notice).read_bytes()
         snapshot = source.extractfile(f'{package_root}/{native_manifest}').read()
         assert hashlib.sha256(snapshot).hexdigest() == config['manifest-sha256']
         assert json.loads(snapshot)['package_version'] == config['native-version']

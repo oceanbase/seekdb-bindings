@@ -428,8 +428,9 @@ archives; configure each before its first native initialization.
 `cargo package` includes the pinned manifest, build/cache sources, runtime
 sources, examples, licenses/notices, and documentation through an explicit
 include list. `python rust/tests/check_package.py` runs a real
-`cargo publish --dry-run --locked --registry crates-io`, inspects the resulting
-`.crate`, and compiles its unpacked sources. It requires a clean checkout;
+`cargo publish --dry-run --locked --registry crates-io` with verification enabled.
+It then runs `cargo package --no-verify`, inspects that `.crate`, and compiles its
+unpacked sources. It requires a clean checkout;
 `--allow-dirty` is available for local work in progress only. Nothing is uploaded.
 Downloaded bundles and Cargo output are not source-package inputs.
 
