@@ -67,6 +67,8 @@ jobs:
         run: python rust/tests/consumer/test_deployment.py
       - name: Verify the crate source distribution
         run: python rust/tests/check_package.py
+      - name: Verify offline docs.rs builds and normal embedding
+        run: python rust/tests/check_docs.py
       - name: Test cold manifest download and offline builds
         if: runner.os == 'Linux'
         run: python rust/tests/test_manifest_download.py

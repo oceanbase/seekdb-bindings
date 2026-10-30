@@ -128,6 +128,19 @@ fn prepare_bundle(out_dir: &Path, target: &str) -> Result<(), String> {
     // Reject unsupported ABIs before requesting any remote metadata.
     bundle_manifest::target_platform(target)?;
     let config = Config::from_package(bundle_manifest::PACKAGE_TOML)?;
+    let bundled =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is missing")?)
+            .join("bundles")
+            .join(config.manifest_name());
+    println!("cargo:rerun-if-changed={}", bundled.display());
+    if env::var_os("DOCS_RS").is_some() {
+        // docs.rs disables network access. Rustdoc only needs the public API,
+        // not a runnable native payload. Still verify the packaged release pin.
+        let manifest =
+            fs::read(&bundled).map_err(|error| format!("read documentation manifest: {error}"))?;
+        let asset = config.asset(&manifest, target, &DownloadBase::new(None)?)?;
+        return write_bundle_metadata(out_dir, target, &asset, "&[]");
+    }
     let prefix = env::var("SEEKDB_DOWNLOAD_BASE_URL")
         .map(Some)
         .or_else(|e| match e {
@@ -137,11 +150,6 @@ fn prepare_bundle(out_dir: &Path, target: &str) -> Result<(), String> {
             }
         })?;
     let base = DownloadBase::new(prefix.as_deref())?;
-    let bundled =
-        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("CARGO_MANIFEST_DIR is missing")?)
-            .join("bundles")
-            .join(config.manifest_name());
-    println!("cargo:rerun-if-changed={}", bundled.display());
     let root = env::var_os("SEEKDB_CACHE_DIR")
         .map(PathBuf::from)
         .or_else(native_cache::default_root);
@@ -167,13 +175,25 @@ fn prepare_bundle(out_dir: &Path, target: &str) -> Result<(), String> {
         &asset.sha256,
         |directory, package| download(&asset, directory, package),
     )?;
+    let archive = format!(
+        "include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{}\"))",
+        asset.name
+    );
+    write_bundle_metadata(out_dir, target, &asset, &archive)
+}
+
+fn write_bundle_metadata(
+    out_dir: &Path,
+    target: &str,
+    asset: &Asset,
+    archive: &str,
+) -> Result<(), String> {
     let source = format!(
-        "pub const ARCHIVE: &[u8] = include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{name}\"));\n\
+        "pub const ARCHIVE: &[u8] = {archive};\n\
          pub const TARGET: &str = {target:?};\n\
          pub const VERSION: &str = {version:?};\n\
          pub const SHA256: &str = {hash:?};\n\
          pub const LIBRARY: &str = {library:?};\n",
-        name = asset.name,
         version = asset.version,
         hash = asset.sha256,
         library = asset.library,
@@ -196,6 +216,7 @@ fn build() -> Result<(), String> {
     println!("cargo:rerun-if-changed=build_cache.rs");
     println!("cargo:rerun-if-changed=native_cache.rs");
     for variable in [
+        "DOCS_RS",
         "SEEKDB_CACHE_DIR",
         "SEEKDB_DOWNLOAD_BASE_URL",
         "XDG_CACHE_HOME",

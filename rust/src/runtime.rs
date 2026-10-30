@@ -57,6 +57,11 @@ fn select_root(
 
 impl Bundle<'static> {
     pub(crate) fn embedded(explicit: Option<&Path>) -> Result<Self, Error> {
+        if embedded::ARCHIVE.is_empty() {
+            return Err(Error::Setup(
+                "this seekdb build is for docs.rs only; rebuild without DOCS_RS to embed the native runtime".into(),
+            ));
+        }
         let default = native_cache::default_root();
         let root = select_root(explicit, std::env::var_os("SEEKDB_CACHE_DIR"), default)?;
         Ok(Self {
