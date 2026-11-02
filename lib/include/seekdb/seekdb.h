@@ -31,6 +31,7 @@ typedef enum {
     SEEKDB_TYPE_DATETIME,
     SEEKDB_TYPE_TIMESTAMP,
     SEEKDB_TYPE_VARCHAR,
+    SEEKDB_TYPE_BYTES,
 } SeekdbTypeId;
 
 #define SEEKDB_CONNECTION_TRANSPORT_TCP "tcp"
@@ -97,6 +98,11 @@ int seekdb_disconnect(SeekdbConnection connection);
 
 int seekdb_last_error(SeekdbConnection connection, int *out_errno, const char **out_msg);
 
+/* Results are fully buffered, including subsequent result sets. If buffering
+ * fails, no partial result is published and the protocol connection is closed.
+ * seekdb_last_error retains the failure (2008 for allocation failure). Further
+ * commands fail with 2006; disconnect and create a new connection to recover.
+ * Previously returned result buffers remain readable until result_free. */
 int seekdb_query(SeekdbConnection connection, const char *sql, int64_t sql_len,
                  SeekdbResult *out_result);
 
@@ -106,6 +112,12 @@ int seekdb_result_column_name(SeekdbResult result, int64_t index, const char **o
 int seekdb_result_column_type_id(SeekdbResult result, int64_t index, SeekdbTypeId *out_typeid);
 int seekdb_result_row_count(SeekdbResult result, int64_t *out_nrows);
 int seekdb_result_next(SeekdbResult result);
+/* Advance to the next buffered result set. Returns SEEKDB_NO_MORE_ROWS when
+ * no further result exists; a statement's final status can have zero columns. */
+int seekdb_result_next_set(SeekdbResult result);
+/* Retrieve a deferred error after seekdb_result_next_set returns an error.
+ * The message is borrowed and valid until the result is advanced or freed. */
+int seekdb_result_set_error(SeekdbResult result, int *out_errno, const char **out_msg);
 int seekdb_result_get_int64(SeekdbResult result, int64_t index, int64_t *out_value);
 int seekdb_result_get_uint64(SeekdbResult result, int64_t index, uint64_t *out_value);
 int seekdb_result_get_float(SeekdbResult result, int64_t index, double *out_value);

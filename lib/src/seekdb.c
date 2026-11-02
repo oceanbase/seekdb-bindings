@@ -21,6 +21,7 @@
 #endif
 
 #include <mysql.h>
+#include <errmsg.h>
 
 #define WAIT_INTERVAL_US (200 * 1000)   /* 200 ms between discovery polls */
 #define REAPER_INTERVAL_US (500 * 1000) /* 500 ms between reaper wakeups */
@@ -1436,18 +1437,60 @@ int seekdb_last_error(SeekdbConnection connection, int *out_errno, const char **
         return SEEKDB_INVALID_ARGUMENT;
     SeekdbConnectionImpl *c = (SeekdbConnectionImpl *)connection;
     if (out_errno)
-        *out_errno = c->mysql ? (int)mysql_errno(c->mysql) : 0;
+        *out_errno = c->driver_error_code ? c->driver_error_code :
+                     (c->mysql ? (int)mysql_errno(c->mysql) : 0);
     if (out_msg)
-        *out_msg = c->mysql ? mysql_error(c->mysql) : "";
+        *out_msg = c->driver_error_code ? c->driver_error_message :
+                   (c->mysql ? mysql_error(c->mysql) : "");
     return SEEKDB_SUCCESS;
 }
 
 /* ======================================================= transactions == */
 
+static int connection_error(SeekdbConnectionImpl *c, int code, const char *message)
+{
+    c->driver_error_code = code;
+    snprintf(c->driver_error_message, sizeof(c->driver_error_message), "%s", message);
+    return SEEKDB_INTERNAL_ERROR;
+}
+
+static int prepare_command(SeekdbConnectionImpl *c)
+{
+    if (!c->mysql)
+        return connection_error(c, CR_SERVER_GONE_ERROR,
+                                "Connection closed after result buffering failure; reconnect");
+    c->driver_error_code = 0;
+    c->driver_error_message[0] = '\0';
+    return SEEKDB_SUCCESS;
+}
+
+static int fail_result_buffering(SeekdbConnectionImpl *c, int code, const char *message)
+{
+    /* Do not try to allocate additional buffers to drain a failed/OOM stream.
+     * Copy the diagnostic before mysql_close invalidates connector storage.
+     * Already published MYSQL_RES buffers do not depend on this connection. */
+    connection_error(c, code, message);
+    mysql_close(c->mysql);
+    c->mysql = NULL;
+    return SEEKDB_INTERNAL_ERROR;
+}
+
+static int command_error(SeekdbConnectionImpl *c)
+{
+    /* Metadata is read by real_query/next_result before store_result. A client
+     * allocation failure can leave those packets unread too. Do not publish it
+     * as a normal, fully consumed server error or reuse the protocol stream. */
+    if (mysql_errno(c->mysql) == CR_OUT_OF_MEMORY)
+        return fail_result_buffering(c, CR_OUT_OF_MEMORY, mysql_error(c->mysql));
+    return SEEKDB_INTERNAL_ERROR;
+}
+
 static int run_simple(SeekdbConnectionImpl *c, const char *sql, size_t len)
 {
-    if (mysql_real_query(c->mysql, sql, (unsigned long)len))
+    if (prepare_command(c) != SEEKDB_SUCCESS)
         return SEEKDB_INTERNAL_ERROR;
+    if (mysql_real_query(c->mysql, sql, (unsigned long)len))
+        return command_error(c);
     return SEEKDB_SUCCESS;
 }
 
@@ -1499,10 +1542,18 @@ static SeekdbTypeId map_field_type(const MYSQL_FIELD *f)
         return SEEKDB_TYPE_TIMESTAMP;
     case MYSQL_TYPE_NULL:
         return SEEKDB_TYPE_NULL;
+    case MYSQL_TYPE_TINY_BLOB:
+    case MYSQL_TYPE_MEDIUM_BLOB:
+    case MYSQL_TYPE_LONG_BLOB:
+    case MYSQL_TYPE_BLOB:
+        return f->charsetnr == 63 ? SEEKDB_TYPE_BYTES : SEEKDB_TYPE_VARCHAR;
+    case MYSQL_TYPE_BIT:
+    case MYSQL_TYPE_GEOMETRY:
+        return SEEKDB_TYPE_BYTES;
     case MYSQL_TYPE_VARCHAR:
     case MYSQL_TYPE_VAR_STRING:
     case MYSQL_TYPE_STRING:
-        return SEEKDB_TYPE_VARCHAR;
+        return f->charsetnr == 63 ? SEEKDB_TYPE_BYTES : SEEKDB_TYPE_VARCHAR;
     default:
         return SEEKDB_TYPE_VARCHAR;
     }
@@ -1516,31 +1567,69 @@ int seekdb_query(SeekdbConnection connection, const char *sql, int64_t sql_len,
     *out_result = NULL;
 
     SeekdbConnectionImpl *c = (SeekdbConnectionImpl *)connection;
+    if (prepare_command(c) != SEEKDB_SUCCESS)
+        return SEEKDB_INTERNAL_ERROR;
     if (mysql_real_query(c->mysql, sql, (unsigned long)sql_len))
-        return SEEKDB_INTERNAL_ERROR;
+        return command_error(c);
 
-    MYSQL_RES *res = mysql_store_result(c->mysql);
-    if (!res) {
-        if (mysql_field_count(c->mysql) == 0) {
-            /* OK with no result set (INSERT/UPDATE/DDL). */
+    SeekdbResultImpl *first = NULL;
+    SeekdbResultImpl **tail = &first;
+    for (;;) {
+        MYSQL_RES *res = mysql_store_result(c->mysql);
+        if (!res && mysql_field_count(c->mysql) != 0) {
+            if (first)
+                seekdb_result_free(first);
+            int code = (int)mysql_errno(c->mysql);
+            const char *message = mysql_error(c->mysql);
+            return fail_result_buffering(c, code ? code : CR_SERVER_LOST,
+                                         *message ? message : "Result buffering failed");
         }
-        else {
-            return SEEKDB_INTERNAL_ERROR;
+        SeekdbResultImpl *r = (SeekdbResultImpl *)calloc(1, sizeof(*r));
+        if (!r) {
+            if (res)
+                mysql_free_result(res);
+            if (first)
+                seekdb_result_free(first);
+            return fail_result_buffering(c, CR_OUT_OF_MEMORY,
+                                         "Out of memory buffering query result; connection closed");
+        }
+        r->mysql = c->mysql;
+        r->mysql_res = res;
+        r->column_count = res ? (int)mysql_num_fields(res) : 0;
+        *tail = r;
+        tail = &r->next_set;
+        if (!mysql_more_results(c->mysql))
+            break;
+        if (mysql_next_result(c->mysql) != 0) {
+            if (mysql_errno(c->mysql) == CR_OUT_OF_MEMORY) {
+                seekdb_result_free(first);
+                return command_error(c);
+            }
+            /* A later statement can fail after earlier sets were delivered.
+             * Keep those sets and surface the error when the caller advances. */
+            SeekdbResultImpl *error = (SeekdbResultImpl *)calloc(1, sizeof(*error));
+            if (!error) {
+                seekdb_result_free(first);
+                return fail_result_buffering(c, CR_OUT_OF_MEMORY,
+                                             "Out of memory buffering deferred error; connection closed");
+            }
+            error->mysql = c->mysql;
+            error->error_code = (int)mysql_errno(c->mysql);
+            const char *message = mysql_error(c->mysql);
+            size_t message_len = strlen(message);
+            error->error_message = (char *)malloc(message_len + 1);
+            if (!error->error_message) {
+                free(error);
+                seekdb_result_free(first);
+                return fail_result_buffering(c, CR_OUT_OF_MEMORY,
+                                             "Out of memory copying deferred error; connection closed");
+            }
+            memcpy(error->error_message, message, message_len + 1);
+            *tail = error;
+            break;
         }
     }
-
-    SeekdbResultImpl *r = (SeekdbResultImpl *)calloc(1, sizeof(*r));
-    if (!r) {
-        if (res)
-            mysql_free_result(res);
-        return SEEKDB_INTERNAL_ERROR;
-    }
-
-    r->mysql = c->mysql;
-    r->mysql_res = res;
-    r->column_count = res ? (int)mysql_num_fields(res) : 0;
-
-    *out_result = (SeekdbResult)r;
+    *out_result = (SeekdbResult)first;
     return SEEKDB_SUCCESS;
 }
 
@@ -1551,9 +1640,40 @@ int seekdb_result_free(SeekdbResult result)
     if (!result)
         return SEEKDB_INVALID_ARGUMENT;
     SeekdbResultImpl *r = (SeekdbResultImpl *)result;
+    while (r) {
+        SeekdbResultImpl *next = r->next_set;
+        if (r->mysql_res)
+            mysql_free_result(r->mysql_res);
+        free(r->error_message);
+        free(r);
+        r = next;
+    }
+    return SEEKDB_SUCCESS;
+}
+
+int seekdb_result_next_set(SeekdbResult result)
+{
+    if (!result)
+        return SEEKDB_INVALID_ARGUMENT;
+    SeekdbResultImpl *r = (SeekdbResultImpl *)result;
+    SeekdbResultImpl *next = r->next_set;
+    if (!next)
+        return SEEKDB_NO_MORE_ROWS;
     if (r->mysql_res)
         mysql_free_result(r->mysql_res);
-    free(r);
+    free(r->error_message);
+    *r = *next;
+    free(next);
+    return r->error_message ? SEEKDB_INTERNAL_ERROR : SEEKDB_SUCCESS;
+}
+
+int seekdb_result_set_error(SeekdbResult result, int *out_errno, const char **out_msg)
+{
+    if (!result || !out_errno || !out_msg)
+        return SEEKDB_INVALID_ARGUMENT;
+    SeekdbResultImpl *r = (SeekdbResultImpl *)result;
+    *out_errno = r->error_code;
+    *out_msg = r->error_message;
     return SEEKDB_SUCCESS;
 }
 
@@ -1613,10 +1733,11 @@ int seekdb_result_next(SeekdbResult result)
         return SEEKDB_INTERNAL_ERROR;
     r->current_row = mysql_fetch_row(r->mysql_res);
     if (!r->current_row) {
-        /* NULL from mysql_fetch_row means either end-of-result or an actual
-         * fetch error. mysql_errno on the parent connection distinguishes. */
+        /* Results are fully buffered by mysql_store_result, so fetching does
+         * not perform I/O. The connection's error belongs to its most recent
+         * command, which may be a different cursor or a later result set. */
         r->current_lengths = NULL;
-        return (mysql_errno(r->mysql) == 0) ? SEEKDB_NO_MORE_ROWS : SEEKDB_INTERNAL_ERROR;
+        return SEEKDB_NO_MORE_ROWS;
     }
     r->current_lengths = mysql_fetch_lengths(r->mysql_res);
     return SEEKDB_SUCCESS;

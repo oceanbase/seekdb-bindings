@@ -113,21 +113,50 @@ class Connection : public std::enable_shared_from_this<Connection> {
 
     void reset()
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         if (c_) {
             seekdb_disconnect(c_);
             c_ = nullptr;
         }
         instance_.reset();
     }
-    void begin() { SDB_CHECK(seekdb_trx_begin(c_)); }
-    void commit() { SDB_CHECK(seekdb_trx_commit(c_)); }
-    void rollback() { SDB_CHECK(seekdb_trx_rollback(c_)); }
+    void begin()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        SDB_CHECK(seekdb_trx_begin(c_));
+    }
+    void commit()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        SDB_CHECK(seekdb_trx_commit(c_));
+    }
+    void rollback()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        SDB_CHECK(seekdb_trx_rollback(c_));
+    }
 
-    SeekdbConnection raw() const { return c_; }
+    void query(const std::string &sql, SeekdbResult *out_result)
+    {
+        // execute() releases the GIL. Serialize the entire protocol exchange
+        // and error copy with close(), transactions, and other cursors using
+        // this connection; none may free or reuse MYSQL while it is in flight.
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!c_)
+            throw std::runtime_error("Cursor.execute: no connection");
+        const int rc = seekdb_query(c_, sql.c_str(), static_cast<int64_t>(sql.size()), out_result);
+        if (rc != SEEKDB_SUCCESS) {
+            int srv_errno = 0;
+            const char *srv_msg = nullptr;
+            seekdb_last_error(c_, &srv_errno, &srv_msg);
+            throw SeekdbError(srv_errno, srv_msg ? srv_msg : "");
+        }
+    }
 
   private:
     SeekdbConnection c_;
     std::shared_ptr<InstanceState> instance_;
+    std::mutex mutex_;
 };
 
 class Cursor {
@@ -144,18 +173,12 @@ class Cursor {
 
     uint64_t execute(const std::string &sql)
     {
-        if (!conn_ || !conn_->raw()) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!conn_) {
             throw std::runtime_error("Cursor.execute: no connection");
         }
         free_result();
-        int rc =
-            seekdb_query(conn_->raw(), sql.c_str(), static_cast<int64_t>(sql.size()), &result_);
-        if (rc != SEEKDB_SUCCESS) {
-            int srv_errno = 0;
-            const char *srv_msg = nullptr;
-            seekdb_last_error(conn_->raw(), &srv_errno, &srv_msg);
-            throw SeekdbError(srv_errno, srv_msg ? srv_msg : "");
-        }
+        conn_->query(sql, &result_);
         int64_t n = 0;
         if (seekdb_result_row_count(result_, &n) != SEEKDB_SUCCESS)
             n = 0;
@@ -164,6 +187,7 @@ class Cursor {
 
     nb::object fetchone()
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         if (!result_)
             return nb::none();
         if (seekdb_result_next(result_) != SEEKDB_SUCCESS)
@@ -173,6 +197,7 @@ class Cursor {
 
     std::vector<nb::tuple> fetchall()
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         std::vector<nb::tuple> rows;
         if (!result_)
             return rows;
@@ -182,7 +207,49 @@ class Cursor {
         return rows;
     }
 
-    void close() { free_result(); }
+    nb::object nextset()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!result_)
+            return nb::none();
+        int rc = seekdb_result_next_set(result_);
+        if (rc == SEEKDB_NO_MORE_ROWS)
+            return nb::none();
+        if (rc != SEEKDB_SUCCESS) {
+            int error_code = 0;
+            const char *message = nullptr;
+            SDB_CHECK(seekdb_result_set_error(result_, &error_code, &message));
+            throw SeekdbError(error_code, message ? message : "nextset failed");
+        }
+        return nb::bool_(true);
+    }
+
+    nb::object description() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!result_)
+            return nb::none();
+        int64_t count = 0;
+        SDB_CHECK(seekdb_result_column_count(result_, &count));
+        if (count == 0)
+            return nb::none();
+        nb::list columns;
+        for (int64_t i = 0; i < count; ++i) {
+            const char *name = nullptr;
+            SeekdbTypeId type = SEEKDB_TYPE_NULL;
+            SDB_CHECK(seekdb_result_column_name(result_, i, &name));
+            SDB_CHECK(seekdb_result_column_type_id(result_, i, &type));
+            columns.append(nb::make_tuple(nb::str(name), nb::int_(static_cast<int>(type)),
+                                          nb::none(), nb::none(), nb::none(), nb::none(), nb::none()));
+        }
+        return nb::tuple(columns);
+    }
+
+    void close()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        free_result();
+    }
 
   private:
     void free_result()
@@ -268,6 +335,8 @@ class Cursor {
         }
         case SEEKDB_TYPE_VARCHAR:
             return nb::str(data, len);
+        case SEEKDB_TYPE_BYTES:
+            return nb::bytes(data, len);
         default:
             throw std::runtime_error("Cursor.get_value: unknown column type id=" +
                                      std::to_string(static_cast<int>(t)));
@@ -276,6 +345,7 @@ class Cursor {
 
     std::shared_ptr<Connection> conn_; // keeps connection alive while cursor uses it
     SeekdbResult result_;
+    mutable std::mutex mutex_; // protects buffered results while execute releases the GIL
 };
 
 Cursor Connection::cursor() { return Cursor(shared_from_this()); }
@@ -318,6 +388,10 @@ class SeekdbInstance {
         std::shared_ptr<InstanceState> instance = require_open();
         SeekdbConnection c = nullptr;
         int rc = seekdb_connect(instance->raw(), database.c_str(), autocommit, &c);
+        // Both a successful connect and a failed connect with diagnostics may
+        // return an owned C handle. Keep it guarded while allocating the error
+        // message or shared Connection wrapper; either allocation can throw.
+        std::unique_ptr<void, decltype(&seekdb_disconnect)> pending(c, &seekdb_disconnect);
         if (rc != SEEKDB_SUCCESS) {
             int srv_errno = 0;
             const char *srv_msg = nullptr;
@@ -325,11 +399,11 @@ class SeekdbInstance {
                 seekdb_last_error(c, &srv_errno, &srv_msg);
             std::string msg = (srv_msg && *srv_msg) ? srv_msg : "seekdb_connect failed";
             int error_code = srv_errno != 0 ? srv_errno : rc;
-            if (c)
-                seekdb_disconnect(c);
             throw SeekdbError(error_code, msg);
         }
-        return std::make_shared<Connection>(c, std::move(instance));
+        auto connection = std::make_shared<Connection>(c, std::move(instance));
+        pending.release();
+        return connection;
     }
 
     nb::dict connection_options()
@@ -524,6 +598,8 @@ NB_MODULE(pylibseekdb, m)
     cursor_class.def("execute", &seekdb::Cursor::execute, nb::call_guard<nb::gil_scoped_release>())
         .def("fetchone", &seekdb::Cursor::fetchone)
         .def("fetchall", &seekdb::Cursor::fetchall)
+        .def("nextset", &seekdb::Cursor::nextset)
+        .def_prop_ro("description", &seekdb::Cursor::description)
         .def("close", &seekdb::Cursor::close);
 
     nb::object atexit = nb::module_::import_("atexit");
