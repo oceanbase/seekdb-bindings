@@ -73,7 +73,9 @@ class InstanceState {
         if (rc != SEEKDB_SUCCESS) {
             if (handle_)
                 seekdb_close(handle_);
-            throw SeekdbError(rc, "seekdb_open");
+            const char *message = seekdb_last_open_error();
+            throw SeekdbError(rc,
+                              std::string(message && *message ? message : "seekdb_open failed"));
         }
     }
     ~InstanceState()
@@ -86,12 +88,13 @@ class InstanceState {
 
     SeekdbHandle raw() const { return handle_; }
 
-    void close_checked()
+    int close_checked()
     {
-        if (handle_) {
-            SDB_CHECK(seekdb_close(handle_));
-            handle_ = nullptr;
-        }
+        if (!handle_)
+            return SEEKDB_SUCCESS;
+        const int result = seekdb_close(handle_);
+        handle_ = nullptr;
+        return result;
     }
 
   private:
@@ -391,8 +394,9 @@ class SeekdbInstance {
             return;
 
         std::lock_guard<std::mutex> states_lock(instance_states_mutex);
+        int close_result = SEEKDB_SUCCESS;
         if (instance_.use_count() == 1) {
-            instance_->close_checked();
+            close_result = instance_->close_checked();
 
             const auto it = instance_states.find(db_dir_);
             if (it != instance_states.end()) {
@@ -402,6 +406,7 @@ class SeekdbInstance {
             }
         }
         instance_.reset();
+        SDB_CHECK(close_result);
     }
 
     bool closed() const
@@ -482,7 +487,7 @@ void close()
 
 NB_MODULE(pylibseekdb, m)
 {
-    m.doc() = "Python bindings for seekdb-driver (out-of-process MySQL-compatible client). "
+    m.doc() = "Python bindings for seekdb-driver (MySQL-compatible client). "
               "Surface mirrors seekdb's ob_embed_impl.cpp.";
     m.attr("__version__") = "0.1.0";
 
