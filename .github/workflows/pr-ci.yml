@@ -295,7 +295,9 @@ jobs:
               import pylibseekdb
 
               assert issubclass(pylibseekdb.SeekdbError, RuntimeError)
-              for name in ("SeekdbError", "Connection", "Cursor"):
+              assert issubclass(pylibseekdb.SeekdbError, pylibseekdb.DatabaseError)
+              assert issubclass(pylibseekdb.DatabaseError, pylibseekdb.Error)
+              for name in ("SeekdbError", "Error", "DatabaseError", "Connection", "Cursor"):
                   cls = getattr(pylibseekdb, name)
                   assert cls.__module__ == "pylibseekdb"
                   assert str(cls) == f"<class 'pylibseekdb.{name}'>"

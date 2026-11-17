@@ -10,9 +10,22 @@ import asyncio as _asyncio
 
 from .pylibseekdb import *  # noqa: F401, F403
 
-# pybind11 exception class — not always caught by `import *`, re-export
-# explicitly so callers can `except pylibseekdb.SeekdbError`.
-from .pylibseekdb import SeekdbError  # noqa: F401
+# DB-API 2.0 (PEP 249) exception classes. Re-export them explicitly so callers
+# can `except pylibseekdb.SeekdbError` / `except pylibseekdb.Error` even if
+# `import *` skips them. SeekdbError derives from DatabaseError and RuntimeError.
+from .pylibseekdb import (  # noqa: F401
+    DatabaseError,
+    DataError,
+    Error,
+    IntegrityError,
+    InterfaceError,
+    InternalError,
+    NotSupportedError,
+    OperationalError,
+    ProgrammingError,
+    SeekdbError,
+    Warning,
+)
 
 
 async def aopen(db_dir="./seekdb.db"):

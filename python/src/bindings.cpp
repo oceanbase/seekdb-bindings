@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -53,6 +54,79 @@ class SeekdbError : public std::runtime_error {
   private:
     int code_;
 };
+
+// DB-API 2.0 (PEP 249) exception hierarchy. SeekdbError stays a RuntimeError
+// subclass for backward compatibility and is also a DatabaseError, so DB-API
+// consumers (SQLAlchemy dialects, pyobvector, ...) can catch it as `Error`.
+// Like PyMySQL, a raised SeekdbError carries `args == (code, message)` and
+// exposes the numeric code as `code` / `errno` and the text as `msg`.
+static nb::object new_exception_type(nb::module_ &m, const char *name, nb::handle bases,
+                                     const char *doc)
+{
+    const std::string qualified = std::string(kPublicModule) + "." + name;
+    PyObject *type = PyErr_NewExceptionWithDoc(qualified.c_str(), doc, bases.ptr(), nullptr);
+    if (!type)
+        throw nb::python_error();
+    nb::object result = nb::steal(type);
+    m.attr(name) = result;
+    return result;
+}
+
+static void translate_seekdb_error(const std::exception_ptr &p, void *payload)
+{
+    try {
+        std::rethrow_exception(p);
+    }
+    catch (const SeekdbError &e) {
+        PyObject *type = static_cast<PyObject *>(payload);
+        const char *what = e.what();
+        nb::object msg = nb::steal(
+            PyUnicode_DecodeUTF8(what, static_cast<Py_ssize_t>(std::strlen(what)), "replace"));
+        if (!msg.is_valid())
+            return; // Python error already set
+        nb::object code = nb::int_(e.code());
+        PyObject *exc = PyObject_CallFunctionObjArgs(type, code.ptr(), msg.ptr(), nullptr);
+        if (!exc)
+            return; // Python error already set
+        nb::object value = nb::steal(exc);
+        if (PyObject_SetAttrString(exc, "code", code.ptr()) != 0 ||
+            PyObject_SetAttrString(exc, "errno", code.ptr()) != 0 ||
+            PyObject_SetAttrString(exc, "msg", msg.ptr()) != 0)
+            return; // Python error already set
+        PyErr_SetObject(type, exc);
+    }
+}
+
+static void register_exceptions(nb::module_ &m)
+{
+    nb::handle exception(PyExc_Exception);
+    new_exception_type(m, "Warning", nb::make_tuple(exception),
+                       "Important warnings, such as data truncation.");
+    nb::object error = new_exception_type(m, "Error", nb::make_tuple(exception),
+                                          "Base class of all pylibseekdb database errors.");
+    new_exception_type(m, "InterfaceError", nb::make_tuple(error),
+                       "Errors related to the database interface rather than the database.");
+    nb::object database_error = new_exception_type(m, "DatabaseError", nb::make_tuple(error),
+                                                   "Errors related to the database.");
+    const char *const database_error_subclasses[][2] = {
+        {"DataError", "Errors caused by problems with the processed data."},
+        {"OperationalError", "Errors related to the database's operation."},
+        {"IntegrityError", "Errors raised when relational integrity is affected."},
+        {"InternalError", "Errors raised when the database hits an internal error."},
+        {"ProgrammingError", "Programming errors, such as a missing table or bad SQL."},
+        {"NotSupportedError", "Errors raised when an unsupported API or feature is used."},
+    };
+    for (const auto &entry : database_error_subclasses)
+        new_exception_type(m, entry[0], nb::make_tuple(database_error), entry[1]);
+
+    nb::object seekdb_error = new_exception_type(
+        m, "SeekdbError", nb::make_tuple(database_error, nb::handle(PyExc_RuntimeError)),
+        "Error reported by seekdb. args is (code, message); the code is also available "
+        "as .code and .errno.");
+    // The translator outlives the module object; keep the type alive for the
+    // whole process like other nanobind exception registrations.
+    nb::register_exception_translator(translate_seekdb_error, seekdb_error.release().ptr());
+}
 
 #define SDB_CHECK(expr)                                                                            \
     do {                                                                                           \
@@ -486,8 +560,7 @@ NB_MODULE(pylibseekdb, m)
               "Surface mirrors seekdb's ob_embed_impl.cpp.";
     m.attr("__version__") = "0.1.0";
 
-    auto seekdb_error = nb::exception<SeekdbError>(m, "SeekdbError", PyExc_RuntimeError);
-    seekdb_error.attr("__module__") = kPublicModule;
+    register_exceptions(m);
 
     const char *default_service_path = "./seekdb.db";
 

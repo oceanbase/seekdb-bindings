@@ -324,7 +324,27 @@ LIMIT 10;
 
 ### `SeekdbError`
 
-Exception raised on driver errors.  Subclass of `RuntimeError`.
+Exception raised on driver errors. Subclass of `DatabaseError` (DB-API) and
+`RuntimeError` (kept for backward compatibility).
+
+Like PyMySQL, `args` is `(code, message)`. The numeric error code is also
+available as `.code` / `.errno`, and the message as `.msg`:
+
+```python
+try:
+    cursor.execute("DESCRIBE missing_table")
+except seekdb.Error as e:
+    if e.code == 1146:  # ER_NO_SUCH_TABLE
+        ...
+```
+
+### DB-API exceptions
+
+`pylibseekdb` exports the PEP 249 exception classes: `Warning`, `Error`,
+`InterfaceError`, `DatabaseError`, `DataError`, `OperationalError`,
+`IntegrityError`, `InternalError`, `ProgrammingError` and `NotSupportedError`.
+Database errors are currently all raised as `SeekdbError`; catch `Error` or
+`DatabaseError` for DB-API style handling.
 
 ## 📚 Use Cases
 

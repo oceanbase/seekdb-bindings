@@ -61,6 +61,7 @@ test-command = [
     "python {package}/tests/migration_test.py",
     "python {package}/tests/migration_integration_test.py",
     "python {package}/tests/connection_options_test.py",
+    "python {package}/tests/dbapi_errors_test.py",
 ]
 
 environment = { PIP_INDEX_URL = "https://pypi.tuna.tsinghua.edu.cn/simple/" }
