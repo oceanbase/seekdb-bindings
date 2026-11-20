@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/package.yml'
       - '.github/scripts/package.py'
+      - 'scripts/docker/bindings-manylinux.Dockerfile'
       - 'typescript/scripts/**'
       - 'typescript/src/**'
       - 'python/CMakeLists.txt'
@@ -125,7 +126,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Initialize binding dependencies without optional recursive submodules
-        run: git submodule update --init deps/mariadb-connector-c deps/openssl
+        run: git submodule update --init --depth 1 deps/mariadb-connector-c deps/openssl
       - name: Check out the merged binary-format tooling (no engine build)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

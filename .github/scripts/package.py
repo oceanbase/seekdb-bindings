@@ -456,6 +456,8 @@ def java_package(prefix, metadata):
 def build():
     if os.environ["PACKAGE_OS"] == "macos":
         os.environ["TMPDIR"] = "/tmp"
+        os.environ.setdefault("SDKROOT", subprocess.check_output(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip())
     elif os.environ["PACKAGE_OS"] == "linux":
         # Keep the manylinux image's compiler/toolchain PATH.
         os.environ["PATH"] = "/opt/node/bin:/opt/java/bin:/opt/python/cp312-cp312/bin:" + os.environ["PATH"]
@@ -478,6 +480,10 @@ def build():
 
 def container():
     arch = os.environ["PACKAGE_ARCH"]
+    image = "seekdb-bindings-manylinux-" + arch
+    run(["docker", "build", "--tag", image, "--build-arg",
+         "BASE_IMAGE=quay.io/pypa/manylinux_2_28_" + arch + ":2026.03.20-1", "-"],
+        input=(ROOT / "scripts/docker/bindings-manylinux.Dockerfile").read_text(), text=True)
     node = Path(shutil.which("node")).resolve().parent.parent
     arguments = ["docker", "run", "--rm", "--user", "%s:%s" % (os.getuid(), os.getgid()),
         "-e", "HOME=/tmp", "-v", str(ROOT) + ":/project", "-w", "/project",
@@ -489,7 +495,7 @@ def container():
         arguments += ["-e", key + "=" + os.environ.get(key, "")]
     arguments += ["-e", "PIP_CACHE_DIR=/project/deps/.cache/pip", "-e", "npm_config_cache=/project/deps/.cache/npm",
         "-e", "PYTHON_311=/opt/python/cp311-cp311/bin/python", "-e", "PYTHON_312=/opt/python/cp312-cp312/bin/python",
-        "quay.io/pypa/manylinux_2_28_" + arch + ":2026.03.20-1",
+        image,
         "/opt/python/cp312-cp312/bin/python", ".github/scripts/package.py", "build"]
     run(arguments)
 
