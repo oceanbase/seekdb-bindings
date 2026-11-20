@@ -429,7 +429,8 @@ def node_package(prefix, metadata):
 def java_package(prefix, metadata):
     classes = WORK / "java/classes"
     classes.mkdir(parents=True)
-    run(["javac", "--release", "8", "-d", classes, *sorted((ROOT / "java/src/main/java/com/oceanbase/seekdb").glob("*.java"))])
+    run(["javac", "--release", "8", "-g:none", "-d", classes,
+         *sorted((ROOT / "java/src/main/java/com/oceanbase/seekdb").glob("*.java"))])
     jar = WORK / "java/seekdb-java.jar"
     run(["jar", "cf", jar, "-C", classes, "."])
     if os.environ["PACKAGE_OS"] == "android":
