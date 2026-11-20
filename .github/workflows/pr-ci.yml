@@ -92,7 +92,7 @@ jobs:
         name: Checkout bindings and their dependencies
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          submodules: recursive
+          submodules: true
           persist-credentials: false
       - &setup-python
         name: Set up Python
