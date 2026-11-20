@@ -179,7 +179,7 @@ jobs:
           sudo apt-get install -y patchelf
           mkdir -p "$GITHUB_WORKSPACE/deps/.cache/android-sdk/licenses"
           cp "$ANDROID_HOME/licenses/"* "$GITHUB_WORKSPACE/deps/.cache/android-sdk/licenses/"
-          sdkmanager --sdk_root="$GITHUB_WORKSPACE/deps/.cache/android-sdk" 'ndk;27.3.13750724'
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$GITHUB_WORKSPACE/deps/.cache/android-sdk" 'ndk;27.3.13750724'
       - name: Build and package bindings against the existing engine
         env:
           PYTHON_311: ${{ steps.py311.outputs.python-path }}

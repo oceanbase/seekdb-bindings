@@ -456,6 +456,9 @@ def java_package(prefix, metadata):
 def build():
     if os.environ["PACKAGE_OS"] == "macos":
         os.environ["TMPDIR"] = "/tmp"
+    elif os.environ["PACKAGE_OS"] == "linux":
+        # Keep the manylinux image's compiler/toolchain PATH.
+        os.environ["PATH"] = "/opt/node/bin:/opt/java/bin:/opt/python/cp312-cp312/bin:" + os.environ["PATH"]
     WORK.mkdir(parents=True, exist_ok=True)
     DIST.mkdir(exist_ok=True)
     engine, manifest, metadata = runtime()
@@ -476,15 +479,15 @@ def build():
 def container():
     arch = os.environ["PACKAGE_ARCH"]
     node = Path(shutil.which("node")).resolve().parent.parent
-    arguments = ["docker", "run", "--rm", "-v", str(ROOT) + ":/project", "-w", "/project",
+    arguments = ["docker", "run", "--rm", "--user", "%s:%s" % (os.getuid(), os.getgid()),
+        "-e", "HOME=/tmp", "-v", str(ROOT) + ":/project", "-w", "/project",
         "-v", str(node) + ":/opt/node:ro"]
     if selected("java"):
         arguments += ["-v", os.environ["JAVA_HOME"] + ":/opt/java:ro", "-e", "JAVA_HOME=/opt/java"]
     for key in ("PACKAGE_OS", "PACKAGE_ARCH", "PACKAGE_TARGET", "PACKAGE_COMPONENT", "PACKAGE_TIMESTAMP",
                 "BINARY_SOURCE_COMMIT", "BINARY_REPOSITORY", "BINARY_RUN_ID", "BUILD_JOBS"):
         arguments += ["-e", key + "=" + os.environ.get(key, "")]
-    arguments += ["-e", "PATH=/opt/node/bin:/opt/java/bin:/opt/python/cp312-cp312/bin:/usr/local/bin:/usr/bin:/bin",
-        "-e", "PIP_CACHE_DIR=/project/deps/.cache/pip", "-e", "npm_config_cache=/project/deps/.cache/npm",
+    arguments += ["-e", "PIP_CACHE_DIR=/project/deps/.cache/pip", "-e", "npm_config_cache=/project/deps/.cache/npm",
         "-e", "PYTHON_311=/opt/python/cp311-cp311/bin/python", "-e", "PYTHON_312=/opt/python/cp312-cp312/bin/python",
         "quay.io/pypa/manylinux_2_28_" + arch + ":2026.03.20-1",
         "/opt/python/cp312-cp312/bin/python", ".github/scripts/package.py", "build"]
