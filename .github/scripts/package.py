@@ -120,7 +120,8 @@ def matrix():
     output("packaging_ref", PACKAGING_REF)
     output("timestamp", datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     key = subprocess.check_output(["git", "ls-tree", "HEAD", "deps/"], cwd=ROOT)
-    for path in (".github/scripts/package.py", "python/pyproject.toml", "typescript/package-lock.json"):
+    for path in (".github/scripts/package.py", "scripts/docker/bindings-manylinux.Dockerfile",
+                 "python/pyproject.toml", "typescript/package-lock.json"):
         key += (ROOT / path).read_bytes()
     output("dependency_key", hashlib.sha256(key).hexdigest())
 
@@ -170,7 +171,7 @@ def archive(prefix, kind, metadata):
 
 
 def runtime():
-    bd, _ = packaging_tools()
+    bd, symbols = packaging_tools()
     inputs = Path(os.environ.get("BINARY_INPUT", ROOT / "input"))
     archives = [p for p in inputs.glob("seekdb-binary-*") if p.name.endswith((".tar.gz", ".zip"))]
     if len(archives) != 1:
@@ -187,6 +188,14 @@ def runtime():
         raise ValueError("Binary source commit does not match the selected workflow run")
     if target["os"] == "linux" and bd.version_tuple(target["glibc"]) > bd.version_tuple("2.28"):
         raise ValueError("Bindings require an engine compatible with glibc 2.28")
+    if target["os"] in ("linux", "android"):
+        try:
+            for path, kind in symbols.native_files(prefix):
+                if kind == "elf":
+                    bd.elf_relocation_page_size(path)
+        except ValueError as error:
+            raise ValueError("Invalid ELF layout in %s; regenerate this input with the current SeekDB packaging workflow: %s" %
+                             (source.name, error)) from error
     return prefix, manifest, {"seekdb_archive": source.name, "seekdb_archive_sha256": digest(source),
         "seekdb_commit": manifest["source_commit"], "engine_version": manifest["version"],
         "engine_platform": target, "bindings_commit": subprocess.check_output(
