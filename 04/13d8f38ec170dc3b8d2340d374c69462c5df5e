@@ -1,0 +1,28 @@
+README.md
+  s_99bd9318300c1c::t_0beb79ad208493 137-142
+.github/scripts/ci.py
+  s_99bd9318300c1c::t_a46240443aed45 1-10,12-31,33-51,53-111
+  s_99bd9318300c1c::t_0beb79ad208493 11,52
+  s_99bd9318300c1c::t_a9111d8f0f8756 32
+.github/scripts/package.py
+  s_99bd9318300c1c::t_a46240443aed45 272-288,319
+  s_99bd9318300c1c::t_a9111d8f0f8756 82-89,130
+.github/workflows/pr-ci.yml
+  s_99bd9318300c1c::t_f307f760e3a79b 5,14,23-26,29,31-35,45,48,50,57-59,62-63,66-67,69-75,77,79-84,88,92-93,96,98-99,103-107,109-136,138-142,144-145,149,151-157,160-164,167-175,177-179,182,186,194,204-208,210-217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0413d8f38ec170dc3b8d2340d374c69462c5df5e",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
