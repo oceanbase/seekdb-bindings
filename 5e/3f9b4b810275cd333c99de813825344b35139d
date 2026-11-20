@@ -1,0 +1,19 @@
+.github/workflows/pr-ci.yml
+  s_99bd9318300c1c::t_f71c2972af191a 182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5e3f9b4b810275cd333c99de813825344b35139d",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
