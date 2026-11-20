@@ -179,7 +179,7 @@ jobs:
       - name: Verify the npm tarball installs without a build
         run: |
           install_dir="$(mktemp -d)"
-          npm install --prefix "$install_dir" --ignore-scripts --no-audit --no-fund dist/*.tgz
+          npm install --prefix "$install_dir" --ignore-scripts --no-audit --no-fund "$GITHUB_WORKSPACE"/dist/*.tgz
           cd "$install_dir"
           node --input-type=module -e 'import { seekdb } from "@oceanbase/seekdb-node"; seekdb.checkPlatform()'
       - name: Set up Node.js 22
