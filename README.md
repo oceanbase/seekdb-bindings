@@ -134,6 +134,12 @@ Select one platform or `all`, and `sdk`, `python`, `node`, `java`, or all bindin
 Every selection exports the C SDK because the language packages reuse that build.
 No package is published to a registry by this workflow.
 
+PR CI also reuses a prebuilt engine. A metadata-only job selects the latest
+successful upstream `master` run with an unexpired Linux x86_64/glibc 2.28
+binary; the C/Python, Node.js and sanitizer jobs download that same distribution.
+CI builds the bindings and runs the existing tests without building or caching
+the engine. Test orchestration lives in `.github/scripts/ci.py`.
+
 | Target | Packages | Minimum runtime |
 | --- | --- | --- |
 | Linux x86_64 / aarch64 | C SDK, Python wheels, Node.js tarball, Java/JNI archive | glibc 2.28 |

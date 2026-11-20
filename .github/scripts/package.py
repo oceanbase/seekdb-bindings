@@ -79,6 +79,14 @@ def api(path):
         return json.load(response)
 
 
+def dependency_key():
+    key = subprocess.check_output(["git", "ls-tree", "HEAD", "deps/"], cwd=ROOT)
+    for path in (".github/scripts/package.py", "scripts/docker/bindings-manylinux.Dockerfile",
+                 "python/pyproject.toml", "typescript/package-lock.json"):
+        key += (ROOT / path).read_bytes()
+    return hashlib.sha256(key).hexdigest()
+
+
 def matrix():
     repository = os.environ.get("BINARY_REPOSITORY", "oceanbase/seekdb")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
@@ -119,11 +127,7 @@ def matrix():
     output("source_commit", source["head_sha"])
     output("packaging_ref", PACKAGING_REF)
     output("timestamp", datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
-    key = subprocess.check_output(["git", "ls-tree", "HEAD", "deps/"], cwd=ROOT)
-    for path in (".github/scripts/package.py", "scripts/docker/bindings-manylinux.Dockerfile",
-                 "python/pyproject.toml", "typescript/package-lock.json"):
-        key += (ROOT / path).read_bytes()
-    output("dependency_key", hashlib.sha256(key).hexdigest())
+    output("dependency_key", dependency_key())
 
 
 def packaging_tools():
@@ -265,6 +269,23 @@ def openssl():
     return prefix
 
 
+def stage_engine(engine, prefix):
+    native = prefix / "lib"
+    native.mkdir(parents=True, exist_ok=True)
+    for source in (engine / "bin", engine / "lib/seekdb"):
+        for path in source.iterdir():
+            if path.is_file():
+                shutil.copy2(path, native / path.name)
+    for name in ("etc/seekdb", "share/seekdb/admin", "share/seekdb/srs", "share/seekdb/dependencies", "licenses"):
+        if (engine / name).is_dir():
+            shutil.copytree(engine / name, prefix / name, dirs_exist_ok=True)
+    srs_helper = engine / "libexec/seekdb/import_srs_data.py"
+    if srs_helper.is_file():
+        destination = prefix / "libexec/seekdb/import_srs_data.py"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(srs_helper, destination)
+
+
 def sdk(engine, metadata):
     layout = os.environ["PACKAGE_OS"]
     metadata["tls_provider"] = "schannel" if layout == "windows" else "openssl"
@@ -295,10 +316,7 @@ def sdk(engine, metadata):
     targets = ["seekdb", "seekdb_cli"] + (["seekdb_jni"] if selected("java") else [])
     run(["cmake", "--build", build, "--config", "Release", "--parallel", str(int(os.environ.get("BUILD_JOBS", "0")) or os.cpu_count()),
          "--target", *targets])
-    for source in (engine / "bin", engine / "lib/seekdb"):
-        for path in source.iterdir():
-            if path.is_file():
-                shutil.copy2(path, native / path.name)
+    stage_engine(engine, prefix)
     names = [library_name(), executable_name("seekdb_cli")]
     if selected("java"):
         names.append({"windows": "seekdb_jni.dll", "macos": "libseekdb_jni.dylib"}.get(layout, "libseekdb_jni.so"))
@@ -321,14 +339,6 @@ def sdk(engine, metadata):
         if destination.exists() and digest(destination) != digest(path):
             raise ValueError("Engine and binding libraries conflict: " + path.name)
         shutil.copy2(path, destination)
-    for name in ("etc/seekdb", "share/seekdb/admin", "share/seekdb/srs", "share/seekdb/dependencies", "licenses"):
-        if (engine / name).is_dir():
-            shutil.copytree(engine / name, prefix / name, dirs_exist_ok=True)
-    srs_helper = engine / "libexec/seekdb/import_srs_data.py"
-    if srs_helper.is_file():
-        destination = prefix / "libexec/seekdb/import_srs_data.py"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(srs_helper, destination)
     shutil.copytree(ROOT / "lib/include", prefix / "include")
     licenses = prefix / "licenses/bindings"
     licenses.mkdir(parents=True)
