@@ -125,6 +125,61 @@ cmake --build build
 
 ## Build C SDK release packages
 
+### Package existing SeekDB binaries with GitHub Actions
+
+The **Package bindings** workflow accepts a completed **Package seekdb** run ID
+and reuses its `seekdb-binary` artifacts. It verifies the archive checksums,
+manifest, platform and engine commit, then compiles only the binding libraries.
+Select one platform or `all`, and `sdk`, `python`, `node`, `java`, or all bindings.
+Every selection exports the C SDK because the language packages reuse that build.
+No package is published to a registry by this workflow.
+
+| Target | Packages | Minimum runtime |
+| --- | --- | --- |
+| Linux x86_64 / aarch64 | C SDK, Python wheels, Node.js tarball, Java/JNI archive | glibc 2.28 |
+| macOS arm64 | C SDK, Python wheels, Node.js tarball, Java/JNI archive | macOS 15.0 |
+| Windows x86_64 | C SDK, Python wheels, Node.js tarball, Java/JNI archive | Windows 10, MSVC `/MD` |
+| Android arm64 | C SDK, Java classes and JNI/engine AAR | Android 9 / API 28 |
+
+Linux binding packages are built in the native manylinux 2.28 image. Either a
+glibc 2.17 or 2.28 engine artifact can be selected; the bindings retain their
+glibc 2.28 baseline. Python builds CPython 3.11 and CPython 3.12 stable-ABI wheels,
+repairs their native dependencies, installs them and runs the native SQL smoke
+test. Node.js packages target Node.js 22 or newer and run the existing binding
+tests. Android AARs contain `libseekdb_exec.so`, JNI, the C driver and engine
+dependencies. Android's binding still requires API 28 for `posix_spawn`, even
+when reusing an API 26 engine. iOS frameworks use an in-process engine API and
+are not targets of these process-based bindings. Go and Swift bindings are not
+implemented in this repository. Rust retains its separate existing release
+workflow and pinned native-bundle manifest.
+
+Android applications must extract native libraries (for example, enable
+`jniLibs.useLegacyPackaging`) so the packaged engine exists as an executable
+file in the application's native-library directory. The AAR also preserves
+resources and licenses under `assets/seekdb/`.
+
+The selected run must contain unexpired artifacts for every selected target.
+If cross-repository artifact access is denied for `github.token`, configure
+`SEEKDB_ARTIFACT_TOKEN` with read access to the source repository's Actions.
+Builds record both repository commits, source run, input archive checksum and a
+UTC timestamp. SDK/Java archive names include that timestamp to the second and
+both commit IDs. Python wheels retain their standard ABI/platform names. Each
+artifact has a SHA-256 sidecar and each target has a provenance JSON file.
+
+Only `deps/.cache` is cached: dependency downloads, the pinned NDK, and static
+OpenSSL 3.5.9 LTS installations, keyed by the dependency commit and build recipe.
+Linux/macOS/Android build this pinned OpenSSL statically; Windows uses the OS
+Schannel provider. The engine's own dependencies remain those of the selected
+upstream binary. Engine builds and binding compiler outputs are not
+cached. Unix SDKs keep native libraries and the server together under `lib/`;
+their relative loader paths are adjusted for that layout. Python and Node.js
+place this runtime under their package's `bin/` directory and retain the
+engine's configuration, SQL/SRS resources and licenses. The Java archive
+includes `seekdb-java.jar`; run with `-Djava.library.path=<unpacked>/lib` and,
+on Windows, also put that `lib` directory on `PATH`.
+
+### Build the engine and SDK from source
+
 `scripts/build-libseekdb-package.sh` creates a native C SDK archive from two
 independently selected source revisions:
 

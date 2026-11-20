@@ -7,6 +7,13 @@ this package). All its public names are re-exported here so users can do:
     seekdb.open(db_dir="./seekdb.db")
 """
 import asyncio as _asyncio
+import os as _os
+from pathlib import Path as _Path
+
+_native_directory = _Path(__file__).parent / "bin"
+if _os.name == "nt" and _native_directory.is_dir():
+    # Keep the handle alive while the extension and its dependent DLLs are used.
+    _native_dll_directory = _os.add_dll_directory(str(_native_directory))
 
 from .pylibseekdb import *  # noqa: F401, F403
 

@@ -1,0 +1,194 @@
+name: Package bindings
+run-name: Package bindings / ${{ inputs.platform }} / SeekDB run ${{ inputs.binary_run_id }}
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/package.yml'
+      - '.github/scripts/package.py'
+      - 'typescript/scripts/**'
+      - 'typescript/src/**'
+      - 'python/CMakeLists.txt'
+      - 'python/pylibseekdb/__init__.py'
+  workflow_dispatch:
+    inputs:
+      binary_run_id:
+        description: Completed Package seekdb workflow run containing binary artifacts
+        required: true
+        type: string
+      binary_repository:
+        description: Repository containing that SeekDB run
+        default: oceanbase/seekdb
+        type: string
+      platform:
+        description: Target platform
+        default: all
+        type: choice
+        options: [all, linux-x86_64, linux-aarch64, macos-arm64, windows-x86_64, android-arm64]
+      component:
+        description: Bindings to package (every choice also exports the C SDK)
+        default: all
+        type: choice
+        options: [all, sdk, python, node, java]
+      binary_glibc:
+        description: Linux engine artifact to reuse (bindings retain the glibc 2.28 baseline)
+        default: '2.28'
+        type: choice
+        options: ['2.28', '2.17']
+      jobs:
+        description: Binding build parallelism (0 uses available CPUs)
+        default: 0
+        type: number
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: bindings-${{ github.ref }}-${{ inputs.platform }}-${{ inputs.component }}-${{ inputs.binary_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Install ELF test utilities
+        run: sudo apt-get update -qq && sudo apt-get install -y patchelf
+      - name: Validate the entry point and existing runtime packaging tests
+        run: |
+          python3 -m py_compile .github/scripts/package.py
+          python3 .github/scripts/package.py --help
+          node --test typescript/test/packaging.test.mjs
+
+  prepare:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+      source_commit: ${{ steps.targets.outputs.source_commit }}
+      packaging_ref: ${{ steps.targets.outputs.packaging_ref }}
+      timestamp: ${{ steps.targets.outputs.timestamp }}
+      dependency_key: ${{ steps.targets.outputs.dependency_key }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Select targets and verify available engine artifacts
+        id: targets
+        env:
+          BINARY_REPOSITORY: ${{ inputs.binary_repository }}
+          BINARY_RUN_ID: ${{ inputs.binary_run_id }}
+          BINARY_GLIBC: ${{ inputs.binary_glibc }}
+          PACKAGE_PLATFORM: ${{ inputs.platform }}
+          PACKAGE_COMPONENT: ${{ inputs.component }}
+          GITHUB_TOKEN: ${{ secrets.SEEKDB_ARTIFACT_TOKEN || github.token }}
+        run: python .github/scripts/package.py matrix
+
+  package:
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch' && needs.prepare.result == 'success'
+    name: bindings-${{ matrix.id }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PACKAGE_OS: ${{ matrix.os }}
+      PACKAGE_ARCH: ${{ matrix.arch }}
+      PACKAGE_TARGET: ${{ matrix.id }}
+      PACKAGE_COMPONENT: ${{ inputs.component }}
+      PACKAGE_TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
+      BINARY_REPOSITORY: ${{ inputs.binary_repository }}
+      BINARY_RUN_ID: ${{ inputs.binary_run_id }}
+      BINARY_SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+      BUILD_JOBS: ${{ inputs.jobs }}
+      PIP_CACHE_DIR: ${{ github.workspace }}/deps/.cache/pip
+      npm_config_cache: ${{ github.workspace }}/deps/.cache/npm
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      ANDROID_NDK_HOME: ${{ github.workspace }}/deps/.cache/android-sdk/ndk/27.3.13750724
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Initialize binding dependencies without optional recursive submodules
+        run: git submodule update --init deps/mariadb-connector-c deps/openssl
+      - name: Check out the merged binary-format tooling (no engine build)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: oceanbase/seekdb
+          ref: ${{ needs.prepare.outputs.packaging_ref }}
+          path: _seekdb
+          sparse-checkout: package
+          persist-credentials: false
+      - name: Download the existing engine distribution and dynamic libraries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          repository: ${{ inputs.binary_repository }}
+          run-id: ${{ inputs.binary_run_id }}
+          name: ${{ matrix.artifact }}
+          github-token: ${{ secrets.SEEKDB_ARTIFACT_TOKEN || github.token }}
+          path: input
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        id: py311
+        if: matrix.os != 'linux'
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        id: py312
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        if: inputs.component == 'all' || inputs.component == 'java'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+      - name: Restore dependency downloads and static OpenSSL
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: deps/.cache
+          key: bindings-deps-v1-${{ matrix.id }}-${{ needs.prepare.outputs.dependency_key }}
+          restore-keys: bindings-deps-v1-${{ matrix.id }}-
+      - name: Install packaging tools
+        if: matrix.os != 'linux'
+        run: python -m pip install 'cmake>=3.20,<4' ninja
+      - name: Install Android NDK and ELF tools
+        if: matrix.os == 'android'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y patchelf
+          mkdir -p "$GITHUB_WORKSPACE/deps/.cache/android-sdk/licenses"
+          cp "$ANDROID_HOME/licenses/"* "$GITHUB_WORKSPACE/deps/.cache/android-sdk/licenses/"
+          sdkmanager --sdk_root="$GITHUB_WORKSPACE/deps/.cache/android-sdk" 'ndk;27.3.13750724'
+      - name: Build and package bindings against the existing engine
+        env:
+          PYTHON_311: ${{ steps.py311.outputs.python-path }}
+          PYTHON_312: ${{ steps.py312.outputs.python-path }}
+        run: python .github/scripts/package.py ${{ matrix.os == 'linux' && 'container' || 'build' }}
+      - name: Upload packages, checksums and source provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bindings-${{ matrix.id }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
