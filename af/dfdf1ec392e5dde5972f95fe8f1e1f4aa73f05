@@ -1,0 +1,58 @@
+typescript/scripts/check-package.mjs
+  s_99bd9318300c1c::t_7b00a6c0d70530 1,8,12-15
+README.md
+  s_99bd9318300c1c::t_b1f0458a2fed92 170-173
+  s_99bd9318300c1c::t_d311e1cb66cf1f 156-160
+  s_99bd9318300c1c::t_da469bf7ffd050 128-155,161-169,174-182
+lib/CMakeLists.txt
+  s_99bd9318300c1c::t_7b00a6c0d70530 17-21
+typescript/scripts/macos-runtime.mjs
+  s_99bd9318300c1c::t_092dc42d1f2e8c 43
+python/pylibseekdb/__init__.py
+  s_99bd9318300c1c::t_7b00a6c0d70530 10-16
+.github/workflows/package.yml
+  s_99bd9318300c1c::t_ead101cd894d6b 99
+  s_99bd9318300c1c::t_caccea2c300d29 1-4,13-51,70,72-98,100-179,182-194
+  s_99bd9318300c1c::t_b1f0458a2fed92 5-12,52-69,71
+  s_99bd9318300c1c::t_da469bf7ffd050 180-181
+.github/scripts/package.py
+  s_99bd9318300c1c::t_da469bf7ffd050 457-458
+  s_99bd9318300c1c::t_52c11c982591fd 1-6,8-35,38-41,53-73,76-87,89-121,126-158,160-165,167-215,220-223,257-260,266-271,273,281-297,316,323-327,331-352,355-367,369,377-413,415,418-436,444,446-456,459-502
+  s_99bd9318300c1c::t_ce83b49fe3a98b 298-314
+  s_99bd9318300c1c::t_71281f79d4ee72 46-48
+  s_99bd9318300c1c::t_3cc482781b4817 159,224-230,368,416-417,437-443
+  s_99bd9318300c1c::t_d311e1cb66cf1f 216-219,353-354,375-376
+  s_99bd9318300c1c::t_3ae3c1ffdcf640 88
+  s_99bd9318300c1c::t_b1f0458a2fed92 276-279,315,317-322,328
+  s_99bd9318300c1c::t_661835ba683bfb 235,261-265
+  s_99bd9318300c1c::t_9ae2cae35cf314 166,370-374,445
+  s_99bd9318300c1c::t_caccea2c300d29 74-75,122-125,237
+  s_99bd9318300c1c::t_092dc42d1f2e8c 36-37,42-45,49-52,231-234,238-256,272,274-275,280,329-330,414
+  s_99bd9318300c1c::t_77d7c22934050a 7,236
+typescript/src/index.ts
+  s_99bd9318300c1c::t_7b00a6c0d70530 2,45-47
+python/CMakeLists.txt
+  s_99bd9318300c1c::t_d311e1cb66cf1f 125-133
+  s_99bd9318300c1c::t_7b00a6c0d70530 44-47,93-95,114-124
+java/CMakeLists.txt
+  s_99bd9318300c1c::t_d311e1cb66cf1f 18-22
+  s_99bd9318300c1c::t_7b00a6c0d70530 1-17
+CMakeLists.txt
+  s_99bd9318300c1c::t_7b00a6c0d70530 20,63-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "afdfdf1ec392e5dde5972f95fe8f1e1f4aa73f05",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
