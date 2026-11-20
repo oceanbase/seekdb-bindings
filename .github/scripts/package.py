@@ -460,6 +460,11 @@ def java_package(prefix, metadata):
         stage = WORK / "java/package"
         shutil.copytree(prefix, stage)
         shutil.copy2(jar, stage / "seekdb-java.jar")
+        environment = dict(os.environ)
+        if os.environ["PACKAGE_OS"] == "windows":
+            environment["PATH"] = str(stage / "lib") + os.pathsep + environment["PATH"]
+        run(["java", "-Djava.library.path=" + str(stage / "lib"), "--class-path", stage / "seekdb-java.jar",
+             ROOT / "java/test/com/oceanbase/seekdb/test/LifecycleSmoke.java", WORK / "java/data"], env=environment)
         archive(stage, "seekdb-java", metadata)
 
 

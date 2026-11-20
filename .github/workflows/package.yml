@@ -11,6 +11,7 @@ on:
       - 'typescript/src/**'
       - 'python/CMakeLists.txt'
       - 'python/pylibseekdb/__init__.py'
+      - 'java/**'
   workflow_dispatch:
     inputs:
       binary_run_id:
