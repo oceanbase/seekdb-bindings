@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package bindings around a verified SeekDB Actions binary, without building the engine."""
+"""Package bindings around a verified seekdb Actions binary, without building the engine."""
 
 import argparse
 from datetime import datetime, timezone
@@ -198,7 +198,7 @@ def runtime():
                 if kind == "elf":
                     bd.elf_relocation_page_size(path)
         except ValueError as error:
-            raise ValueError("Invalid ELF layout in %s; regenerate this input with the current SeekDB packaging workflow: %s" %
+            raise ValueError("Invalid ELF layout in %s; regenerate this input with the current seekdb packaging workflow: %s" %
                              (source.name, error)) from error
     return prefix, manifest, {"seekdb_archive": source.name, "seekdb_archive_sha256": digest(source),
         "seekdb_commit": manifest["source_commit"], "engine_version": manifest["version"],

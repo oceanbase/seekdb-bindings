@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run binding CI against an existing, verified SeekDB binary distribution."""
+"""Run binding CI against an existing, verified seekdb binary distribution."""
 
 import argparse
 from datetime import datetime, timezone

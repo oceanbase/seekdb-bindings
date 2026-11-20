@@ -17,7 +17,7 @@ public final class LifecycleSmoke {
             if (!valid || options.user == null || options.user.isEmpty()) {
                 throw new AssertionError("Packaged JNI returned an invalid connection endpoint");
             }
-            System.out.println("Packaged Java/JNI opened SeekDB using " + options.transport);
+            System.out.println("Packaged Java/JNI opened seekdb using " + options.transport);
         } finally {
             db.close();
         }

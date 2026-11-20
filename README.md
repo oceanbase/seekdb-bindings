@@ -125,7 +125,7 @@ cmake --build build
 
 ## Build C SDK release packages
 
-### Package existing SeekDB binaries with GitHub Actions
+### Package existing seekdb binaries with GitHub Actions
 
 The **Package bindings** workflow accepts a completed **Package seekdb** run ID
 and reuses its `seekdb-binary` artifacts. It verifies the archive checksums,

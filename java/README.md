@@ -1,4 +1,4 @@
-# SeekDB Java bindings
+# seekdb Java bindings
 
 `src/main/java` contains the platform-neutral API (`SeekDB`,
 `ConnectionOptions`). `jni/seekdb_jni.c` is the common JNI bridge and has no
@@ -9,7 +9,7 @@ bash java/build.sh
 ```
 
 The output is `build/java/seekdb-java.jar`. This is not a pure-Java database:
-each target still needs a matching libseekdb, JNI library and SeekDB executable.
+each target still needs a matching libseekdb, JNI library and seekdb executable.
 The [Package bindings workflow](../README.md#package-existing-seekdb-binaries-with-github-actions)
 builds desktop native archives alongside the JAR. Unix/named-pipe JDBC adapters
 are not included in those archives.
@@ -54,4 +54,4 @@ by the next `seekdb_open` on that thread; successful open clears it. Java's
 `nativeOpen` includes both the return code and this description in its exception.
 Diagnostics include argument validation, directory errors, spawn failures, and
 startup stages/timeouts. A child-process startup failure may still require the
-SeekDB instance logs for its internal root cause.
+seekdb instance logs for its internal root cause.

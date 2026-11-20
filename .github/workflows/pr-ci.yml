@@ -64,7 +64,7 @@ jobs:
           fi
 
   engine:
-    name: Select prebuilt SeekDB
+    name: Select prebuilt seekdb
     runs-on: ubuntu-22.04
     outputs:
       run_id: ${{ steps.engine.outputs.run_id }}

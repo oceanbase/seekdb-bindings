@@ -1,5 +1,5 @@
 name: Package bindings
-run-name: Package bindings / ${{ inputs.platform }} / SeekDB run ${{ inputs.binary_run_id }}
+run-name: Package bindings / ${{ inputs.platform }} / seekdb run ${{ inputs.binary_run_id }}
 
 on:
   pull_request:
@@ -19,7 +19,7 @@ on:
         required: true
         type: string
       binary_repository:
-        description: Repository containing that SeekDB run
+        description: Repository containing that seekdb run
         default: oceanbase/seekdb
         type: string
       platform:
