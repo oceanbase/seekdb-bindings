@@ -1,0 +1,25 @@
+.github/workflows/package.yml
+  s_99bd9318300c1c::t_5f7233e1c2c5cf 9,129
+java/README.md
+  s_99bd9318300c1c::t_5f7233e1c2c5cf 13-15
+scripts/docker/bindings-manylinux.Dockerfile
+  s_99bd9318300c1c::t_5f7233e1c2c5cf 1-5
+.github/scripts/package.py
+  s_99bd9318300c1c::t_5f7233e1c2c5cf 459-460,483-486,498
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "51bf71ef85310c931cc40fe633ad35861da0ca35",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
