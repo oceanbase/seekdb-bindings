@@ -14,6 +14,11 @@ add_library(seekdb SHARED
     src/port.c)
 
 set_target_properties(seekdb PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+if(APPLE)
+    set_target_properties(seekdb PROPERTIES
+        INSTALL_NAME_DIR "@rpath"
+        BUILD_WITH_INSTALL_NAME_DIR TRUE)
+endif()
 
 # Backward-compatible name: libseekdb_driver.{so,dylib,dll} -> libseekdb.{so,dylib,dll}
 set(_seekdb_compat_name

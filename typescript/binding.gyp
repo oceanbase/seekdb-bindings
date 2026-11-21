@@ -15,7 +15,7 @@
         }],
         ["OS=='linux'", {
           "libraries": ["-L<(module_root_dir)/../build/node-sdk", "-lseekdb"],
-          "ldflags": ["-Wl,-rpath,'$$ORIGIN'"]
+          "ldflags": ["-Wl,--as-needed", "-Wl,-rpath,'$$ORIGIN'"]
         }],
         ["OS=='win'", {
           "libraries": ["<(module_root_dir)/../build/node-sdk/Release/seekdb.lib"]
