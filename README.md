@@ -134,6 +134,18 @@ Select one platform or `all`, and `sdk`, `python`, `node`, `java`, or all bindin
 Every selection exports the C SDK because the language packages reuse that build.
 No package is published to a registry by this workflow.
 
+Set `package_version` to use a shared package version, or override it with
+`sdk_version`, `python_version`, `node_version`, `java_version`, and
+`android_version`. These are package versions, not language runtime versions.
+Precedence is the component override, then `package_version`, then the existing
+default: the source project version for Python/npm, or the engine version for
+C SDK/Java/Android. For example, use `package_version=1.4.1` and
+`python_version=1.4.0.post3`. Python versions follow PEP 440; npm uses SemVer.
+The effective versions are recorded in `BUILD-INFO.json` and provenance JSON;
+wheel metadata, Python `__version__`, npm `package.json`, JAR manifests and
+SDK/Java/AAR archive names use their corresponding package version. The real
+engine version and both repository commits remain recorded separately.
+
 PR CI also reuses a prebuilt engine. A metadata-only job selects the latest
 successful upstream `master` run with an unexpired Linux x86_64/glibc 2.28
 binary; the C/Python, Node.js and sanitizer jobs download that same distribution.

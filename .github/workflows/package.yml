@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/package.yml'
       - '.github/scripts/package.py'
+      - '.github/scripts/test_package_versions.py'
       - 'scripts/docker/bindings-manylinux.Dockerfile'
       - 'typescript/scripts/**'
       - 'typescript/src/**'
@@ -32,6 +33,24 @@ on:
         default: all
         type: choice
         options: [all, sdk, python, node, java]
+      package_version:
+        description: Default package version (blank keeps existing defaults)
+        type: string
+      sdk_version:
+        description: C SDK package version (overrides package_version)
+        type: string
+      python_version:
+        description: Python package version, e.g. 1.4.0.post3 (not the interpreter version)
+        type: string
+      node_version:
+        description: npm package version, e.g. 1.4.1 (not the Node.js runtime version)
+        type: string
+      java_version:
+        description: Desktop Java package version (overrides package_version)
+        type: string
+      android_version:
+        description: Android AAR version (overrides package_version)
+        type: string
       binary_glibc:
         description: Linux engine artifact to reuse (bindings retain the glibc 2.28 baseline)
         default: '2.28'
@@ -45,6 +64,14 @@ on:
 permissions:
   contents: read
   actions: read
+
+env:
+  PACKAGE_VERSION: ${{ inputs.package_version }}
+  PACKAGE_SDK_VERSION: ${{ inputs.sdk_version }}
+  PACKAGE_PYTHON_VERSION: ${{ inputs.python_version }}
+  PACKAGE_NODE_VERSION: ${{ inputs.node_version }}
+  PACKAGE_JAVA_VERSION: ${{ inputs.java_version }}
+  PACKAGE_ANDROID_VERSION: ${{ inputs.android_version }}
 
 concurrency:
   group: bindings-${{ github.ref }}-${{ inputs.platform }}-${{ inputs.component }}-${{ inputs.binary_run_id }}
@@ -61,12 +88,18 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install version metadata tooling
+        run: python -m pip install packaging
       - name: Install ELF test utilities
         run: sudo apt-get update -qq && sudo apt-get install -y patchelf
       - name: Validate the entry point and existing runtime packaging tests
         run: |
           python3 -m py_compile .github/scripts/package.py
           python3 .github/scripts/package.py --help
+          python3 .github/scripts/test_package_versions.py
           node --test typescript/test/packaging.test.mjs
 
   prepare:
@@ -173,7 +206,7 @@ jobs:
           restore-keys: bindings-deps-v1-${{ matrix.id }}-
       - name: Install packaging tools
         if: matrix.os != 'linux'
-        run: python -m pip install 'cmake>=3.20,<4' ninja
+        run: python -m pip install 'cmake>=3.20,<4' ninja packaging
       - name: Install Android NDK and ELF tools
         if: matrix.os == 'android'
         run: |

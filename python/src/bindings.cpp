@@ -484,7 +484,11 @@ NB_MODULE(pylibseekdb, m)
 {
     m.doc() = "Python bindings for seekdb-driver (out-of-process MySQL-compatible client). "
               "Surface mirrors seekdb's ob_embed_impl.cpp.";
+#ifdef SEEKDB_PYTHON_VERSION
+    m.attr("__version__") = SEEKDB_PYTHON_VERSION;
+#else
     m.attr("__version__") = "0.1.0";
+#endif
 
     auto seekdb_error = nb::exception<SeekdbError>(m, "SeekdbError", PyExc_RuntimeError);
     seekdb_error.attr("__module__") = kPublicModule;

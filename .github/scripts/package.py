@@ -2,6 +2,7 @@
 """Package bindings around a verified seekdb Actions binary, without building the engine."""
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import inspect
@@ -22,6 +23,8 @@ DIST = ROOT / "dist"
 # The merged binary-distribution protocol; sparse-checkout only its packaging tools.
 PACKAGING_REF = "8084119a13832873c5ef68732f556d2a924e10ea"
 NDK_VERSION = "27.3.13750724"
+VERSION_COMPONENTS = ("sdk", "python", "node", "java", "android")
+VERSION_ENV = ("PACKAGE_VERSION", *["PACKAGE_" + name.upper() + "_VERSION" for name in VERSION_COMPONENTS])
 TARGETS = [
     dict(id="linux-x86_64", os="linux", arch="x86_64", runner="ubuntu-24.04"),
     dict(id="linux-aarch64", os="linux", arch="aarch64", runner="ubuntu-24.04-arm"),
@@ -142,6 +145,47 @@ def selected(name):
     return os.environ.get("PACKAGE_COMPONENT", "all") in ("all", name)
 
 
+def package_versions(engine_version):
+    import tomllib
+
+    defaults = dict.fromkeys(VERSION_COMPONENTS, engine_version)
+    defaults["python"] = tomllib.loads((ROOT / "python/pyproject.toml").read_text())["project"]["version"]
+    defaults["node"] = json.loads((ROOT / "typescript/package.json").read_text())["version"]
+    common = os.environ.get("PACKAGE_VERSION", "").strip()
+    versions = {name: os.environ.get("PACKAGE_" + name.upper() + "_VERSION", "").strip() or common or defaults[name]
+                for name in VERSION_COMPONENTS}
+    for name, value in versions.items():
+        if not re.fullmatch(r"[0-9][0-9A-Za-z.+_-]*", value):
+            raise ValueError("Invalid %s package version: %r" % (name, value))
+    if os.environ["PACKAGE_OS"] != "android":
+        if selected("python"):
+            from packaging.version import Version
+            versions["python"] = str(Version(versions["python"]))
+        if selected("node"):
+            # Use npm's own SemVer parser, including its prerelease rules.
+            npm = Path(npm_command()[1]).parent.parent
+            script = "const v=require(process.argv[1]).valid(process.argv[2]);if(!v)throw Error('Invalid npm package version: '+process.argv[2]);process.stdout.write(v)"
+            versions["node"] = subprocess.check_output([shutil.which("node"), "-e", script,
+                npm / "node_modules/semver", versions["node"]], text=True)
+    print("Package versions: " + json.dumps(versions, sort_keys=True), flush=True)
+    return versions
+
+
+@contextmanager
+def python_project_version(version):
+    project = ROOT / "python/pyproject.toml"
+    original = project.read_bytes()
+    updated, count = re.subn(r'(?m)^version\s*=\s*"[^"\r\n]*"',
+                            "version = " + json.dumps(version), original.decode("utf-8"), count=1)
+    if count != 1:
+        raise ValueError("Missing static Python project version")
+    try:
+        project.write_text(updated, encoding="utf-8")
+        yield
+    finally:
+        project.write_bytes(original)
+
+
 def executable_name(name):
     return name + (".exe" if os.environ["PACKAGE_OS"] == "windows" else "")
 
@@ -155,9 +199,9 @@ def build_output(directory, name):
     return next(path for path in (directory / name, directory / "Release" / name) if path.is_file())
 
 
-def archive(prefix, kind, metadata):
+def archive(prefix, kind, metadata, component="sdk"):
     identity = metadata["target"]
-    name = "%s-%s-%s-%s-sdb%s-bnd%s.tar.gz" % (kind, metadata["engine_version"], identity,
+    name = "%s-%s-%s-%s-sdb%s-bnd%s.tar.gz" % (kind, metadata["package_versions"][component], identity,
         metadata["built_at"], metadata["seekdb_commit"][:12], metadata["bindings_commit"][:12])
     write_json(prefix / "BUILD-INFO.json", metadata)
     checksums = "".join("%s  %s\n" % (digest(path), path.relative_to(prefix).as_posix())
@@ -359,7 +403,12 @@ def sdk(engine, metadata):
     return prefix
 
 
-def python_wheels(prefix):
+def python_wheels(prefix, metadata):
+    with python_project_version(metadata["package_versions"]["python"]):
+        build_python_wheels(prefix, metadata["package_versions"]["python"])
+
+
+def build_python_wheels(prefix, version):
     layout = os.environ["PACKAGE_OS"]
     for abi in ("311", "312"):
         interpreter = os.environ["PYTHON_" + abi]
@@ -394,6 +443,9 @@ def python_wheels(prefix):
         if abi == "312":
             run([python, "-m", "abi3audit", "--strict", repaired])
         run([python, "-m", "pip", "install", "--force-reinstall", repaired])
+        run([python, "-c", "import importlib.metadata,sys,pylibseekdb; "
+             "assert importlib.metadata.version('pylibseekdb') == sys.argv[1]; "
+             "assert pylibseekdb.__version__ == sys.argv[1]", version], cwd=WORK)
         run([python, ROOT / "python/tests/seekdb_test.py"], cwd=WORK)
 
 
@@ -418,7 +470,7 @@ def node_package(prefix, metadata):
     run(["node", "scripts/check-package.mjs"], cwd=package)
     run(["node", "--test", "test/binding.test.mjs"], cwd=package)
     manifest = json.loads((package / "package.json").read_text())
-    manifest.update(os=[platform["platform"]], cpu=[platform["arch"]])
+    manifest.update(version=metadata["package_versions"]["node"], os=[platform["platform"]], cpu=[platform["arch"]])
     for name in ("private", "scripts", "devDependencies"):
         manifest.pop(name, None)
     if platform.get("libc"):
@@ -442,7 +494,12 @@ def java_package(prefix, metadata):
     run(["javac", "--release", "8", "-g:none", "-d", classes,
          *sorted((ROOT / "java/src/main/java/com/oceanbase/seekdb").glob("*.java"))])
     jar = WORK / "java/seekdb-java.jar"
-    run(["jar", "cf", jar, "-C", classes, "."])
+    component = "android" if os.environ["PACKAGE_OS"] == "android" else "java"
+    manifest = WORK / "java/MANIFEST.MF"
+    manifest.write_text("Manifest-Version: 1.0\nImplementation-Title: seekdb\nImplementation-Version: " +
+                        metadata["package_versions"][component] + "\nseekdb-engine-version: " +
+                        metadata["engine_version"] + "\n\n", encoding="utf-8")
+    run(["jar", "cfm", jar, manifest, "-C", classes, "."])
     if os.environ["PACKAGE_OS"] == "android":
         stage = WORK / "aar"
         stage.mkdir()
@@ -460,7 +517,7 @@ def java_package(prefix, metadata):
             if (prefix / resource).is_dir():
                 shutil.copytree(prefix / resource, assets / resource)
         shutil.copy2(prefix / "BUILD-INFO.json", assets / "BUILD-INFO.json")
-        name = "seekdb-android-%s-arm64-api28-%s-sdb%s-bnd%s.aar" % (metadata["engine_version"], metadata["built_at"],
+        name = "seekdb-android-%s-arm64-api28-%s-sdb%s-bnd%s.aar" % (metadata["package_versions"]["android"], metadata["built_at"],
             metadata["seekdb_commit"][:12], metadata["bindings_commit"][:12])
         with zipfile.ZipFile(DIST / name, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as stream:
             for path in sorted(stage.rglob("*")):
@@ -475,7 +532,7 @@ def java_package(prefix, metadata):
             environment["PATH"] = str(stage / "lib") + os.pathsep + environment["PATH"]
         run(["java", "-Djava.library.path=" + str(stage / "lib"), "--class-path", stage / "seekdb-java.jar",
              ROOT / "java/test/com/oceanbase/seekdb/test/LifecycleSmoke.java", WORK / "java/data"], env=environment)
-        archive(stage, "seekdb-java", metadata)
+        archive(stage, "seekdb-java", metadata, "java")
 
 
 def build():
@@ -489,10 +546,11 @@ def build():
     WORK.mkdir(parents=True, exist_ok=True)
     DIST.mkdir(exist_ok=True)
     engine, manifest, metadata = runtime()
+    metadata["package_versions"] = package_versions(manifest["version"])
     prefix = sdk(engine, metadata)
     if os.environ["PACKAGE_OS"] != "android":
         if selected("python"):
-            python_wheels(prefix)
+            python_wheels(prefix, metadata)
         if selected("node"):
             node_package(prefix, metadata)
     if selected("java"):
@@ -516,7 +574,7 @@ def container():
     if selected("java"):
         arguments += ["-v", os.environ["JAVA_HOME"] + ":/opt/java:ro", "-e", "JAVA_HOME=/opt/java"]
     for key in ("PACKAGE_OS", "PACKAGE_ARCH", "PACKAGE_TARGET", "PACKAGE_COMPONENT", "PACKAGE_TIMESTAMP",
-                "BINARY_SOURCE_COMMIT", "BINARY_REPOSITORY", "BINARY_RUN_ID", "BUILD_JOBS"):
+                "BINARY_SOURCE_COMMIT", "BINARY_REPOSITORY", "BINARY_RUN_ID", "BUILD_JOBS", *VERSION_ENV):
         arguments += ["-e", key + "=" + os.environ.get(key, "")]
     arguments += ["-e", "PIP_CACHE_DIR=/project/deps/.cache/pip", "-e", "npm_config_cache=/project/deps/.cache/npm",
         "-e", "PYTHON_311=/opt/python/cp311-cp311/bin/python", "-e", "PYTHON_312=/opt/python/cp312-cp312/bin/python",
