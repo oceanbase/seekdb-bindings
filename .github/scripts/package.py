@@ -180,7 +180,7 @@ def python_project_version(version):
     if count != 1:
         raise ValueError("Missing static Python project version")
     try:
-        project.write_text(updated, encoding="utf-8")
+        project.write_bytes(updated.encode("utf-8"))
         yield
     finally:
         project.write_bytes(original)

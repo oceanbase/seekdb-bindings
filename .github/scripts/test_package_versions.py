@@ -75,6 +75,19 @@ class PackageVersionsTest(unittest.TestCase):
                         raise RuntimeError("build failed")
             self.assertEqual(project.read_bytes(), original)
 
+    def test_python_override_preserves_crlf_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "python/pyproject.toml"
+            project.parent.mkdir()
+            original = b'[project]\r\nname = "example"\r\nversion = "0.1.0"\r\n'
+            project.write_bytes(original)
+            with patch.object(package, "ROOT", root):
+                with package.python_project_version("1.4.0.post3"):
+                    self.assertEqual(project.read_bytes(), original.replace(b"0.1.0", b"1.4.0.post3"))
+                    self.assertEqual(tomllib.loads(project.read_text())["project"]["version"], "1.4.0.post3")
+            self.assertEqual(project.read_bytes(), original)
+
     def test_archives_keep_engine_identity_with_independent_versions(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

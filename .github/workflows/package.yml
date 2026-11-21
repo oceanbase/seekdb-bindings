@@ -206,7 +206,9 @@ jobs:
           restore-keys: bindings-deps-v1-${{ matrix.id }}-
       - name: Install packaging tools
         if: matrix.os != 'linux'
-        run: python -m pip install 'cmake>=3.20,<4' ninja packaging
+        run: |
+          python -m pip install 'cmake>=3.20,<4' ninja packaging
+          python .github/scripts/test_package_versions.py
       - name: Install Android NDK and ELF tools
         if: matrix.os == 'android'
         run: |
