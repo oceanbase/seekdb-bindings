@@ -1,0 +1,36 @@
+scripts/docker/bindings-manylinux.Dockerfile
+  s_99bd9318300c1c::t_d94663f78f4533 6
+.github/scripts/package.py
+  s_99bd9318300c1c::t_d94663f78f4533 5,26-27,148-188,202,204,406-411,446-448,473,497-502,520,535,549,553,577
+python/pylibseekdb/__init__.py
+  s_99bd9318300c1c::t_d94663f78f4533 22
+.github/workflows/package.yml
+  s_99bd9318300c1c::t_ad5017f5102f28 9
+  s_99bd9318300c1c::t_d94663f78f4533 36-53,68-75,91-95,102,209
+python/src/bindings.cpp
+  s_99bd9318300c1c::t_d94663f78f4533 487-489,491
+README.md
+  s_99bd9318300c1c::t_d94663f78f4533 137-148
+python/CMakeLists.txt
+  s_99bd9318300c1c::t_d94663f78f4533 85
+  s_99bd9318300c1c::t_7d5bac3b64f767 83-84
+.github/scripts/test_package_versions.py
+  s_99bd9318300c1c::t_7d5bac3b64f767 1-52,54-98
+  s_99bd9318300c1c::t_ad5017f5102f28 53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d69a5f606a4279703fd96e7c2e84d09fdc001891",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
