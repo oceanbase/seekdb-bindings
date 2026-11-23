@@ -7,11 +7,11 @@ import pathlib
 import shutil
 import subprocess
 import sys
-import tempfile
 
 import pylibseekdb
 
 from pylibseekdb._migration import dump_main, restore_main
+from test_support import temporary_directory
 
 
 def execute(instance, database, statements):
@@ -155,7 +155,7 @@ def restore_with_mysql(db_dir, sql_file):
 
 def main():
     data_root = os.environ.get("SEEKDB_TEST_DATA_ROOT", str(pathlib.Path.cwd()))
-    with tempfile.TemporaryDirectory(prefix="pylibseekdb-migration-", dir=data_root) as root:
+    with temporary_directory(prefix="pylibseekdb-migration-", dir=data_root) as root:
         root_path = pathlib.Path(root)
         source = root_path / "source.db"
         unsupported_source = root_path / "unsupported-source.db"
