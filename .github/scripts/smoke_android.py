@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
+import subprocess
 import time
 import urllib.request
 import zipfile
@@ -89,6 +91,7 @@ def main():
     app = "com.oceanbase.seekdb.pr60"
     device("shell", "pm", "clear", app)
     device("logcat", "-c")
+    passed = False
     try:
         with hidden_build_tree():
             device("shell", "am", "start", "-W", "-n", app + "/com.oceanbase.seekdb.test.MainActivity")
@@ -99,12 +102,21 @@ def main():
                     raise RuntimeError("Android finished AAR smoke failed:\n" + log)
                 if all(marker in log for marker in ("OK transport=", "HYBRID_OK", "DIRECTORY_FD_CLOSED_OK")):
                     print(log, flush=True)
+                    passed = True
                     break
                 if time.monotonic() >= deadline:
                     raise TimeoutError("Android finished AAR smoke timed out:\n" + log)
                 time.sleep(2)
     finally:
         (work / "logcat.log").write_text(device("logcat", "-d", capture_output=True).stdout)
+        if not passed:
+            details = device("shell", "dumpsys", "package", app, capture_output=True).stdout
+            native = re.search(r"nativeLibraryDir=(\S+)", details).group(1)
+            diagnostic = subprocess.run([*adb, "shell", "run-as", app,
+                native + "/libseekdb_exec.so", "-V"], text=True, capture_output=True, timeout=30)
+            (work / "engine-version.log").write_text(diagnostic.stdout + diagnostic.stderr)
+            print("Engine execution diagnostic:\n" + diagnostic.stdout + diagnostic.stderr, flush=True)
+            print(device("shell", "run-as", app, "find", "no_backup", "-type", "f", capture_output=True).stdout)
         device("shell", "am", "force-stop", app)
     report = package.DIST / (metadata["target"] + "-smoke.json")
     package.write_json(report, {"target": metadata["target"], "packages": ["android-aar"],

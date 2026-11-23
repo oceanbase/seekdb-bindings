@@ -7,10 +7,11 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
+import stat
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
 
 import package
@@ -41,6 +42,33 @@ def environment(native=None):
     if native and os.name == "nt":
         result["PATH"] = str(native) + os.pathsep + result["PATH"]
     return result
+
+
+def remove(directory):
+    # Closing the last client releases the server asynchronously. Windows keeps
+    # the copied executable locked until that process has actually exited.
+    deadline = time.monotonic() + 30
+    def writable(function, path, error):
+        if os.name != "nt" or not isinstance(error, PermissionError):
+            raise error
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+    while directory.exists():
+        try:
+            shutil.rmtree(directory, onexc=writable)
+        except PermissionError:
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.5)
+
+
+@contextmanager
+def consumer_directory():
+    root = Path(tempfile.mkdtemp(prefix="seekdb-package-smoke-"))
+    try:
+        yield root
+    finally:
+        remove(root)
 
 
 @contextmanager
@@ -76,8 +104,8 @@ def native_smoke(prefix, work):
                  input="SELECT 314159 AS smoke_value;\nquit\n", text=True, capture_output=True)
     if "314159" not in result.stdout or "ERROR:" in result.stderr:
         raise ValueError("Packaged CLI smoke failed: " + result.stdout + result.stderr)
-    shutil.rmtree(work / "database")
-    shutil.rmtree(work / "cli-database")
+    remove(work / "database")
+    remove(work / "cli-database")
 
 
 def python_smoke(root, metadata):
@@ -91,7 +119,7 @@ def python_smoke(root, metadata):
         run([python, "-m", "pip", "install", "--only-binary=:all:", one("*cp" + abi + "*.whl")], work, env)
         run([python, "-I", SOURCES / "python.py", metadata["package_versions"]["python"]], work, env)
         run([python, "-I", ROOT / "python/tests/seekdb_test.py"], work, env)
-        shutil.rmtree(work)
+        remove(work)
 
 
 def node_smoke(root, metadata):
@@ -103,7 +131,7 @@ def node_smoke(root, metadata):
     source = work / "smoke.mjs"
     shutil.copy2(SOURCES / "node.mjs", source)
     run(["node", source, metadata["package_versions"]["node"]], work, env)
-    shutil.rmtree(work)
+    remove(work)
 
 
 def java_smoke(root, metadata):
@@ -137,8 +165,7 @@ def main():
             if expected != [package.digest(path), path.name]:
                 raise ValueError("Finished distribution checksum mismatch: " + path.name)
     report = {"target": metadata["target"], "packages": [], "source_commit": metadata["bindings_commit"]}
-    with tempfile.TemporaryDirectory(prefix="seekdb-package-smoke-") as temporary, hidden_build_tree():
-        root = Path(temporary)
+    with consumer_directory() as root, hidden_build_tree():
         sdk = root / "sdk"
         sdk.mkdir()
         prefix = unpack(one("libseekdb-*.tar.gz"), sdk / "package")
