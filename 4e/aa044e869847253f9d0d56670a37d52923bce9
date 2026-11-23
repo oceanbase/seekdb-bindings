@@ -1,0 +1,21 @@
+.github/scripts/release.py
+  s_99bd9318300c1c::t_fa5f6ed5ce2b4c 24-29,55-71,279-280,283-284,305-306,308,319,323
+.github/workflows/release.yml
+  s_99bd9318300c1c::t_fa5f6ed5ce2b4c 102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4eaa044e869847253f9d0d56670a37d52923bce9",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
