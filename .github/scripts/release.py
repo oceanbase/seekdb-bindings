@@ -218,7 +218,10 @@ def collect(repository, run_ids, assets):
                 for path in downloaded.iterdir():
                     destination = assets / path.name
                     if destination.exists():
-                        if digest(path) != digest(destination):
+                        # Checksum contents were validated above; Windows may use CRLF.
+                        identical = (path.read_text().split() == destination.read_text().split()
+                                     if path.name.endswith(".sha256") else digest(path) == digest(destination))
+                        if not identical:
                             raise ValueError("Packaging runs contain conflicting files: " + path.name)
                         continue
                     with path.open("rb") as source, destination.open("xb") as output:
