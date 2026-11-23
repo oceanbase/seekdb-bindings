@@ -228,9 +228,10 @@ def npm_tag(manifest):
 
 
 def check_npm(directory):
-    manifest, _ = pending(directory, "npm")
+    manifest, uploads = pending(directory, "npm")
     tag = npm_tag(manifest)
-    for package in manifest["packages"]:
+    # Published versions have already passed the registry integrity check above.
+    for package in uploads:
         subprocess.run(["npm", "publish", str((directory / package["file"]).resolve()), "--access=public", "--tag=" + tag,
                         "--ignore-scripts", "--dry-run", "--json", "--registry=" + NPM_REGISTRY],
                        check=True, stdout=subprocess.DEVNULL)
