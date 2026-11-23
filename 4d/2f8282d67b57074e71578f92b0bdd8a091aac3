@@ -1,0 +1,25 @@
+.github/scripts/package.py
+  s_99bd9318300c1c::t_dde1ba1898a35c 259,262-263
+.github/scripts/android_container.py
+  s_99bd9318300c1c::t_dde1ba1898a35c 14
+.github/scripts/smoke_android.py
+  s_99bd9318300c1c::t_dde1ba1898a35c 20-24,187-188
+.github/workflows/android-smoke.yml
+  s_99bd9318300c1c::t_dde1ba1898a35c 17-21,119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4d2f8282d67b57074e71578f92b0bdd8a091aac3",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
