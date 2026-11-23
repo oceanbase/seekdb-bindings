@@ -421,7 +421,8 @@ def python_wheels():
         # cibuildwheel runs on the host and reuses the SDK and image prepared by
         # the shared binding build. Copy only python/ into its build container.
         arch = os.environ["PACKAGE_ARCH"]
-        environment["CIBW_MANYLINUX_" + arch.upper() + "_IMAGE"] = "seekdb-bindings-manylinux-" + arch
+        image = "seekdb-bindings-manylinux-" + arch
+        environment["CIBW_MANYLINUX_" + arch.upper() + "_IMAGE"] = image
         mounts = ["--volume", str(prefix) + ":/seekdb-sdk:ro", "--volume", str(ROOT / "deps/.cache") + ":/seekdb-cache"]
         environment["CIBW_CONTAINER_ENGINE"] = "docker; create_args: " + shlex.join(mounts) + "; disable_host_mount: true"
         environment["CIBW_ENVIRONMENT_PASS_LINUX"] = "CMAKE_BUILD_PARALLEL_LEVEL"
@@ -437,6 +438,10 @@ def python_wheels():
     environment["CIBW_CONFIG_SETTINGS"] = " ".join(key + "=" + shlex.quote(value) for key, value in settings.items())
     with python_project_version(metadata["package_versions"]["python"]):
         run([sys.executable, "-m", "cibuildwheel", ".", "--output-dir", DIST], cwd=ROOT / "python", env=environment)
+    if layout == "linux":
+        # Let the runner read the container's private pip files when saving deps/.
+        run(["docker", "run", "--rm", "-v", str(ROOT / "deps/.cache") + ":/seekdb-cache", image,
+             "chown", "-R", "%s:%s" % (os.getuid(), os.getgid()), "/seekdb-cache/cibuildwheel-pip"])
     _, symbols = packaging_tools()
     for wheel in DIST.glob("*.whl"):
         checked = WORK / ("checked-" + wheel.stem)
