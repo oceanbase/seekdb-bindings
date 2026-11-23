@@ -5,13 +5,15 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import tarfile
 import time
 import urllib.request
 import zipfile
 
 import package
-from smoke_packages import hidden_build_tree, one
+from smoke_packages import one, unpack
 
 
 def run(arguments, **kwargs):
@@ -73,39 +75,93 @@ def build_apk(work):
     return signed, metadata
 
 
+def prepare(work):
+    apk, metadata = build_apk(work)
+    source = one("libseekdb-*.tar.gz")
+    if source.with_name(source.name + ".sha256").read_text().split() != [package.digest(source), source.name]:
+        raise ValueError("Finished C SDK checksum mismatch")
+    sdk = unpack(source, work / "sdk")
+    sdk_metadata = json.loads((sdk / "BUILD-INFO.json").read_text())
+    if any(sdk_metadata[key] != metadata[key] for key in ("bindings_commit", "seekdb_commit", "package_versions")):
+        raise ValueError("Finished SDK and AAR provenance mismatch")
+    ndk = Path(os.environ["ANDROID_NDK_HOME"])
+    compiler = ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
+    run([compiler, "-I" + str(sdk / "include"), Path(__file__).with_name("smoke") / "native.c",
+         "-L" + str(sdk / "lib"), "-lseekdb", "-Wl,-rpath,$ORIGIN/lib", "-o", sdk / "client"])
+    payload = work / "input"
+    payload.mkdir()
+    shutil.move(sdk, payload / "sdk")
+    shutil.copy2(apk, payload / "smoke.apk")
+    package.write_json(payload / "metadata.json", metadata)
+    with tarfile.open(package.ROOT / "build/android-smoke-input.tar.gz", "w:gz", compresslevel=1) as stream:
+        for path in payload.iterdir():
+            stream.add(path, arcname=path.name)
+
+
+def sdk_smoke(device, sdk):
+    base = "/data/local/tmp/seekdb-package-smoke"
+    device("push", sdk, base)
+    device("shell", base + "/lib/seekdb", "-V")
+    device("shell", base + "/client", base + "/database")
+    result = device("shell", "-T", base + "/lib/seekdb_cli", base + "/cli-database",
+                    input="SELECT 314159 AS smoke_value;\nquit\n", capture_output=True)
+    if "314159" not in result.stdout or "ERROR:" in result.stderr:
+        raise ValueError("Finished Android C SDK CLI smoke failed: " + result.stdout + result.stderr)
+    device("shell", "rm", "-rf", base + "/database", base + "/cli-database")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", type=Path, default=package.DIST)
     parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL", "emulator-5554"))
+    parser.add_argument("--prepare", action="store_true")
+    parser.add_argument("--prepared", type=Path)
     arguments = parser.parse_args()
     package.DIST = arguments.dist.resolve()
     work = package.WORK / "android-smoke"
     work.mkdir(parents=True)
-    apk, metadata = build_apk(work)
-    adb = [str(Path(os.environ["ANDROID_HOME"]) / "platform-tools/adb"), "-s", arguments.serial]
+    if arguments.prepare:
+        prepare(work)
+        return
+    sdk = None
+    if arguments.prepared:
+        payload = unpack(arguments.prepared, work / "input")
+        apk = payload / "smoke.apk"
+        metadata = json.loads((payload / "metadata.json").read_text())
+        sdk = payload / "sdk"
+    else:
+        apk, metadata = build_apk(work)
+    adb_binary = shutil.which("adb") or str(Path(os.environ["ANDROID_HOME"]) / "platform-tools/adb")
+    adb = [adb_binary, "-s", arguments.serial]
     def device(*command, **kwargs):
         return run([*adb, *command], text=True, **kwargs)
-    device("shell", "getprop", "ro.product.cpu.abilist")
+    abi = device("shell", "getprop", "ro.product.cpu.abi", capture_output=True).stdout.strip()
+    kernel_arch = device("shell", "uname", "-m", capture_output=True).stdout.strip()
+    api = device("shell", "getprop", "ro.build.version.sdk", capture_output=True).stdout.strip()
+    if abi != "arm64-v8a" or kernel_arch != "aarch64":
+        raise ValueError("Test requires native arm64 Android; found " + abi + "/" + kernel_arch)
+    if sdk:
+        sdk_smoke(device, sdk)
     device("install", "-r", apk)
     app = "com.oceanbase.seekdb.pr60"
     device("shell", "pm", "clear", app)
     device("logcat", "-c")
     passed = False
     try:
-        with hidden_build_tree():
-            device("shell", "am", "start", "-W", "-n", app + "/com.oceanbase.seekdb.test.MainActivity")
-            deadline = time.monotonic() + 300
-            while True:
-                log = device("logcat", "-d", "-s", "SeekDBTest:I", "AndroidRuntime:E", capture_output=True).stdout
-                if "Test failed" in log or "FATAL EXCEPTION" in log:
-                    raise RuntimeError("Android finished AAR smoke failed:\n" + log)
-                if all(marker in log for marker in ("OK transport=", "HYBRID_OK", "DIRECTORY_FD_CLOSED_OK")):
-                    print(log, flush=True)
-                    passed = True
-                    break
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("Android finished AAR smoke timed out:\n" + log)
-                time.sleep(2)
+        # The installed APK can access only the final archive payload on Android.
+        device("shell", "am", "start", "-W", "-n", app + "/com.oceanbase.seekdb.test.MainActivity")
+        deadline = time.monotonic() + 300
+        while True:
+            log = device("logcat", "-d", "-s", "SeekDBTest:I", "AndroidRuntime:E", capture_output=True).stdout
+            if "Test failed" in log or "FATAL EXCEPTION" in log:
+                raise RuntimeError("Android finished AAR smoke failed:\n" + log)
+            if all(marker in log for marker in ("OK transport=", "HYBRID_OK", "DIRECTORY_FD_CLOSED_OK")):
+                print(log, flush=True)
+                passed = True
+                break
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Android finished AAR smoke timed out:\n" + log)
+            time.sleep(2)
     finally:
         (work / "logcat.log").write_text(device("logcat", "-d", capture_output=True).stdout)
         if not passed:
@@ -123,7 +179,8 @@ def main():
         device("shell", "am", "force-stop", app)
     report = package.DIST / (metadata["target"] + "-smoke.json")
     package.write_json(report, {"target": metadata["target"], "packages": ["android-aar"],
-        "status": "passed", "source_commit": metadata["bindings_commit"]})
+        "status": "passed", "runtime_api": int(api), "runtime_abi": abi,
+        "source_commit": metadata["bindings_commit"], "c_sdk_tested": sdk is not None})
     report.with_name(report.name + ".sha256").write_text(package.digest(report) + "  " + report.name + "\n")
 
 
