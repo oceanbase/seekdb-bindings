@@ -136,7 +136,7 @@ def npm_packages(source, assets, directory, version):
     base_manifest["publishConfig"] = {"access": "public", "registry": NPM_REGISTRY}
     base_manifest["optionalDependencies"] = dict(sorted(dependencies.items()))
     base_manifest["files"] = ["dist/index.js", "dist/index.d.ts", "README.md", "LICENSE"]
-    shared["dist/index.js"] = (Path(__file__).with_name("npm-entry.mjs").read_bytes(), 0o644)
+    shared["dist/index.js"] = ((ROOT / "typescript/src/npm-entry.mjs").read_bytes(), 0o644)
     packed = npm_archive(directory, base_manifest, shared)
     # Publish platform packages first, so the public package's dependencies exist.
     packages.append({"name": NPM_NAME, "version": version, "file": packed.name})

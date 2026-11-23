@@ -6,7 +6,7 @@ on:
     paths:
       - '.github/workflows/publish-npm.yml'
       - '.github/scripts/publish_registry.py'
-      - '.github/scripts/npm-entry.mjs'
+      - 'typescript/src/npm-entry.mjs'
       - '.github/scripts/release.py'
   workflow_dispatch:
     inputs:
@@ -51,7 +51,7 @@ jobs:
       - name: Validate publisher syntax
         run: |
           python -m py_compile .github/scripts/publish_registry.py .github/scripts/release.py
-          node --check .github/scripts/npm-entry.mjs
+          node --check typescript/src/npm-entry.mjs
 
   prepare:
     if: github.event_name == 'workflow_dispatch'
