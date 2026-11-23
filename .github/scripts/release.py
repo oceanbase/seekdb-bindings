@@ -21,8 +21,12 @@ def gh(*arguments, **kwargs):
     return subprocess.run(["gh", *map(str, arguments)], check=True, **kwargs)
 
 
-def api(path, missing_ok=False, method="GET"):
-    result = subprocess.run(["gh", "api", "--method", method, path], text=True, capture_output=True)
+def api(path, missing_ok=False, method="GET", data=None):
+    arguments = ["gh", "api", "--method", method, path]
+    if data is not None:
+        arguments += ["--input", "-"]
+    result = subprocess.run(arguments, input=json.dumps(data) if data is not None else None,
+                            text=True, capture_output=True)
     if result.returncode:
         if missing_ok and "(HTTP 404)" in result.stderr:
             return None
@@ -46,6 +50,23 @@ def check_tag(repository, tag, commit):
     if target["type"] != "commit" or target["sha"] != commit:
         raise ValueError("Release tag points to a different bindings commit")
     return True
+
+
+def ensure_tag(repository, tag, commit):
+    if check_tag(repository, tag, commit):
+        return
+    try:
+        api(f"repos/{repository}/git/refs", method="POST", data={"ref": "refs/tags/" + tag, "sha": commit})
+    except RuntimeError as error:
+        # A concurrent publisher may have created it after our read. Never update a ref.
+        if check_tag(repository, tag, commit):
+            return
+        if "(HTTP 403)" in str(error):
+            raise RuntimeError(str(error) + "\nFor a workflow-changing target without an existing ref, "
+                               "create the tag beforehand or configure RELEASE_TOKEN with Contents and Workflows write.") from error
+        raise
+    if not check_tag(repository, tag, commit):
+        raise ValueError("Created release tag is not available; retry the release")
 
 
 def safe_name(name):
@@ -255,9 +276,12 @@ def find_release(repository, tag):
     if release is not None:
         return release
     # The tag endpoint returns published releases; pending draft tags need the list endpoint.
-    matches = [item for item in api(f"repos/{repository}/releases?per_page=100") if item["tag_name"] == tag]
+    releases = api(f"repos/{repository}/releases?per_page=100")
+    matches = [item for item in releases if item["tag_name"] == tag]
     if len(matches) > 1:
         raise ValueError("Multiple draft releases use this tag")
+    if not matches and len(releases) == 100:
+        raise ValueError("No matching draft among the first 100 releases; locate or create the draft manually")
     return matches[0] if matches else None
 
 
@@ -278,9 +302,10 @@ def publish(repository, mode, destination):
                 raise ValueError("Published release differs; existing published assets will not be overwritten")
             print(release["html_url"], flush=True)
             return release["html_url"]
-    else:
+    ensure_tag(repository, tag, commit)
+    if release is None:
         gh("release", "create", tag, "--repo", repository, "--target", commit, "--title", "seekdb bindings " + tag,
-           "--notes-file", destination / "release-notes.md", "--draft", "--latest=false")
+           "--notes-file", destination / "release-notes.md", "--draft", "--latest=false", "--verify-tag")
         release = find_release(repository, tag)
         missing, partial = remote_assets(repository, release["id"], expected)
     # Only unfinished uploads are replaced; completed conflicting assets fail above.
@@ -291,11 +316,11 @@ def publish(repository, mode, destination):
     remaining, partial = remote_assets(repository, release["id"], expected)
     if remaining or partial:
         raise ValueError("Release upload is incomplete; leave the release as a draft and retry")
-    check_tag(repository, tag, commit)
+    ensure_tag(repository, tag, commit)
     gh("release", "edit", tag, "--repo", repository, "--target", commit,
        "--title", "seekdb bindings " + tag, "--notes-file", destination / "release-notes.md",
        "--draft=" + str(mode == "draft").lower(), "--prerelease=" + str(mode == "prerelease").lower(),
-       "--latest=" + str(mode == "release").lower())
+       "--latest=" + str(mode == "release").lower(), "--verify-tag")
     release = find_release(repository, tag)
     print(release["html_url"], flush=True)
     return release["html_url"]

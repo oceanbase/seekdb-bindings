@@ -99,6 +99,6 @@ jobs:
           path: build/release
       - name: Create or resume the release and verify its uploads
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           RELEASE_MODE: ${{ inputs.mode }}
         run: python .github/scripts/release.py publish
