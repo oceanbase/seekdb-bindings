@@ -1,0 +1,43 @@
+name: Verify published npm 1.4.1
+
+on:
+  push:
+    branches: [codex/release-1.4.1-npm-smoke]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: registry-${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: linux-x86_64, runner: ubuntu-24.04}
+          - {platform: linux-aarch64, runner: ubuntu-24.04-arm}
+          - {platform: macos-arm64, runner: macos-15}
+          - {platform: windows-x86_64, runner: windows-2022}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Create a clean consumer directory
+        run: mkdir -p "$RUNNER_TEMP/seekdb-registry-smoke"
+      - name: Install 1.4.1 from npm and run SQL smoke
+        working-directory: ${{ runner.temp }}/seekdb-registry-smoke
+        run: |
+          npm init -y
+          npm install --ignore-scripts --no-audit --no-fund --prefer-online --registry=https://registry.npmjs.org @oceanbase/seekdb-node@1.4.1 'mysql2@^3'
+          cp "$GITHUB_WORKSPACE/.github/scripts/smoke/node.mjs" ./smoke.mjs
+          node ./smoke.mjs 1.4.1
