@@ -8,6 +8,8 @@ on:
       - '.github/scripts/package.py'
       - '.github/scripts/test_package_versions.py'
       - '.github/scripts/test_macos_runtime.py'
+      - '.github/scripts/smoke_packages.py'
+      - '.github/scripts/smoke/**'
       - 'scripts/docker/bindings-manylinux.Dockerfile'
       - 'typescript/scripts/**'
       - 'typescript/src/**'
@@ -99,6 +101,7 @@ jobs:
       - name: Validate the entry point and existing runtime packaging tests
         run: |
           python3 -m py_compile .github/scripts/package.py
+          python3 -m py_compile .github/scripts/smoke_packages.py
           python3 .github/scripts/package.py --help
           python3 .github/scripts/test_package_versions.py
           node --test typescript/test/packaging.test.mjs
@@ -226,6 +229,12 @@ jobs:
           PYTHON_311: ${{ steps.py311.outputs.python-path }}
           PYTHON_312: ${{ steps.py312.outputs.python-path }}
         run: python .github/scripts/package.py ${{ matrix.os == 'linux' && 'container' || 'build' }}
+      - name: Smoke test finished distributions outside the build tree
+        if: matrix.os != 'android'
+        env:
+          PYTHON_311: ${{ steps.py311.outputs.python-path }}
+          PYTHON_312: ${{ steps.py312.outputs.python-path }}
+        run: python .github/scripts/package.py ${{ matrix.os == 'linux' && 'container-smoke' || 'smoke' }}
       - name: Upload packages, checksums and source provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

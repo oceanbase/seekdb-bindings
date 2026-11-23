@@ -411,10 +411,10 @@ def sdk(engine, metadata):
 
 def python_wheels(prefix, metadata):
     with python_project_version(metadata["package_versions"]["python"]):
-        build_python_wheels(prefix, metadata["package_versions"]["python"])
+        build_python_wheels(prefix)
 
 
-def build_python_wheels(prefix, version):
+def build_python_wheels(prefix):
     layout = os.environ["PACKAGE_OS"]
     for abi in ("311", "312"):
         interpreter = os.environ["PYTHON_" + abi]
@@ -448,11 +448,6 @@ def build_python_wheels(prefix, version):
         symbols.verify_stripped(checked)
         if abi == "312":
             run([python, "-m", "abi3audit", "--strict", repaired])
-        run([python, "-m", "pip", "install", "--force-reinstall", repaired])
-        run([python, "-c", "import importlib.metadata,sys,pylibseekdb; "
-             "assert importlib.metadata.version('pylibseekdb') == sys.argv[1]; "
-             "assert pylibseekdb.__version__ == sys.argv[1]", version], cwd=WORK)
-        run([python, ROOT / "python/tests/seekdb_test.py"], cwd=WORK)
 
 
 def node_package(prefix, metadata):
@@ -533,11 +528,6 @@ def java_package(prefix, metadata):
         stage = WORK / "java/package"
         shutil.copytree(prefix, stage)
         shutil.copy2(jar, stage / "seekdb-java.jar")
-        environment = dict(os.environ)
-        if os.environ["PACKAGE_OS"] == "windows":
-            environment["PATH"] = str(stage / "lib") + os.pathsep + environment["PATH"]
-        run(["java", "-Djava.library.path=" + str(stage / "lib"), "--class-path", stage / "seekdb-java.jar",
-             ROOT / "java/test/com/oceanbase/seekdb/test/LifecycleSmoke.java", WORK / "java/data"], env=environment)
         archive(stage, "seekdb-java", metadata, "java")
 
 
@@ -567,12 +557,13 @@ def build():
             path.with_name(path.name + ".sha256").write_text(digest(path) + "  " + path.name + "\n")
 
 
-def container():
+def container(command="build"):
     arch = os.environ["PACKAGE_ARCH"]
     image = "seekdb-bindings-manylinux-" + arch
-    run(["docker", "build", "--tag", image, "--build-arg",
-         "BASE_IMAGE=quay.io/pypa/manylinux_2_28_" + arch + ":2026.03.20-1", "-"],
-        input=(ROOT / "scripts/docker/bindings-manylinux.Dockerfile").read_text(), text=True)
+    if command == "build":
+        run(["docker", "build", "--tag", image, "--build-arg",
+             "BASE_IMAGE=quay.io/pypa/manylinux_2_28_" + arch + ":2026.03.20-1", "-"],
+            input=(ROOT / "scripts/docker/bindings-manylinux.Dockerfile").read_text(), text=True)
     node = Path(shutil.which("node")).resolve().parent.parent
     arguments = ["docker", "run", "--rm", "--user", "%s:%s" % (os.getuid(), os.getgid()),
         "-e", "HOME=/tmp", "-v", str(ROOT) + ":/project", "-w", "/project",
@@ -585,15 +576,18 @@ def container():
     arguments += ["-e", "PIP_CACHE_DIR=/project/deps/.cache/pip", "-e", "npm_config_cache=/project/deps/.cache/npm",
         "-e", "PYTHON_311=/opt/python/cp311-cp311/bin/python", "-e", "PYTHON_312=/opt/python/cp312-cp312/bin/python",
         image,
-        "/opt/python/cp312-cp312/bin/python", ".github/scripts/package.py", "build"]
+        "/opt/python/cp312-cp312/bin/python", ".github/scripts/package.py", command]
     run(arguments)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("matrix", "build", "container"))
+    commands = {"matrix": matrix, "build": build, "container": container,
+                "smoke": lambda: run([sys.executable, ROOT / ".github/scripts/smoke_packages.py"]),
+                "container-smoke": lambda: container("smoke")}
+    parser.add_argument("command", choices=commands)
     arguments = parser.parse_args()
-    {"matrix": matrix, "build": build, "container": container}[arguments.command]()
+    commands[arguments.command]()
 
 
 if __name__ == "__main__":
