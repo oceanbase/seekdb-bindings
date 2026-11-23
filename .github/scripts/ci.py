@@ -46,6 +46,7 @@ def prepare_runtime():
     engine, _, metadata = release.runtime()
     prefix = sdk_directory()
     release.stage_engine(engine, prefix)
+    shutil.copytree(ROOT / "lib/include", prefix / "include")
     release.repair_native(prefix / "lib")
     metadata["purpose"] = "binding-ci"
     release.write_json(prefix / "BUILD-INFO.json", metadata)
