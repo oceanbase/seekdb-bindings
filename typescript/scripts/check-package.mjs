@@ -1,17 +1,18 @@
-import { accessSync, constants, readFileSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyLinuxRuntime } from "./linux-runtime.mjs";
 import { verifyStagedMacOSRuntime } from "./macos-runtime.mjs";
 
 export function checkPackage(directory, maximumGlibc) {
-  const required = ["dist/index.js", "dist/index.d.ts", "dist/native/platform.json",
-    "dist/native/seekdb_native.node"];
+  const required = ["dist/index.js", "dist/index.d.ts", "dist/native/platform.json"];
   for (const name of required) {
     if (!statSync(join(directory, name)).isFile()) throw new Error(`Missing package file: ${name}`);
   }
-  const nativeDir = join(directory, "dist", "native");
-  const platform = JSON.parse(readFileSync(join(nativeDir, "platform.json"), "utf8"));
+  const root = join(directory, "dist", "native");
+  const nativeDir = existsSync(join(root, "bin", "seekdb_native.node")) ? join(root, "bin") : root;
+  accessSync(join(nativeDir, "seekdb_native.node"));
+  const platform = JSON.parse(readFileSync(join(root, "platform.json"), "utf8"));
   if (platform.platform !== process.platform || platform.arch !== process.arch) {
     throw new Error("Package validation must run on the target OS and architecture");
   }

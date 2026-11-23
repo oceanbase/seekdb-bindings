@@ -40,7 +40,7 @@ export function verifyStagedMacOSRuntime(directory) {
     if (!statSync(file).isFile()) continue;
     if (name.endsWith(".dylib")) {
       const installID = macOSInstallID(file);
-      if (installID !== `@loader_path/${name}`) {
+      if (installID !== `@loader_path/${name}` && installID !== `@rpath/${name}`) {
         throw new Error(`${file} has an unbundled macOS install ID ${installID}`);
       }
     }

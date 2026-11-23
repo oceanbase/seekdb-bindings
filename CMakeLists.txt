@@ -17,6 +17,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "")
 include(CTest)
 
 option(SEEKDB_BUILD_PYTHON "Build the pylibseekdb Python extension" ON)
+option(SEEKDB_BUILD_JAVA "Build the JNI lifecycle library" OFF)
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format-14 clang-format)
 
@@ -58,7 +59,16 @@ if(BUILD_TESTING)
     include(GoogleTest)
 endif()
 
+if(ANDROID)
+    # Android's CMake platform ignores BUILD_RPATH/INSTALL_RPATH. Emit RUNPATH
+    # at link time so sibling libraries work without rewriting ELF segments.
+    add_link_options("LINKER:-rpath,$ORIGIN")
+endif()
+
 add_subdirectory(lib)
+if(SEEKDB_BUILD_JAVA)
+    add_subdirectory(java)
+endif()
 if(SEEKDB_BUILD_PYTHON)
     add_subdirectory(python)
 endif()

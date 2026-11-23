@@ -3,12 +3,12 @@ import asyncio
 import os
 import pathlib
 import sys
-import tempfile
 
 import aiomysql
 import pymysql
 import pylibseekdb as seekdb
 from seekdb_test import run_native_smoke_test
+from test_support import temporary_directory
 
 
 def print_startup_diagnostics(*db_dirs):
@@ -107,7 +107,7 @@ def read_marker(instance):
 async def test_connection_options():
     assert_options_unavailable()
 
-    with tempfile.TemporaryDirectory(prefix="pylibseekdb-multiple-instances-") as root_dir:
+    with temporary_directory(prefix="pylibseekdb-multiple-instances-") as root_dir:
         long_root = pathlib.Path(root_dir)
         for index in range(4):
             long_root /= f"pylibseekdb-long-path-component-{index}"

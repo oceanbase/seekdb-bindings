@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,7 +42,9 @@ function loadNative(): NativeBinding {
         throw new Error("This seekdb native package requires glibc; musl/Alpine is not supported");
       }
     }
-    native = require(resolve(nativeDir, "seekdb_native.node")) as NativeBinding;
+    const packagedAddon = resolve(nativeDir, "bin", "seekdb_native.node");
+    native = require(existsSync(packagedAddon) ? packagedAddon :
+      resolve(nativeDir, "seekdb_native.node")) as NativeBinding;
   }
   return native;
 }

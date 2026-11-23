@@ -41,6 +41,10 @@ find_package(nanobind CONFIG REQUIRED)
 
 # ------ libseekdb: in-tree target or prebuilt IMPORTED lib (standalone) ------
 if (SEEKDB_PYTHON_STANDALONE)
+    set(SEEKDB_SDK_DIR "" CACHE PATH "Prebuilt C SDK including its complete runtime")
+    if(SEEKDB_SDK_DIR)
+        set(SEEKDB_LIB_DIR "${SEEKDB_SDK_DIR}/lib" CACHE PATH "Prebuilt C SDK libraries" FORCE)
+    endif()
     set(SEEKDB_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build" CACHE PATH
         "Directory containing libseekdb and the seekdb server binary")
 
@@ -76,15 +80,24 @@ endif()
 
 # ------ Build the extension ------
 nanobind_add_module(pylibseekdb STABLE_ABI src/bindings.cpp)
+if(DEFINED SKBUILD_PROJECT_VERSION_FULL)
+    target_compile_definitions(pylibseekdb PRIVATE SEEKDB_PYTHON_VERSION="${SKBUILD_PROJECT_VERSION_FULL}")
+endif()
 
-target_include_directories(pylibseekdb PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/../lib/include")
+if(SEEKDB_SDK_DIR)
+    target_include_directories(pylibseekdb PRIVATE "${SEEKDB_SDK_DIR}/include")
+else()
+    target_include_directories(pylibseekdb PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../lib/include")
+endif()
 target_link_libraries(pylibseekdb PRIVATE seekdb)
 
 if(APPLE)
     set(_seekdb_rpath "@loader_path")
 else()
     set(_seekdb_rpath "\$ORIGIN")
+endif()
+if(SEEKDB_SDK_DIR)
+    string(APPEND _seekdb_rpath "/bin")
 endif()
 set_target_properties(pylibseekdb PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -104,14 +117,26 @@ endif()
 
 if (SEEKDB_PYTHON_STANDALONE)
     install(TARGETS pylibseekdb LIBRARY DESTINATION pylibseekdb)
-    install(FILES "${_seekdb_lib}" DESTINATION pylibseekdb)
-    install(PROGRAMS "${_seekdb_bin}" DESTINATION pylibseekdb)
-    install(FILES "${SEEKDB_LIB_DIR}/libaio.so.1"
-            DESTINATION pylibseekdb
-            OPTIONAL)
-    if (WIN32)
-        file(GLOB _seekdb_runtime_dlls "${SEEKDB_LIB_DIR}/*.dll")
-        install(FILES ${_seekdb_runtime_dlls} DESTINATION pylibseekdb)
+    if(SEEKDB_SDK_DIR)
+        install(DIRECTORY "${SEEKDB_SDK_DIR}/lib/" DESTINATION pylibseekdb/bin
+                USE_SOURCE_PERMISSIONS PATTERN "*.lib" EXCLUDE PATTERN "*.a" EXCLUDE)
+        foreach(_resource etc share libexec licenses)
+            if(EXISTS "${SEEKDB_SDK_DIR}/${_resource}")
+                install(DIRECTORY "${SEEKDB_SDK_DIR}/${_resource}" DESTINATION pylibseekdb
+                        USE_SOURCE_PERMISSIONS)
+            endif()
+        endforeach()
+        install(FILES "${SEEKDB_SDK_DIR}/BUILD-INFO.json" DESTINATION pylibseekdb)
+    else()
+        install(FILES "${_seekdb_lib}" DESTINATION pylibseekdb)
+        install(PROGRAMS "${_seekdb_bin}" DESTINATION pylibseekdb)
+        install(FILES "${SEEKDB_LIB_DIR}/libaio.so.1"
+                DESTINATION pylibseekdb
+                OPTIONAL)
+        if (WIN32)
+            file(GLOB _seekdb_runtime_dlls "${SEEKDB_LIB_DIR}/*.dll")
+            install(FILES ${_seekdb_runtime_dlls} DESTINATION pylibseekdb)
+        endif()
     endif()
 endif()
 

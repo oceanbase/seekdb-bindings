@@ -2,8 +2,7 @@ name: Pull Request Build and Test
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
     paths-ignore:
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
@@ -11,12 +10,8 @@ on:
       - 'README.md'
       - 'README_CN.md'
       - 'CONTRIBUTING.md'
-  # Warm the seekdb binary cache on main so PRs can restore it. GitHub Actions
-  # only shares caches with PRs when they are stored on the default branch
-  # (see issue #30).
   push:
-    branches:
-      - main
+    branches: [main]
     paths-ignore:
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
@@ -25,11 +20,19 @@ on:
       - 'README_CN.md'
       - 'CONTRIBUTING.md'
 
+permissions:
+  contents: read
+  actions: read
+
 env:
   BUILD_TYPE: Debug
-  SEEKDB_BUILD_TYPE: release
+  BUILD_DIR: build/ci/lib
   TEST_TARGET: seekdb_tests
-  SEEKDB_ARTIFACT: seekdb-binary
+  BINARY_REPOSITORY: oceanbase/seekdb
+  PACKAGE_OS: linux
+  PACKAGE_ARCH: x86_64
+  PACKAGE_TARGET: linux-x86_64
+  BUILD_JOBS: 0
 
 jobs:
   format-check:
@@ -38,375 +41,195 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
-
     steps:
-      - name: Checkout seekdb-bindings
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-
+          persist-credentials: false
       - name: Install clang-format
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y clang-format-14
-          clang-format-14 --version
-
+        run: sudo apt-get update -qq && sudo apt-get install -y clang-format-14
       - name: Run clang-format check
-        shell: bash
         run: |
-          set -euo pipefail
           mapfile -t files < <(
             git diff --name-only --diff-filter=ACMR \
               "${{ github.event.pull_request.base.sha }}" \
               "${{ github.event.pull_request.head.sha }}" -- \
-              'lib/include/*.h' \
-              'lib/src/*.c' \
-              'lib/src/*.h' \
-              'lib/tests/*.cc' \
-              'lib/tests/*.h' \
-              'python/src/*.cc' \
-              'python/src/*.cpp' \
-              'python/src/*.h' \
+              'lib/include/*.h' 'lib/src/*.c' 'lib/src/*.h' \
+              'lib/tests/*.cc' 'lib/tests/*.h' \
+              'python/src/*.cc' 'python/src/*.cpp' 'python/src/*.h' \
               'typescript/native/*.c'
           )
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "No clang-format-managed files changed."
-            exit 0
+          if [ "${#files[@]}" -gt 0 ]; then
+            clang-format-14 --dry-run --Werror "${files[@]}"
           fi
-          clang-format-14 --dry-run --Werror "${files[@]}"
 
-  prepare-seekdb:
-    name: Prepare seekdb binary
+  engine:
+    name: Select prebuilt seekdb
     runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-
+    outputs:
+      run_id: ${{ steps.engine.outputs.run_id }}
+      artifact: ${{ steps.engine.outputs.artifact }}
+      source_commit: ${{ steps.engine.outputs.source_commit }}
+      packaging_ref: ${{ steps.engine.outputs.packaging_ref }}
+      timestamp: ${{ steps.engine.outputs.timestamp }}
+      dependency_key: ${{ steps.engine.outputs.dependency_key }}
     steps:
-      - name: Validate seekdb build type
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "$SEEKDB_BUILD_TYPE" in
-            release|debug) ;;
-            *) echo "unsupported SEEKDB_BUILD_TYPE: $SEEKDB_BUILD_TYPE" >&2; exit 1 ;;
-          esac
-
-      - name: Restore cached seekdb binary
-        id: seekdb_cache
-        uses: actions/cache/restore@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          path: ${{ runner.temp }}/seekdb-binary-cache
-          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
-
-      - name: Free Disk Space
-        if: steps.seekdb_cache.outputs.cache-hit != 'true'
-        uses: insightsengineering/disk-space-reclaimer@v1
-        with:
-          tools-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-          docker-images: true
-
-      - name: Prepare seekdb build dependencies
-        if: steps.seekdb_cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update
-          sudo apt-get install -y git wget rpm rpm2cpio cpio make build-essential binutils m4 libtool-bin libncurses5 python3
-
-      - name: Build seekdb from master
-        if: steps.seekdb_cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
-          rm -rf "$SEEKDB_DIR"
-          git clone --depth 1 --branch master https://github.com/oceanbase/seekdb.git "$SEEKDB_DIR"
-          cd "$SEEKDB_DIR"
-          # These packaging/test tools are not needed to build the seekdb target,
-          # and their artifacts are not available to the GitHub runner.
-          DEP_PROFILE=deps/init/oceanbase.el9.x86_64.deps
-          UNAVAILABLE_TOOLS='^[^#]*(target=(obshell|obdeploy)|(lib)?obclient-)'
-          sed -i -E "/$UNAVAILABLE_TOOLS/d" "$DEP_PROFILE"
-          if grep -Eq "$UNAVAILABLE_TOOLS" "$DEP_PROFILE"; then
-            echo "unavailable seekdb tools remain in $DEP_PROFILE" >&2
-            exit 1
-          fi
-          build_jobs=$(nproc)
-          if [ "$build_jobs" -gt 3 ]; then
-            build_jobs=3
-          fi
-          ./build.sh "$SEEKDB_BUILD_TYPE" --init -DBUILD_EMBED_MODE=ON --make -j"$build_jobs"
-
-      - name: Stage seekdb binary
-        shell: bash
-        run: |
-          set -euo pipefail
-          CACHE_DIR="${{ runner.temp }}/seekdb-binary-cache"
-          mkdir -p "$CACHE_DIR"
-
-          if [ "${{ steps.seekdb_cache.outputs.cache-hit }}" != "true" ]; then
-            SEEKDB_DIR="${{ runner.temp }}/seekdb-master"
-            SEEKDB_BUILD_DIR="$SEEKDB_DIR/build_$SEEKDB_BUILD_TYPE"
-            if [ ! -d "$SEEKDB_BUILD_DIR" ]; then
-              echo "seekdb build directory not found: $SEEKDB_BUILD_DIR" >&2
-              exit 1
-            fi
-            mapfile -t SEEKDB_BINS < <(find "$SEEKDB_BUILD_DIR" -type f -name seekdb -executable)
-            if [ "${#SEEKDB_BINS[@]}" -eq 0 ]; then
-              echo "seekdb binary not found" >&2
-              exit 1
-            fi
-            if [ "${#SEEKDB_BINS[@]}" -gt 1 ]; then
-              echo "multiple seekdb binaries found in $SEEKDB_BUILD_DIR" >&2
-              printf '%s\n' "${SEEKDB_BINS[@]}" >&2
-              exit 1
-            fi
-            cp "${SEEKDB_BINS[0]}" "$CACHE_DIR/seekdb"
-            chmod +x "$CACHE_DIR/seekdb"
-          fi
-
-          if [ ! -x "$CACHE_DIR/seekdb" ]; then
-            echo "seekdb binary not found in cache: $CACHE_DIR/seekdb" >&2
-            exit 1
-          fi
-
-      - name: Save seekdb binary cache
-        if: steps.seekdb_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/seekdb-binary-cache
-          key: seekdb-binary-${{ runner.os }}-${{ env.SEEKDB_BUILD_TYPE }}
-
-      - name: Upload seekdb binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.SEEKDB_ARTIFACT }}
-          path: ${{ runner.temp }}/seekdb-binary-cache/seekdb
-          if-no-files-found: error
-          retention-days: 1
+          persist-credentials: false
+      - name: Select one existing master binary for all test jobs
+        id: engine
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/ci.py select-engine
 
   test:
     name: Build and test
-    needs: prepare-seekdb
+    needs: engine
     runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-
     steps:
       - &checkout-with-submodules
-        name: Checkout seekdb-bindings
-        uses: actions/checkout@v4
+        name: Checkout bindings and their dependencies
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          submodules: recursive
-
+          submodules: true
+          persist-credentials: false
       - &setup-python
-        name: Setup Python
-        uses: actions/setup-python@v5
+        name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-
       - &install-python-build-dependencies
-        name: Install Python build dependencies
-        run: python -m pip install --upgrade pip nanobind scikit-build-core PyMySQL aiomysql
-
-      - &download-seekdb-binary
-        name: Download seekdb binary
-        uses: actions/download-artifact@v4
+        name: Install binding build dependencies
+        run: python -m pip install --upgrade pip nanobind scikit-build-core PyMySQL aiomysql 'cmake>=3.26,<4' ninja
+      - &checkout-packaging-tools
+        name: Check out binary-format tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          name: ${{ env.SEEKDB_ARTIFACT }}
-          path: ${{ runner.temp }}/seekdb-binary-cache
-
-      - &set-seekdb-bin
-        name: Set SEEKDB_BIN
-        shell: bash
-        run: |
-          set -euo pipefail
-          CACHE_DIR="${{ runner.temp }}/seekdb-binary-cache"
-          mapfile -t SEEKDB_BINS < <(find "$CACHE_DIR" -type f -name seekdb)
-          if [ "${#SEEKDB_BINS[@]}" -ne 1 ]; then
-            echo "expected exactly one seekdb binary under $CACHE_DIR, found ${#SEEKDB_BINS[@]}" >&2
-            find "$CACHE_DIR" -ls >&2 || true
-            exit 1
-          fi
-          SEEKDB_BIN="${SEEKDB_BINS[0]}"
-          # upload-artifact strips the executable bit; restore it before tests spawn seekdb.
-          chmod +x "$SEEKDB_BIN"
-          echo "SEEKDB_BIN=$SEEKDB_BIN" >> "$GITHUB_ENV"
-
-      - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DSEEKDB_BIN=${{ env.SEEKDB_BIN }}
-
-      - &build-driver
-        name: Build seekdb
-        run: cmake --build build --target seekdb --parallel
-
-      - &build-python-binding
-        name: Build Python binding
-        run: cmake --build build --target pylibseekdb --parallel
-
+          repository: oceanbase/seekdb
+          ref: ${{ needs.engine.outputs.packaging_ref }}
+          path: _seekdb
+          sparse-checkout: package
+          persist-credentials: false
+      - &download-engine
+        name: Download the selected engine and runtime libraries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          repository: ${{ env.BINARY_REPOSITORY }}
+          run-id: ${{ needs.engine.outputs.run_id }}
+          name: ${{ needs.engine.outputs.artifact }}
+          github-token: ${{ github.token }}
+          path: input
+      - &elf-tools
+        name: Install ELF utilities
+        run: sudo apt-get update -qq && sudo apt-get install -y patchelf
+      - &prepare-runtime
+        name: Verify and stage the complete engine runtime
+        env:
+          BINARY_RUN_ID: ${{ needs.engine.outputs.run_id }}
+          BINARY_SOURCE_COMMIT: ${{ needs.engine.outputs.source_commit }}
+          PACKAGE_TIMESTAMP: ${{ needs.engine.outputs.timestamp }}
+        run: python .github/scripts/ci.py runtime
+      - name: Configure bindings
+        run: cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" -DSEEKDB_BIN="$SEEKDB_BIN"
+      - name: Build driver, Python extension and C/C++ tests
+        run: cmake --build "$BUILD_DIR" --target seekdb pylibseekdb "$TEST_TARGET" --parallel
       - name: Verify Python migration and external driver integration
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --no-build-isolation ./python
-          for test_file in python/tests/*_test.py; do
-            echo "=== Running $test_file ==="
-            python "$test_file"
-          done
-
-      - &verify-python-binding-contract
-        name: Verify Python binding exception contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import importlib.machinery
-          import pathlib
-          import shutil
-          import sys
-          import tempfile
-
-          build_dir = pathlib.Path("build")
-          candidates = []
-          for suffix in importlib.machinery.EXTENSION_SUFFIXES:
-              candidates.extend(build_dir.glob(f"pylibseekdb*{suffix}"))
-          candidates = sorted(set(candidates))
-          if len(candidates) != 1:
-              raise SystemExit(f"expected one built pylibseekdb extension, found: {candidates}")
-
-          with tempfile.TemporaryDirectory() as tmp:
-              package_dir = pathlib.Path(tmp) / "pylibseekdb"
-              package_dir.mkdir()
-              shutil.copy2("python/pylibseekdb/__init__.py", package_dir / "__init__.py")
-              suffix = candidates[0].name.removeprefix("pylibseekdb")
-              shutil.copy2(candidates[0], package_dir / f"pylibseekdb{suffix}")
-              for library in build_dir.glob("libseekdb.*"):
-                  shutil.copy2(library, package_dir / library.name)
-
-              sys.path.insert(0, tmp)
-              import pylibseekdb
-
-              assert issubclass(pylibseekdb.SeekdbError, RuntimeError)
-              for name in ("SeekdbError", "Connection", "Cursor"):
-                  cls = getattr(pylibseekdb, name)
-                  assert cls.__module__ == "pylibseekdb"
-                  assert str(cls) == f"<class 'pylibseekdb.{name}'>"
-          PY
-
-      - &verify-pure-c-driver
-        name: Verify libseekdb has no C++ runtime dependency
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Issue #6: only libseekdb must be pure C. The seekdb server
-          # binary (build/seekdb) is C++ and may legitimately depend on libstdc++.
-          lib="build/libseekdb.so"
-          compat="build/libseekdb_driver.so"
-          if [ ! -f "$lib" ]; then
-            echo "missing $lib" >&2
-            exit 1
-          fi
-          if [ ! -L "$compat" ]; then
-            echo "expected compatibility symlink $compat -> libseekdb.so (issue #7)" >&2
-            ls -la build/libseekdb*.so >&2 || true
-            exit 1
-          fi
-          if readelf -d "$lib" | grep -E 'NEEDED.*lib(std)?c\+\+'; then
-            echo "$lib must not directly depend on the C++ standard library (issue #6)" >&2
-            readelf -d "$lib" | grep NEEDED >&2 || true
-            exit 1
-          fi
-          echo "OK: $lib has no libstdc++/libc++ NEEDED entry (seekdb server binary not checked)"
-
-      - &build-tests
-        name: Build tests
-        run: cmake --build build --target "${{ env.TEST_TARGET }}" --parallel
-
+        run: python .github/scripts/ci.py python-tests
+      - name: Verify Python binding exception contract
+        run: python .github/scripts/ci.py python-contract
+      - name: Verify the C driver has no C++ runtime dependency
+        run: python .github/scripts/ci.py pure-c
       - &run-tests
-        name: Run tests
-        run: ctest --test-dir build --output-on-failure
+        name: Run C/C++ tests
+        run: ctest --test-dir "$BUILD_DIR" --output-on-failure
 
   node-test:
     name: Node.js build and test
-    needs: prepare-seekdb
+    needs: engine
     runs-on: ubuntu-22.04
-    permissions:
-      contents: read
-
+    env:
+      BINARY_RUN_ID: ${{ needs.engine.outputs.run_id }}
+      BINARY_SOURCE_COMMIT: ${{ needs.engine.outputs.source_commit }}
+      PACKAGE_TIMESTAMP: ${{ needs.engine.outputs.timestamp }}
+      PACKAGE_COMPONENT: node
+      PIP_CACHE_DIR: ${{ github.workspace }}/deps/.cache/pip
+      npm_config_cache: ${{ github.workspace }}/deps/.cache/npm
     steps:
       - *checkout-with-submodules
-      - *download-seekdb-binary
-      - *set-seekdb-bin
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - *checkout-packaging-tools
+      - *download-engine
+      - *elf-tools
+      - name: Set up Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
-
-      - name: Build and test Node.js binding
+      - name: Restore dependency downloads and static OpenSSL
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: deps/.cache
+          key: bindings-deps-v1-linux-x86_64-${{ needs.engine.outputs.dependency_key }}
+          restore-keys: bindings-deps-v1-linux-x86_64-
+      - name: Build and test Node.js against the existing binary
+        run: python3 .github/scripts/package.py container
+      - name: Verify types and runtime packaging
         run: |
-          sudo apt-get update
-          sudo apt-get install -y patchelf
-          npm ci --prefix typescript
-          npm test --prefix typescript
-
-      - name: Verify Node.js npm tarball
-        shell: bash
+          node typescript/node_modules/typescript/bin/tsc -p typescript/tsconfig.test.json --noEmit
+          node --test typescript/test/packaging.test.mjs
+      - name: Verify the npm tarball installs without a build
         run: |
-          set -euo pipefail
-          # This PR job builds on Ubuntu. Release builds use the default 2.28 gate.
-          baseline="$(node -p 'JSON.parse(require("fs").readFileSync("typescript/dist/native/platform.json")).minimumGlibc')"
-          npm run pack:linux --prefix typescript -- --glibc-baseline "$baseline"
           install_dir="$(mktemp -d)"
-          npm install --prefix "$install_dir" --ignore-scripts --no-audit --no-fund typescript/build/npm/*.tgz
+          npm install --prefix "$install_dir" --ignore-scripts --no-audit --no-fund "$GITHUB_WORKSPACE"/dist/*.tgz
           cd "$install_dir"
           node --input-type=module -e 'import { seekdb } from "@oceanbase/seekdb-node"; seekdb.checkPlatform()'
-
       - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
-
       - name: Verify Node.js 22 with the Node.js 24 native build
         run: node --test typescript/test/binding.test.mjs
 
+  macos-runtime-test:
+    name: macOS runtime relocation test
+    needs: engine
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - *setup-python
+      - *checkout-packaging-tools
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Verify bundled libraries survive SDK, wheel, npm and Java relocation
+        run: python .github/scripts/test_macos_runtime.py
+
   asan-ubsan-test:
     name: ASan/UBSan build and test
-    needs: prepare-seekdb
+    needs: engine
     runs-on: ubuntu-22.04
-    permissions:
-      contents: read
     env:
       SEEKDB_SANITIZER_FLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer
       ASAN_OPTIONS: detect_leaks=1
       UBSAN_OPTIONS: print_stacktrace=1
-
     steps:
       - *checkout-with-submodules
       - *setup-python
       - *install-python-build-dependencies
-      - *download-seekdb-binary
-      - *set-seekdb-bin
-
-      - name: Configure
+      - *checkout-packaging-tools
+      - *download-engine
+      - *elf-tools
+      - *prepare-runtime
+      - name: Configure instrumented bindings
         run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-            -DSEEKDB_BIN=${{ env.SEEKDB_BIN }} \
-            "-DCMAKE_C_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}" \
-            "-DCMAKE_CXX_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}" \
-            "-DCMAKE_EXE_LINKER_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}" \
-            "-DCMAKE_SHARED_LINKER_FLAGS=${{ env.SEEKDB_SANITIZER_FLAGS }}"
-
-      - *build-tests
-      # Pure-C guardrail runs only in the regular build job: ASan/UBSan linker
-      # flags can add libstdc++ to instrumented shared libs even for C code.
+          cmake -S . -B "$BUILD_DIR" \
+            -DCMAKE_BUILD_TYPE="$BUILD_TYPE" -DSEEKDB_BIN="$SEEKDB_BIN" \
+            "-DCMAKE_C_FLAGS=$SEEKDB_SANITIZER_FLAGS" \
+            "-DCMAKE_CXX_FLAGS=$SEEKDB_SANITIZER_FLAGS" \
+            "-DCMAKE_EXE_LINKER_FLAGS=$SEEKDB_SANITIZER_FLAGS" \
+            "-DCMAKE_SHARED_LINKER_FLAGS=$SEEKDB_SANITIZER_FLAGS"
+      - name: Build instrumented tests
+        run: cmake --build "$BUILD_DIR" --target "$TEST_TARGET" --parallel
       - *run-tests
