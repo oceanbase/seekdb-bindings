@@ -1,0 +1,31 @@
+.github/workflows/publish-npm.yml
+  s_99bd9318300c1c::t_e71b679e2b776a 1-76,79-86,88,120-151
+  s_99bd9318300c1c::t_6553c3cd150e74 77-78,87,89-119
+.github/scripts/npm-entry.mjs
+  s_99bd9318300c1c::t_a6f2dba16e399a 1-26
+.github/scripts/release.py
+  s_99bd9318300c1c::t_a6f2dba16e399a 167-168,211,216-223,234
+  s_99bd9318300c1c::t_ac285f348238fb 212-215
+.github/workflows/publish-pypi.yml
+  s_99bd9318300c1c::t_6553c3cd150e74 61-63
+  s_99bd9318300c1c::t_e71b679e2b776a 1-60,64-103
+.github/scripts/publish_registry.py
+  s_99bd9318300c1c::t_a6f2dba16e399a 1-185,188-242,250-252,260,283-285,288,290-300,305-310
+  s_99bd9318300c1c::t_6553c3cd150e74 186-187,243-249,253-259,261-282,286-287,289,301-304
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6c0614f72a21e57126480fa6bb2e8591ade116ae",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
