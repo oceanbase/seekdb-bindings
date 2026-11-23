@@ -9,8 +9,10 @@ import tempfile
 import tomllib
 import unittest
 from unittest.mock import patch
+import zipfile
 
 import package
+from smoke_packages import verify_jar_version
 
 
 class PackageVersionsTest(unittest.TestCase):
@@ -105,6 +107,35 @@ class PackageVersionsTest(unittest.TestCase):
                     self.assertEqual(actual["engine_version"], "1.4.0.0")
                     self.assertEqual(actual["package_versions"], metadata["package_versions"])
                     self.assertEqual(actual["seekdb_commit"], "a" * 40)
+
+
+class JarVersionsTest(unittest.TestCase):
+    def verify(self, manifest, expected):
+        with tempfile.TemporaryDirectory() as temporary:
+            jar = Path(temporary) / "classes.jar"
+            with zipfile.ZipFile(jar, "w") as stream:
+                stream.writestr("META-INF/MANIFEST.MF", manifest)
+            verify_jar_version(jar, expected)
+
+    def test_short_version(self):
+        self.verify(b"Manifest-Version: 1.0\r\nImplementation-Version: 1.4.3\r\n\r\n", "1.4.3")
+
+    def test_folded_long_version(self):
+        version = "1.4.0-rc.20261123.sha.4d2f8282d67b57074e71578f92b0bdd8a091aac3"
+        header = b"Implementation-Version: " + version.encode()
+        self.verify(b"Manifest-Version: 1.0\r\n" + header[:72] + b"\r\n " + header[72:] + b"\r\n\r\n", version)
+
+    def test_folded_utf8_and_case_insensitive_header(self):
+        self.verify(b"Manifest-Version: 1.0\nimplementation-version: 1.4.0-\xe4\n \xb8\xad\n\n", "1.4.0-中")
+
+    def test_reject_version_prefix(self):
+        with self.assertRaisesRegex(ValueError, "version mismatch"):
+            self.verify(b"Manifest-Version: 1.0\rImplementation-Version: 1.4.30\r\r", "1.4.3")
+
+    def test_entry_attribute_cannot_replace_main_version(self):
+        with self.assertRaisesRegex(ValueError, "version mismatch"):
+            self.verify(b"Manifest-Version: 1.0\r\n\r\nName: example.class\r\n"
+                        b"Implementation-Version: 1.4.3\r\n\r\n", "1.4.3")
 
 
 if __name__ == "__main__":

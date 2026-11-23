@@ -36,6 +36,18 @@ def one(pattern):
     return result
 
 
+def verify_jar_version(jar, expected):
+    with zipfile.ZipFile(jar) as stream:
+        manifest = stream.read("META-INF/MANIFEST.MF")
+    main = manifest.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n\n", 1)[0]
+    # A continuation can split a UTF-8 character, so unfold before decoding.
+    headers = main.replace(b"\n ", b"").decode("utf-8").splitlines()
+    attributes = {name.lower(): value for name, value in (line.split(": ", 1) for line in headers)}
+    actual = attributes.get("implementation-version")
+    if actual != expected:
+        raise ValueError(f"Packaged Java version mismatch: expected {expected!r}, found {actual!r}")
+
+
 def environment(native=None):
     result = {key: value for key, value in os.environ.items()
               if not key.startswith(("DYLD_", "LD_")) and key not in ("PYTHONPATH", "SEEKDB_BIN")}
@@ -138,10 +150,7 @@ def java_smoke(root, metadata):
     work = root / "java"
     work.mkdir()
     prefix = unpack(one("seekdb-java-*.tar.gz"), work / "package")
-    with zipfile.ZipFile(prefix / "seekdb-java.jar") as stream:
-        manifest = stream.read("META-INF/MANIFEST.MF").decode()
-    if "Implementation-Version: " + metadata["package_versions"]["java"] not in manifest:
-        raise ValueError("Packaged Java version mismatch")
+    verify_jar_version(prefix / "seekdb-java.jar", metadata["package_versions"]["java"])
     run(["java", "-Djava.library.path=" + str(prefix / "lib"), "--class-path", prefix / "seekdb-java.jar",
          ROOT / "java/test/com/oceanbase/seekdb/test/LifecycleSmoke.java", work / "database"],
         work, environment(prefix / "lib"))

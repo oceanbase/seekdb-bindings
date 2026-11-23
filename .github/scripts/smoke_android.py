@@ -14,7 +14,7 @@ import urllib.request
 import zipfile
 
 import package
-from smoke_packages import one, unpack
+from smoke_packages import one, unpack, verify_jar_version
 
 
 def run(arguments, **kwargs):
@@ -37,10 +37,7 @@ def build_apk(work):
     with zipfile.ZipFile(aar) as stream:
         stream.extractall(payload)
     metadata = json.loads((payload / "assets/seekdb/BUILD-INFO.json").read_text())
-    with zipfile.ZipFile(payload / "classes.jar") as stream:
-        manifest = stream.read("META-INF/MANIFEST.MF").decode()
-    if "Implementation-Version: " + metadata["package_versions"]["android"] not in manifest:
-        raise ValueError("Finished AAR version mismatch")
+    verify_jar_version(payload / "classes.jar", metadata["package_versions"]["android"])
     # The JDBC client belongs to this consumer app, not the released AAR.
     jdbc = work / "mariadb-java-client-3.5.6.jar"
     urllib.request.urlretrieve("https://repo.maven.apache.org/maven2/org/mariadb/jdbc/"
@@ -109,6 +106,7 @@ def prepare(work):
 
 def sdk_smoke(device, sdk):
     base = "/data/local/tmp/seekdb-package-smoke"
+    device("shell", "rm", "-rf", base)
     device("push", sdk, base)
     device("shell", base + "/lib/seekdb", "-V")
     device("shell", base + "/client", base + "/database")
