@@ -555,7 +555,7 @@ def build():
     if os.environ["PACKAGE_OS"] == "android":
         report = {"target": metadata["target"], "packages": [], "status": "not_run",
             "source_commit": metadata["bindings_commit"],
-            "reason": "No arm64 Android runtime available; cross-compilation and ELF checks only"}
+            "reason": "Awaiting native Android runtime verification"}
         write_json(DIST / (metadata["target"] + "-smoke.json"), report)
         print(json.dumps(report), flush=True)
     for path in sorted(DIST.iterdir()):

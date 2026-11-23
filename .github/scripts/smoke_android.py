@@ -2,6 +2,7 @@
 """Build a test APK from the finished AAR and run it on an adb-connected Android."""
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -128,6 +129,19 @@ def write_report(metadata, api, abi, components, status):
     print(report.read_text(), flush=True)
 
 
+@contextmanager
+def runtime_report(metadata, api, abi):
+    components = []
+    write_report(metadata, api, abi, components, "running")
+    try:
+        yield components
+    except Exception:
+        write_report(metadata, api, abi, components, "failed")
+        raise
+    else:
+        write_report(metadata, api, abi, components, "passed")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", type=Path, default=package.DIST)
@@ -158,46 +172,47 @@ def main():
     api = device("shell", "getprop", "ro.build.version.sdk", capture_output=True).stdout.strip()
     if abi != "arm64-v8a" or kernel_arch != "aarch64":
         raise ValueError("Test requires native arm64 Android; found " + abi + "/" + kernel_arch)
-    write_report(metadata, api, abi, [], "failed")
-    if sdk:
-        sdk_smoke(device, sdk)
-    if apk:
-        device("install", "-r", apk)
-        app = "com.oceanbase.seekdb.pr60"
-        device("shell", "pm", "clear", app)
-        device("logcat", "-c")
-        passed = False
-        try:
-            # The installed APK can access only the final archive payload on Android.
-            device("shell", "am", "start", "-W", "-n", app + "/com.oceanbase.seekdb.test.MainActivity")
-            deadline = time.monotonic() + 300
-            while True:
-                log = device("logcat", "-d", "-s", "SeekDBTest:I", "AndroidRuntime:E", capture_output=True).stdout
-                if "Test failed" in log or "FATAL EXCEPTION" in log:
-                    raise RuntimeError("Android finished AAR smoke failed:\n" + log)
-                if all(marker in log for marker in ("OK transport=", "HYBRID_OK", "DIRECTORY_FD_CLOSED_OK")):
-                    print(log, flush=True)
-                    passed = True
-                    break
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("Android finished AAR smoke timed out:\n" + log)
-                time.sleep(2)
-        finally:
-            (work / "logcat.log").write_text(device("logcat", "-d", capture_output=True).stdout)
-            if not passed:
-                try:
-                    installed = device("shell", "pm", "path", app, capture_output=True).stdout.strip().splitlines()[0]
-                    native = installed.removeprefix("package:").rsplit("/", 1)[0] + "/lib/arm64"
-                    diagnostic = subprocess.run([*adb, "shell", "run-as", app,
-                        native + "/libseekdb_exec.so", "-V"], text=True, capture_output=True, timeout=30)
-                    message = "exit=%s\n%s%s" % (diagnostic.returncode, diagnostic.stdout, diagnostic.stderr)
-                    (work / "engine-version.log").write_text(message)
-                    print("Engine execution diagnostic:\n" + message, flush=True)
-                    print(device("shell", "run-as", app, "find", "no_backup", "-type", "f", capture_output=True).stdout)
-                except Exception as error:
-                    print("Could not collect additional engine diagnostics: " + str(error), flush=True)
-            device("shell", "am", "force-stop", app)
-    write_report(metadata, api, abi, (["sdk"] if sdk else []) + (["android-aar"] if apk else []), "passed")
+    with runtime_report(metadata, api, abi) as components:
+        if sdk:
+            sdk_smoke(device, sdk)
+            components.append("sdk")
+        if apk:
+            device("install", "--no-incremental", "-r", apk)
+            app = "com.oceanbase.seekdb.pr60"
+            device("shell", "pm", "clear", app)
+            device("logcat", "-c")
+            passed = False
+            try:
+                # The installed APK can access only the final archive payload on Android.
+                device("shell", "am", "start", "-W", "-n", app + "/com.oceanbase.seekdb.test.MainActivity")
+                deadline = time.monotonic() + 300
+                while True:
+                    log = device("logcat", "-d", "-s", "SeekDBTest:I", "AndroidRuntime:E", capture_output=True).stdout
+                    if "Test failed" in log or "FATAL EXCEPTION" in log:
+                        raise RuntimeError("Android finished AAR smoke failed:\n" + log)
+                    if all(marker in log for marker in ("OK transport=", "HYBRID_OK", "DIRECTORY_FD_CLOSED_OK")):
+                        print(log, flush=True)
+                        passed = True
+                        break
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Android finished AAR smoke timed out:\n" + log)
+                    time.sleep(2)
+            finally:
+                (work / "logcat.log").write_text(device("logcat", "-d", capture_output=True).stdout)
+                if not passed:
+                    try:
+                        installed = device("shell", "pm", "path", app, capture_output=True).stdout.strip().splitlines()[0]
+                        native = installed.removeprefix("package:").rsplit("/", 1)[0] + "/lib/arm64"
+                        diagnostic = subprocess.run([*adb, "shell", "run-as", app,
+                            native + "/libseekdb_exec.so", "-V"], text=True, capture_output=True, timeout=30)
+                        message = "exit=%s\n%s%s" % (diagnostic.returncode, diagnostic.stdout, diagnostic.stderr)
+                        (work / "engine-version.log").write_text(message)
+                        print("Engine execution diagnostic:\n" + message, flush=True)
+                        print(device("shell", "run-as", app, "find", "no_backup", "-type", "f", capture_output=True).stdout)
+                    except Exception as error:
+                        print("Could not collect additional engine diagnostics: " + str(error), flush=True)
+                device("shell", "am", "force-stop", app)
+            components.append("android-aar")
 
 
 if __name__ == "__main__":
