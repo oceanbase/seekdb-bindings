@@ -4,9 +4,7 @@
 import argparse
 import base64
 from email.parser import BytesParser
-import gzip
 import hashlib
-import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -20,18 +18,10 @@ from urllib.parse import quote
 from urllib.request import urlopen
 import zipfile
 
-from package import ROOT, digest, output, write_json
+from package import ROOT, NPM_NAME, NPM_PLATFORMS, NPM_REGISTRY, digest, output, write_json
 from release import collect, safe_name
 
 PYPI_NAME = "pylibseekdb"
-NPM_NAME = "@oceanbase/seekdb-node"
-NPM_REGISTRY = "https://registry.npmjs.org"
-NPM_PLATFORMS = {
-    "linux-x86_64": ("linux-x64-gnu", "linux", "x64"),
-    "linux-aarch64": ("linux-arm64-gnu", "linux", "arm64"),
-    "macos-arm64": ("darwin-arm64", "darwin", "arm64"),
-    "windows-x86_64": ("win32-x64", "win32", "x64"),
-}
 
 
 def registry_json(url):
@@ -76,71 +66,46 @@ def npm_files(path):
     return files
 
 
-def npm_archive(directory, manifest, files):
-    files = dict(files)
-    files["package.json"] = ((json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode(), 0o644)
-    filename = manifest["name"].removeprefix("@").replace("/", "-") + "-" + manifest["version"] + ".tgz"
-    destination = directory / filename
-    # Stable tar/gzip metadata makes a retry byte-identical to the first attempt.
-    with destination.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
-        with tarfile.open(fileobj=compressed, mode="w") as stream:
-            for name, (data, mode) in sorted(files.items()):
-                member = tarfile.TarInfo("package/" + name)
-                member.size = len(data)
-                member.mode = mode
-                member.uid = member.gid = 0
-                member.uname = member.gname = "root"
-                stream.addfile(member, io.BytesIO(data))
-    return destination
-
-
-def npm_packages(source, assets, directory, version):
+def npm_distributions(source, assets, directory, version):
     platforms = [item for item in source["platforms"] if "node" in item["components"]]
     if {item["platform"] for item in platforms} != set(NPM_PLATFORMS):
         raise ValueError("npm publication requires Linux x86_64/ARM64, macOS ARM64 and Windows x86_64 node packages")
-    packages = []
-    dependencies = {}
-    shared = None
-    base_manifest = None
+    packages = {}
+    dependencies = {NPM_NAME + "-" + value[0]: version for value in NPM_PLATFORMS.values()}
     for platform in platforms:
-        filename, = [name for name in platform["packages"] if name.endswith(".tgz")]
-        files = npm_files(assets / filename)
-        manifest = json.loads(files["package.json"][0])
+        archives = [name for name in platform["packages"] if name.endswith(".tgz")]
+        if len(archives) != 2:
+            raise ValueError("Run Package bindings to generate the named npm platform package and shared main package")
         suffix, system, arch = NPM_PLATFORMS[platform["platform"]]
-        if (manifest["name"] != NPM_NAME or manifest["version"] != version or manifest.get("private") or
-                manifest.get("scripts") or manifest.get("os") != [system] or manifest.get("cpu") != [arch]):
-            raise ValueError("npm manifest differs from the tested platform/version: " + filename)
-        native = json.loads(files["dist/native/platform.json"][0])
-        if native["platform"] != system or native["arch"] != arch:
-            raise ValueError("npm native platform metadata differs: " + filename)
-        if system == "linux" and (manifest.get("libc") != ["glibc"] or native.get("libc") != "glibc"):
-            raise ValueError("Linux npm package must declare glibc")
-        # Windows checkouts/compiler output can use CRLF and different file modes.
-        # Normalize only the shared text; platform archives retain every payload byte.
-        public = {name: (files[name][0].replace(b"\r\n", b"\n"), 0o644)
-                  for name in ("dist/index.js", "dist/index.d.ts", "README.md", "LICENSE")}
-        if shared is not None and public != shared:
-            different = [name for name in public if public[name] != shared[name]]
-            raise ValueError("npm platforms have different public files: " + ", ".join(different))
-        shared = public
-        base_manifest = dict(manifest)
-        manifest["name"] = NPM_NAME + "-" + suffix
-        manifest["repository"] = {"type": "git", "url": "git+https://github.com/oceanbase/seekdb-bindings.git"}
-        manifest["publishConfig"] = {"access": "public", "registry": NPM_REGISTRY}
-        dependencies[manifest["name"]] = version
-        packed = npm_archive(directory, manifest, files)
-        packages.append({"name": manifest["name"], "version": version, "file": packed.name, "platform": platform["platform"]})
-    for key in ("os", "cpu", "libc"):
-        base_manifest.pop(key, None)
-    base_manifest["repository"] = {"type": "git", "url": "git+https://github.com/oceanbase/seekdb-bindings.git"}
-    base_manifest["publishConfig"] = {"access": "public", "registry": NPM_REGISTRY}
-    base_manifest["optionalDependencies"] = dict(sorted(dependencies.items()))
-    base_manifest["files"] = ["dist/index.js", "dist/index.d.ts", "README.md", "LICENSE"]
-    shared["dist/index.js"] = ((ROOT / "typescript/src/npm-entry.mjs").read_bytes(), 0o644)
-    packed = npm_archive(directory, base_manifest, shared)
-    # Publish platform packages first, so the public package's dependencies exist.
-    packages.append({"name": NPM_NAME, "version": version, "file": packed.name})
-    return packages
+        names = set()
+        for filename in archives:
+            files = npm_files(assets / filename)
+            manifest = json.loads(files["package.json"][0])
+            name = manifest["name"]
+            if name in names or manifest["version"] != version or manifest.get("private") or manifest.get("scripts"):
+                raise ValueError("npm manifest differs from the tested version: " + filename)
+            names.add(name)
+            if name == NPM_NAME:
+                if manifest.get("optionalDependencies") != dependencies or any(key in manifest for key in ("os", "cpu", "libc")):
+                    raise ValueError("Invalid npm main package dependencies/platforms")
+            elif name == NPM_NAME + "-" + suffix:
+                native = json.loads(files["dist/native/platform.json"][0])
+                if (manifest.get("os"), manifest.get("cpu"), native["platform"], native["arch"]) != ([system], [arch], system, arch):
+                    raise ValueError("npm native platform metadata differs: " + filename)
+                if system == "linux" and (manifest.get("libc") != ["glibc"] or native.get("libc") != "glibc"):
+                    raise ValueError("Linux npm package must declare glibc")
+            else:
+                raise ValueError("Unexpected npm package name: " + name)
+            if name in packages:
+                if digest(assets / filename) != digest(directory / packages[name]["file"]):
+                    raise ValueError("Packaging jobs produced different npm main packages")
+                continue
+            shutil.copyfile(assets / filename, directory / filename)
+            packages[name] = {"name": name, "version": version, "file": filename}
+        if names != {NPM_NAME, NPM_NAME + "-" + suffix}:
+            raise ValueError("Each platform must contain its npm platform package and shared main package")
+    # Upload platform packages before the shared public package.
+    return [packages[name] for name in sorted(dependencies)] + [packages[NPM_NAME]]
 
 
 def prepare(registry, repository, run_ids, directory):
@@ -161,7 +126,7 @@ def prepare(registry, repository, run_ids, directory):
                         shutil.copyfile(assets / name, directory / name)
                         packages.append({"name": PYPI_NAME, "version": version, "file": name, "platform": platform["platform"]})
         else:
-            packages = npm_packages(source, assets, directory, version)
+            packages = npm_distributions(source, assets, directory, version)
     for package in packages:
         path = directory / package["file"]
         package["sha256"] = digest(path)
@@ -272,30 +237,9 @@ def check_npm(directory):
         print("Validated npm tarball: " + package["file"], flush=True)
 
 
-def smoke_npm(directory):
-    from smoke_packages import SOURCES, consumer_directory, environment, run
-
-    manifest = load_prepared(directory, "npm")
-    system, arch = json.loads(subprocess.check_output(
-        ["node", "-p", "JSON.stringify([process.platform, process.arch])"], text=True))
-    suffix, = [value[0] for value in NPM_PLATFORMS.values() if value[1:] == (system, arch)]
-    native, = [item for item in manifest["packages"] if item["name"] == NPM_NAME + "-" + suffix]
-    public, = [item for item in manifest["packages"] if item["name"] == NPM_NAME]
-    with consumer_directory() as work:
-        write_json(work / "package.json", {"private": True, "type": "module"})
-        # Install both local archives explicitly before their first registry upload.
-        # The root dependency supplies the platform package without registry lookup.
-        run(["npm", "install", "--ignore-scripts", "--omit=optional", "--no-audit", "--no-fund",
-             (directory / native["file"]).resolve(), (directory / public["file"]).resolve(), "mysql2@^3"], work, environment())
-        shutil.copyfile(SOURCES / "node.mjs", work / "smoke.mjs")
-        run(["node", work / "smoke.mjs", manifest["version"]], work, environment())
-
-
 def main():
-
-
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prepare-pypi", "prepare-npm", "check-pypi", "check-npm", "pypi-uploads", "publish-npm", "smoke-npm"))
+    parser.add_argument("command", choices=("prepare-pypi", "prepare-npm", "check-pypi", "check-npm", "pypi-uploads", "publish-npm"))
     parser.add_argument("--directory", type=Path)
     arguments = parser.parse_args()
     registry = "pypi" if "pypi" in arguments.command else "npm"
@@ -309,8 +253,6 @@ def main():
         publish_npm(directory)
     elif arguments.command == "check-npm":
         check_npm(directory)
-    elif arguments.command == "smoke-npm":
-        smoke_npm(directory)
     else:
         pending(directory, registry)
 

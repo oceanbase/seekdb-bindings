@@ -14,7 +14,7 @@ import tempfile
 from urllib.parse import quote
 import zipfile
 
-from package import ROOT, TARGETS, digest, write_json
+from package import ROOT, TARGETS, NPM_PLATFORMS, digest, write_json
 
 
 def gh(*arguments, **kwargs):
@@ -136,11 +136,26 @@ def verify_bundle(directory, platform, commit):
     payloads = []
     versions = {}
     for component in sorted(components):
-        matches = list(directory.glob(patterns[component]))
-        if len(matches) != 1:
-            raise ValueError(f"Expected one {component} package matching {patterns[component]}")
-        path, = matches
-        payloads.append(path.name)
+        component_patterns = [patterns[component]]
+        if component == "node" and "npm_packages" in metadata:
+            suffix = NPM_PLATFORMS[platform][0]
+            expected = {
+                "platform": f"oceanbase-seekdb-node-{suffix}-{metadata['package_versions']['node']}-{target}-*.tgz",
+                "main": f"oceanbase-seekdb-node-{metadata['package_versions']['node']}-*-bnd{commit[:12]}.tgz",
+            }
+            if set(metadata["npm_packages"]) != set(expected):
+                raise ValueError("Expected npm platform and main packages")
+            component_patterns = []
+            for kind, pattern in expected.items():
+                matches = list(directory.glob(pattern))
+                if len(matches) != 1 or matches[0].name != metadata["npm_packages"][kind]:
+                    raise ValueError("npm package inventory differs from provenance")
+                component_patterns.append(pattern)
+        for pattern in component_patterns:
+            matches = list(directory.glob(pattern))
+            if len(matches) != 1:
+                raise ValueError(f"Expected one {component} package matching {pattern}")
+            payloads.append(matches[0].name)
         key = {"python-cp311": "python", "python-cp312-abi3": "python", "android-aar": "android"}.get(component, component)
         versions[key] = metadata["package_versions"][key]
     expected = set(payloads) | {provenance.name, report_name}
@@ -159,7 +174,7 @@ def release_notes(manifest):
         url = f"https://github.com/{manifest['repository']}/actions/runs/{source['run_id']}"
         lines.append(f"| `{source['target']}` | [{source['run_id']}]({url}) | `{source['seekdb_commit']}` |")
     lines += ["", "Packages:", ""]
-    lines += [f"- `{name}`" for name in sorted(name for source in manifest["platforms"] for name in source["packages"])]
+    lines += [f"- `{name}`" for name in sorted({name for source in manifest["platforms"] for name in source["packages"]})]
     lines += ["", "All packages passed their platform smoke tests. See SHA256SUMS for asset checksums.", ""]
     return "\n".join(lines)
 
@@ -201,7 +216,12 @@ def collect(repository, run_ids, assets):
                         raise ValueError("Packaging runs use different " + name + " package versions")
                     versions[name] = value
                 for path in downloaded.iterdir():
-                    with path.open("rb") as source, (assets / path.name).open("xb") as output:
+                    destination = assets / path.name
+                    if destination.exists():
+                        if digest(path) != digest(destination):
+                            raise ValueError("Packaging runs contain conflicting files: " + path.name)
+                        continue
+                    with path.open("rb") as source, destination.open("xb") as output:
                         shutil.copyfileobj(source, output)
                 platforms.append({"platform": platform, "target": metadata["target"], "run_id": run_id,
                     "artifact_id": artifact["id"], "seekdb_commit": metadata["seekdb_commit"],

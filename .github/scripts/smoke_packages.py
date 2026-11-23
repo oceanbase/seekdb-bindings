@@ -139,7 +139,9 @@ def node_smoke(root, metadata):
     work.mkdir()
     env = environment()
     package.write_json(work / "package.json", {"private": True, "type": "module"})
-    run(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", one("*.tgz"), "mysql2@^3"], work, env)
+    archives = metadata["npm_packages"]
+    run(["npm", "install", "--ignore-scripts", "--omit=optional", "--no-audit", "--no-fund",
+         package.DIST / archives["platform"], package.DIST / archives["main"], "mysql2@^3"], work, env)
     source = work / "smoke.mjs"
     shutil.copy2(SOURCES / "node.mjs", source)
     run(["node", source, metadata["package_versions"]["node"]], work, env)
