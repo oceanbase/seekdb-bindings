@@ -5,7 +5,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import time
 import urllib.request
@@ -110,13 +109,17 @@ def main():
     finally:
         (work / "logcat.log").write_text(device("logcat", "-d", capture_output=True).stdout)
         if not passed:
-            details = device("shell", "dumpsys", "package", app, capture_output=True).stdout
-            native = re.search(r"nativeLibraryDir=(\S+)", details).group(1)
-            diagnostic = subprocess.run([*adb, "shell", "run-as", app,
-                native + "/libseekdb_exec.so", "-V"], text=True, capture_output=True, timeout=30)
-            (work / "engine-version.log").write_text(diagnostic.stdout + diagnostic.stderr)
-            print("Engine execution diagnostic:\n" + diagnostic.stdout + diagnostic.stderr, flush=True)
-            print(device("shell", "run-as", app, "find", "no_backup", "-type", "f", capture_output=True).stdout)
+            try:
+                installed = device("shell", "pm", "path", app, capture_output=True).stdout.strip().splitlines()[0]
+                native = installed.removeprefix("package:").rsplit("/", 1)[0] + "/lib/arm64"
+                diagnostic = subprocess.run([*adb, "shell", "run-as", app,
+                    native + "/libseekdb_exec.so", "-V"], text=True, capture_output=True, timeout=30)
+                message = "exit=%s\n%s%s" % (diagnostic.returncode, diagnostic.stdout, diagnostic.stderr)
+                (work / "engine-version.log").write_text(message)
+                print("Engine execution diagnostic:\n" + message, flush=True)
+                print(device("shell", "run-as", app, "find", "no_backup", "-type", "f", capture_output=True).stdout)
+            except Exception as error:
+                print("Could not collect additional engine diagnostics: " + str(error), flush=True)
         device("shell", "am", "force-stop", app)
     report = package.DIST / (metadata["target"] + "-smoke.json")
     package.write_json(report, {"target": metadata["target"], "packages": ["android-aar"],
