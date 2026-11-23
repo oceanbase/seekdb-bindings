@@ -1,0 +1,22 @@
+.github/workflows/package.yml
+  s_99bd9318300c1c::t_36280be0d2ffa0 12,106,229,241-258
+.github/scripts/smoke_android.py
+  s_99bd9318300c1c::t_4a8586e4cd70b5 1-12,14-116
+  s_99bd9318300c1c::t_36280be0d2ffa0 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "72ff3f40533b8e162607a3afcfe0f84870df672a",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
