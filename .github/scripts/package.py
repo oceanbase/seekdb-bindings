@@ -425,6 +425,9 @@ def python_wheels():
         mounts = ["--volume", str(prefix) + ":/seekdb-sdk:ro", "--volume", str(ROOT / "deps/.cache") + ":/seekdb-cache"]
         environment["CIBW_CONTAINER_ENGINE"] = "docker; create_args: " + shlex.join(mounts) + "; disable_host_mount: true"
         environment["CIBW_ENVIRONMENT_PASS_LINUX"] = "CMAKE_BUILD_PARALLEL_LEVEL"
+        # cibuildwheel runs as root; keep its pip cache separate from the host's.
+        environment["CIBW_BEFORE_ALL_LINUX"] = (
+            "mkdir -p /seekdb-cache/cibuildwheel-pip && chown 0:0 /seekdb-cache/cibuildwheel-pip")
         # The complete SDK already contains libaio and a relocated engine.
         environment["CIBW_BEFORE_BUILD_LINUX"] = ""
         settings.update({"cmake.define.SEEKDB_SDK_DIR": "/seekdb-sdk",

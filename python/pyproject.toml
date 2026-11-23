@@ -67,7 +67,7 @@ test-command = [
 archs = ["auto64"]
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
-environment = { PIP_CACHE_DIR = "/seekdb-cache/pip" }
+environment = { PIP_CACHE_DIR = "/seekdb-cache/cibuildwheel-pip" }
 # The top-level CMake wheel target uses the legacy build/ layout.
 before-build = [
     "yum install -y libaio",
