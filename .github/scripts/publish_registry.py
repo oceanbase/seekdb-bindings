@@ -248,6 +248,11 @@ def publish_npm(directory):
     for package in uploads:
         subprocess.run(["npm", "publish", str((directory / package["file"]).resolve()), "--access=public", "--tag=" + tag,
                         "--ignore-scripts", "--provenance", "--registry=" + NPM_REGISTRY], check=True)
+    if not any(package["name"] == NPM_NAME for package in uploads):
+        remote = registry_json(NPM_REGISTRY + "/" + quote(NPM_NAME, safe=""))
+        if remote["dist-tags"].get(tag) != manifest["version"]:
+            subprocess.run(["npm", "dist-tag", "add", NPM_NAME + "@" + manifest["version"], tag,
+                            "--registry=" + NPM_REGISTRY], check=True)
 
 
 def npm_tag(manifest):
