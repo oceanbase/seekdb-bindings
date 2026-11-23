@@ -266,6 +266,12 @@ def repair_native(directory):
             commands = subprocess.check_output(["otool", "-l", str(path)], text=True)
             if not re.search(r"cmd LC_RPATH\s+cmdsize \d+\s+path @loader_path \(", commands):
                 run(["install_name_tool", "-add_rpath", "@loader_path", path])
+            imports = subprocess.check_output(["otool", "-L", str(path)], text=True)
+            for line in imports.splitlines()[1:]:
+                dependency = line.strip().split(" (compatibility version", 1)[0]
+                if dependency.startswith("@executable_path/../lib/seekdb/"):
+                    run(["install_name_tool", "-change", dependency,
+                         "@loader_path/" + dependency.rsplit("/", 1)[1], path])
         symbols.strip_file(path, kind, layout)
         if layout == "macos":
             run(["codesign", "--force", "--sign", "-", path])

@@ -7,6 +7,7 @@ on:
       - '.github/workflows/package.yml'
       - '.github/scripts/package.py'
       - '.github/scripts/test_package_versions.py'
+      - '.github/scripts/test_macos_runtime.py'
       - 'scripts/docker/bindings-manylinux.Dockerfile'
       - 'typescript/scripts/**'
       - 'typescript/src/**'
@@ -209,6 +210,9 @@ jobs:
         run: |
           python -m pip install 'cmake>=3.20,<4' ninja packaging
           python .github/scripts/test_package_versions.py
+      - name: Verify macOS bundled libraries survive runtime relocation
+        if: matrix.os == 'macos'
+        run: python .github/scripts/test_macos_runtime.py
       - name: Install Android NDK and ELF tools
         if: matrix.os == 'android'
         run: |

@@ -189,6 +189,23 @@ jobs:
       - name: Verify Node.js 22 with the Node.js 24 native build
         run: node --test typescript/test/binding.test.mjs
 
+  macos-runtime-test:
+    name: macOS runtime relocation test
+    needs: engine
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - *setup-python
+      - *checkout-packaging-tools
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Verify bundled libraries survive SDK, wheel, npm and Java relocation
+        run: python .github/scripts/test_macos_runtime.py
+
   asan-ubsan-test:
     name: ASan/UBSan build and test
     needs: engine
