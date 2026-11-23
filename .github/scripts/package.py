@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -409,45 +410,35 @@ def sdk(engine, metadata):
     return prefix
 
 
-def python_wheels(prefix, metadata):
-    with python_project_version(metadata["package_versions"]["python"]):
-        build_python_wheels(prefix)
-
-
-def build_python_wheels(prefix):
+def python_wheels():
+    prefix = WORK / "sdk"
+    metadata = json.loads((prefix / "BUILD-INFO.json").read_text())
     layout = os.environ["PACKAGE_OS"]
-    for abi in ("311", "312"):
-        interpreter = os.environ["PYTHON_" + abi]
-        venv = WORK / ("python-" + abi)
-        run([interpreter, "-m", "venv", venv])
-        python = venv / ("Scripts/python.exe" if layout == "windows" else "bin/python")
-        repair = {"linux": "auditwheel", "macos": "delocate", "windows": "delvewheel"}[layout]
-        run([python, "-m", "pip", "install", "build", "nanobind>=2", "scikit-build-core>=0.10",
-             "cmake>=3.20,<4", "ninja", repair, "PyMySQL>=1.1", "aiomysql"])
-        if abi == "312":
-            run([python, "-m", "pip", "install", "abi3audit"])
-        raw = WORK / ("wheel-" + abi)
-        arguments = [python, "-m", "build", "--wheel", "--no-isolation", "--outdir", raw,
-                     "-Ccmake.define.SEEKDB_SDK_DIR=" + str(prefix)]
-        if layout == "linux":
-            arguments += ["-Ccmake.define.CMAKE_CXX_FLAGS=-static-libstdc++ -static-libgcc"]
-        run([*arguments, ROOT / "python"])
-        wheel, = raw.glob("*.whl")
-        tools = python.parent
-        if layout == "linux":
-            run([tools / "auditwheel", "repair", "--plat", "manylinux_2_28_" + os.environ["PACKAGE_ARCH"], "-w", DIST, wheel])
-        elif layout == "macos":
-            run([tools / "delocate-wheel", "--require-archs", "arm64", "-w", DIST, wheel])
-        else:
-            run([python, "-m", "delvewheel", "repair", "--ignore-in-wheel", "--add-path", prefix / "lib", "-w", DIST, wheel])
-        repaired = next(path for path in DIST.glob("*.whl") if ("cp" + abi) in path.name)
-        checked = WORK / ("checked-wheel-" + abi)
-        with zipfile.ZipFile(repaired) as stream:
+    environment = dict(os.environ, CIBW_CACHE_PATH=str(ROOT / "deps/.cache/cibuildwheel"),
+                       CMAKE_BUILD_PARALLEL_LEVEL=str(int(os.environ.get("BUILD_JOBS", "0")) or os.cpu_count()))
+    settings = {"cmake.define.SEEKDB_SDK_DIR": prefix.as_posix()}
+    if layout == "linux":
+        # cibuildwheel runs on the host and reuses the SDK and image prepared by
+        # the shared binding build. Copy only python/ into its build container.
+        arch = os.environ["PACKAGE_ARCH"]
+        environment["CIBW_MANYLINUX_" + arch.upper() + "_IMAGE"] = "seekdb-bindings-manylinux-" + arch
+        mounts = ["--volume", str(prefix) + ":/seekdb-sdk:ro", "--volume", str(ROOT / "deps/.cache") + ":/seekdb-cache"]
+        environment["CIBW_CONTAINER_ENGINE"] = "docker; create_args: " + shlex.join(mounts) + "; disable_host_mount: true"
+        environment["CIBW_ENVIRONMENT_PASS_LINUX"] = "CMAKE_BUILD_PARALLEL_LEVEL"
+        settings.update({"cmake.define.SEEKDB_SDK_DIR": "/seekdb-sdk",
+                         "cmake.define.CMAKE_CXX_FLAGS": "-static-libstdc++ -static-libgcc"})
+    elif layout == "windows":
+        settings["cmake.define.CMAKE_MSVC_RUNTIME_LIBRARY"] = "MultiThreadedDLL"
+    environment["CIBW_CONFIG_SETTINGS"] = " ".join(key + "=" + shlex.quote(value) for key, value in settings.items())
+    with python_project_version(metadata["package_versions"]["python"]):
+        run([sys.executable, "-m", "cibuildwheel", ".", "--output-dir", DIST], cwd=ROOT / "python", env=environment)
+    _, symbols = packaging_tools()
+    for wheel in DIST.glob("*.whl"):
+        checked = WORK / ("checked-" + wheel.stem)
+        with zipfile.ZipFile(wheel) as stream:
             stream.extractall(checked)
-        _, symbols = packaging_tools()
         symbols.verify_stripped(checked)
-        if abi == "312":
-            run([python, "-m", "abi3audit", "--strict", repaired])
+        wheel.with_name(wheel.name + ".sha256").write_text(digest(wheel) + "  " + wheel.name + "\n")
 
 
 def node_package(prefix, metadata):
@@ -545,8 +536,6 @@ def build():
     metadata["package_versions"] = package_versions(manifest["version"])
     prefix = sdk(engine, metadata)
     if os.environ["PACKAGE_OS"] != "android":
-        if selected("python"):
-            python_wheels(prefix, metadata)
         if selected("node"):
             node_package(prefix, metadata)
     if selected("java"):
@@ -588,7 +577,7 @@ def container(command="build"):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    commands = {"matrix": matrix, "build": build, "container": container,
+    commands = {"matrix": matrix, "build": build, "container": container, "wheels": python_wheels,
                 "smoke": lambda: run([sys.executable, ROOT / ".github/scripts/smoke_packages.py"]),
                 "container-smoke": lambda: container("smoke")}
     parser.add_argument("command", choices=commands)

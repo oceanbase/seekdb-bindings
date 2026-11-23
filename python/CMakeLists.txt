@@ -84,8 +84,11 @@ if(DEFINED SKBUILD_PROJECT_VERSION_FULL)
     target_compile_definitions(pylibseekdb PRIVATE SEEKDB_PYTHON_VERSION="${SKBUILD_PROJECT_VERSION_FULL}")
 endif()
 
-target_include_directories(pylibseekdb PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/../lib/include")
+if(SEEKDB_SDK_DIR)
+    target_include_directories(pylibseekdb PRIVATE "${SEEKDB_SDK_DIR}/include")
+else()
+    target_include_directories(pylibseekdb PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../lib/include")
+endif()
 target_link_libraries(pylibseekdb PRIVATE seekdb)
 
 if(APPLE)
