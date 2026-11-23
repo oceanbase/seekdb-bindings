@@ -1,0 +1,32 @@
+.github/scripts/smoke/python.py
+  s_99bd9318300c1c::t_d63549e8d52af1 1-27
+.github/scripts/smoke_packages.py
+  s_99bd9318300c1c::t_294b5ec3f6c22a 5,93,125-127
+  s_99bd9318300c1c::t_d63549e8d52af1 1-4,6-48,50-78,81-92,95-105,107-124,128-164
+  s_99bd9318300c1c::t_0d4968458f1790 49,79-80,94,106
+.github/scripts/package.py
+  s_99bd9318300c1c::t_9739d3da9ac821 414,417
+  s_99bd9318300c1c::t_294b5ec3f6c22a 560,563-566,579,585-588,590
+.github/scripts/smoke/node.mjs
+  s_99bd9318300c1c::t_d63549e8d52af1 1-27
+.github/scripts/smoke/native.c
+  s_99bd9318300c1c::t_d63549e8d52af1 1-31
+.github/workflows/package.yml
+  s_99bd9318300c1c::t_294b5ec3f6c22a 11-12,104,232-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d2008baa74973ab57f8142d63e9037c6796e594c",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
