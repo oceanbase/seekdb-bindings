@@ -84,7 +84,7 @@ def prepare(work):
     sdk_metadata = json.loads((sdk / "BUILD-INFO.json").read_text())
     if any(sdk_metadata[key] != metadata[key] for key in ("bindings_commit", "seekdb_commit", "package_versions")):
         raise ValueError("Finished SDK and AAR provenance mismatch")
-    ndk = Path(os.environ["ANDROID_NDK_HOME"])
+    ndk = Path(os.environ["ANDROID_HOME"]) / "ndk" / package.NDK_VERSION
     compiler = ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
     run([compiler, "-I" + str(sdk / "include"), Path(__file__).with_name("smoke") / "native.c",
          "-L" + str(sdk / "lib"), "-lseekdb", "-Wl,-rpath,$ORIGIN/lib", "-o", sdk / "client"])
