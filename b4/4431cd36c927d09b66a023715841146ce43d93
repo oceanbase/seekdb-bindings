@@ -1,0 +1,23 @@
+python/tests/connection_options_test.py
+  s_99bd9318300c1c::t_d04cd3d252d761 11,110
+python/tests/test_support.py
+  s_99bd9318300c1c::t_d04cd3d252d761 1-25
+python/tests/migration_integration_test.py
+  s_99bd9318300c1c::t_d04cd3d252d761 14,158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b44431cd36c927d09b66a023715841146ce43d93",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
