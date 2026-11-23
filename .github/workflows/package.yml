@@ -9,7 +9,6 @@ on:
       - '.github/scripts/test_package_versions.py'
       - '.github/scripts/test_macos_runtime.py'
       - '.github/scripts/smoke_packages.py'
-      - '.github/scripts/smoke_android.py'
       - '.github/scripts/smoke/**'
       - 'scripts/docker/bindings-manylinux.Dockerfile'
       - 'typescript/scripts/**'
@@ -103,7 +102,6 @@ jobs:
         run: |
           python3 -m py_compile .github/scripts/package.py
           python3 -m py_compile .github/scripts/smoke_packages.py
-          python3 -m py_compile .github/scripts/smoke_android.py
           python3 .github/scripts/package.py --help
           python3 .github/scripts/test_package_versions.py
           node --test typescript/test/packaging.test.mjs
@@ -226,7 +224,6 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/deps/.cache/android-sdk/licenses"
           cp "$ANDROID_HOME/licenses/"* "$GITHUB_WORKSPACE/deps/.cache/android-sdk/licenses/"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$GITHUB_WORKSPACE/deps/.cache/android-sdk" 'ndk;27.3.13750724'
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0' 'platforms;android-30'
       - name: Build and package bindings against the existing engine
         env:
           PYTHON_311: ${{ steps.py311.outputs.python-path }}
@@ -238,24 +235,6 @@ jobs:
           PYTHON_311: ${{ steps.py311.outputs.python-path }}
           PYTHON_312: ${{ steps.py312.outputs.python-path }}
         run: python .github/scripts/package.py ${{ matrix.os == 'linux' && 'container-smoke' || 'smoke' }}
-      - name: Enable Android emulator acceleration
-        if: matrix.os == 'android' && (inputs.component == 'all' || inputs.component == 'java')
-        run: sudo chmod a+rw /dev/kvm
-      - name: Smoke test the finished Android AAR in a consumer APK
-        if: matrix.os == 'android' && (inputs.component == 'all' || inputs.component == 'java')
-        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
-        with:
-          api-level: 30
-          target: google_apis
-          arch: x86_64
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 4096 -cores 2
-          script: python .github/scripts/smoke_android.py
-      - name: Upload Android smoke failure logs
-        if: failure() && matrix.os == 'android'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: android-smoke-logs
-          path: build/package/android-smoke/*.log
       - name: Upload packages, checksums and source provenance
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

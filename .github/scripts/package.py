@@ -552,6 +552,12 @@ def build():
     if selected("java"):
         java_package(prefix, metadata)
     write_json(DIST / (metadata["target"] + "-provenance.json"), metadata)
+    if os.environ["PACKAGE_OS"] == "android":
+        report = {"target": metadata["target"], "packages": [], "status": "not_run",
+            "source_commit": metadata["bindings_commit"],
+            "reason": "No arm64 Android runtime available; cross-compilation and ELF checks only"}
+        write_json(DIST / (metadata["target"] + "-smoke.json"), report)
+        print(json.dumps(report), flush=True)
     for path in sorted(DIST.iterdir()):
         if path.is_file() and not path.name.endswith(".sha256"):
             path.with_name(path.name + ".sha256").write_text(digest(path) + "  " + path.name + "\n")
