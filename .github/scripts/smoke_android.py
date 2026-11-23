@@ -80,22 +80,26 @@ def build_apk(work):
 
 
 def prepare(work):
-    apk, metadata = build_apk(work)
     source = one("libseekdb-*.tar.gz")
     if source.with_name(source.name + ".sha256").read_text().split() != [package.digest(source), source.name]:
         raise ValueError("Finished C SDK checksum mismatch")
     sdk = unpack(source, work / "sdk")
-    sdk_metadata = json.loads((sdk / "BUILD-INFO.json").read_text())
-    if any(sdk_metadata[key] != metadata[key] for key in ("bindings_commit", "seekdb_commit", "package_versions")):
-        raise ValueError("Finished SDK and AAR provenance mismatch")
+    metadata = json.loads((sdk / "BUILD-INFO.json").read_text())
+    apk = None
+    if list(package.DIST.glob("*.aar")):
+        apk, aar_metadata = build_apk(work)
+        if any(aar_metadata[key] != metadata[key] for key in ("bindings_commit", "seekdb_commit", "package_versions")):
+            raise ValueError("Finished SDK and AAR provenance mismatch")
     ndk = Path(os.environ["ANDROID_HOME"]) / "ndk" / package.NDK_VERSION
     compiler = ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
     run([compiler, "-I" + str(sdk / "include"), Path(__file__).with_name("smoke") / "native.c",
-         "-L" + str(sdk / "lib"), "-lseekdb", "-Wl,-rpath,$ORIGIN/lib", "-o", sdk / "client"])
+         "-L" + str(sdk / "lib"), "-lseekdb", "-Wl,-rpath,$ORIGIN/lib", "-Wl,-z,max-page-size=16384",
+         "-Wl,-z,common-page-size=16384", "-o", sdk / "client"])
     payload = work / "input"
     payload.mkdir()
     shutil.move(sdk, payload / "sdk")
-    shutil.copy2(apk, payload / "smoke.apk")
+    if apk:
+        shutil.copy2(apk, payload / "smoke.apk")
     package.write_json(payload / "metadata.json", metadata)
     with tarfile.open(package.ROOT / "build/android-smoke-input.tar.gz", "w:gz", compresslevel=1) as stream:
         for path in payload.iterdir():
@@ -114,6 +118,16 @@ def sdk_smoke(device, sdk):
     device("shell", "rm", "-rf", base + "/database", base + "/cli-database")
 
 
+def write_report(metadata, api, abi, components, status):
+    report = package.DIST / (metadata["target"] + "-smoke.json")
+    package.write_json(report, {"target": metadata["target"], "packages": components,
+        "status": status, "runtime_api": int(api), "runtime_abi": abi,
+        "source_commit": metadata["bindings_commit"],
+        "test_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()})
+    report.with_name(report.name + ".sha256").write_text(package.digest(report) + "  " + report.name + "\n")
+    print(report.read_text(), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", type=Path, default=package.DIST)
@@ -130,7 +144,7 @@ def main():
     sdk = None
     if arguments.prepared:
         payload = unpack(arguments.prepared, work / "input")
-        apk = payload / "smoke.apk"
+        apk = payload / "smoke.apk" if (payload / "smoke.apk").is_file() else None
         metadata = json.loads((payload / "metadata.json").read_text())
         sdk = payload / "sdk"
     else:
@@ -144,49 +158,46 @@ def main():
     api = device("shell", "getprop", "ro.build.version.sdk", capture_output=True).stdout.strip()
     if abi != "arm64-v8a" or kernel_arch != "aarch64":
         raise ValueError("Test requires native arm64 Android; found " + abi + "/" + kernel_arch)
+    write_report(metadata, api, abi, [], "failed")
     if sdk:
         sdk_smoke(device, sdk)
-    device("install", "-r", apk)
-    app = "com.oceanbase.seekdb.pr60"
-    device("shell", "pm", "clear", app)
-    device("logcat", "-c")
-    passed = False
-    try:
-        # The installed APK can access only the final archive payload on Android.
-        device("shell", "am", "start", "-W", "-n", app + "/com.oceanbase.seekdb.test.MainActivity")
-        deadline = time.monotonic() + 300
-        while True:
-            log = device("logcat", "-d", "-s", "SeekDBTest:I", "AndroidRuntime:E", capture_output=True).stdout
-            if "Test failed" in log or "FATAL EXCEPTION" in log:
-                raise RuntimeError("Android finished AAR smoke failed:\n" + log)
-            if all(marker in log for marker in ("OK transport=", "HYBRID_OK", "DIRECTORY_FD_CLOSED_OK")):
-                print(log, flush=True)
-                passed = True
-                break
-            if time.monotonic() >= deadline:
-                raise TimeoutError("Android finished AAR smoke timed out:\n" + log)
-            time.sleep(2)
-    finally:
-        (work / "logcat.log").write_text(device("logcat", "-d", capture_output=True).stdout)
-        if not passed:
-            try:
-                installed = device("shell", "pm", "path", app, capture_output=True).stdout.strip().splitlines()[0]
-                native = installed.removeprefix("package:").rsplit("/", 1)[0] + "/lib/arm64"
-                diagnostic = subprocess.run([*adb, "shell", "run-as", app,
-                    native + "/libseekdb_exec.so", "-V"], text=True, capture_output=True, timeout=30)
-                message = "exit=%s\n%s%s" % (diagnostic.returncode, diagnostic.stdout, diagnostic.stderr)
-                (work / "engine-version.log").write_text(message)
-                print("Engine execution diagnostic:\n" + message, flush=True)
-                print(device("shell", "run-as", app, "find", "no_backup", "-type", "f", capture_output=True).stdout)
-            except Exception as error:
-                print("Could not collect additional engine diagnostics: " + str(error), flush=True)
-        device("shell", "am", "force-stop", app)
-    report = package.DIST / (metadata["target"] + "-smoke.json")
-    package.write_json(report, {"target": metadata["target"], "packages": ["android-aar"],
-        "status": "passed", "runtime_api": int(api), "runtime_abi": abi,
-        "source_commit": metadata["bindings_commit"], "c_sdk_tested": sdk is not None,
-        "test_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()})
-    report.with_name(report.name + ".sha256").write_text(package.digest(report) + "  " + report.name + "\n")
+    if apk:
+        device("install", "-r", apk)
+        app = "com.oceanbase.seekdb.pr60"
+        device("shell", "pm", "clear", app)
+        device("logcat", "-c")
+        passed = False
+        try:
+            # The installed APK can access only the final archive payload on Android.
+            device("shell", "am", "start", "-W", "-n", app + "/com.oceanbase.seekdb.test.MainActivity")
+            deadline = time.monotonic() + 300
+            while True:
+                log = device("logcat", "-d", "-s", "SeekDBTest:I", "AndroidRuntime:E", capture_output=True).stdout
+                if "Test failed" in log or "FATAL EXCEPTION" in log:
+                    raise RuntimeError("Android finished AAR smoke failed:\n" + log)
+                if all(marker in log for marker in ("OK transport=", "HYBRID_OK", "DIRECTORY_FD_CLOSED_OK")):
+                    print(log, flush=True)
+                    passed = True
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Android finished AAR smoke timed out:\n" + log)
+                time.sleep(2)
+        finally:
+            (work / "logcat.log").write_text(device("logcat", "-d", capture_output=True).stdout)
+            if not passed:
+                try:
+                    installed = device("shell", "pm", "path", app, capture_output=True).stdout.strip().splitlines()[0]
+                    native = installed.removeprefix("package:").rsplit("/", 1)[0] + "/lib/arm64"
+                    diagnostic = subprocess.run([*adb, "shell", "run-as", app,
+                        native + "/libseekdb_exec.so", "-V"], text=True, capture_output=True, timeout=30)
+                    message = "exit=%s\n%s%s" % (diagnostic.returncode, diagnostic.stdout, diagnostic.stderr)
+                    (work / "engine-version.log").write_text(message)
+                    print("Engine execution diagnostic:\n" + message, flush=True)
+                    print(device("shell", "run-as", app, "find", "no_backup", "-type", "f", capture_output=True).stdout)
+                except Exception as error:
+                    print("Could not collect additional engine diagnostics: " + str(error), flush=True)
+            device("shell", "am", "force-stop", app)
+    write_report(metadata, api, abi, (["sdk"] if sdk else []) + (["android-aar"] if apk else []), "passed")
 
 
 if __name__ == "__main__":

@@ -242,3 +242,13 @@ jobs:
           path: dist/*
           if-no-files-found: error
           compression-level: 0
+
+  android-smoke:
+    needs: [prepare, package]
+    if: >-
+      github.event_name == 'workflow_dispatch' && needs.package.result == 'success' &&
+      (inputs.platform == 'all' || inputs.platform == 'android-arm64') &&
+      (inputs.component == 'all' || inputs.component == 'sdk' || inputs.component == 'java')
+    uses: ./.github/workflows/android-smoke.yml
+    with:
+      package_run_id: ${{ github.run_id }}

@@ -59,6 +59,12 @@ if(BUILD_TESTING)
     include(GoogleTest)
 endif()
 
+if(ANDROID)
+    # Android's CMake platform ignores BUILD_RPATH/INSTALL_RPATH. Emit RUNPATH
+    # at link time so sibling libraries work without rewriting ELF segments.
+    add_link_options("LINKER:-rpath,$ORIGIN")
+endif()
+
 add_subdirectory(lib)
 if(SEEKDB_BUILD_JAVA)
     add_subdirectory(java)

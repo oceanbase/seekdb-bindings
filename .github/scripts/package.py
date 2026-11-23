@@ -256,11 +256,10 @@ def repair_native(directory):
     bd, symbols = packaging_tools()
     layout = os.environ["PACKAGE_OS"]
     for path, kind in symbols.native_files(directory):
-        if layout == "android" or (layout == "linux" and path.name == "seekdb"):
+        if layout in ("linux", "android") and path.name == "seekdb":
             current = bd.dynamic(path) if layout == "linux" else subprocess.check_output(
                 [symbols.tool("readelf", layout), "-dW", str(path)], text=True)
-            tag = "RUNPATH" if layout == "android" else "(?:RUNPATH|RPATH)"
-            if not re.search(r"\(" + tag + r"\).*?\[\$ORIGIN\]", current):
+            if not re.search(r"\((?:RUNPATH|RPATH)\).*?\[\$ORIGIN\]", current):
                 run(["patchelf", "--page-size", str(bd.elf_relocation_page_size(path)),
                      "--set-rpath", "$ORIGIN", path])
         if layout == "macos":
