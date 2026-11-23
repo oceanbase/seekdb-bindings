@@ -1,0 +1,22 @@
+.github/scripts/smoke_android.py
+  s_99bd9318300c1c::t_8d614942fd20b7 180
+  s_99bd9318300c1c::t_8040f02be13e5a 5,132-144,175-179,181-215
+.github/scripts/package.py
+  s_99bd9318300c1c::t_0cc477b117db03 558
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "47e7ddfbe0ad4b2dc1f174e25b69c6aaf744a030",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
