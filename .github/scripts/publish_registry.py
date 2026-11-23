@@ -115,9 +115,13 @@ def npm_packages(source, assets, directory, version):
             raise ValueError("npm native platform metadata differs: " + filename)
         if system == "linux" and (manifest.get("libc") != ["glibc"] or native.get("libc") != "glibc"):
             raise ValueError("Linux npm package must declare glibc")
-        public = {name: files[name] for name in ("dist/index.js", "dist/index.d.ts", "README.md", "LICENSE")}
+        # Windows checkouts/compiler output can use CRLF and different file modes.
+        # Normalize only the shared text; platform archives retain every payload byte.
+        public = {name: (files[name][0].replace(b"\r\n", b"\n"), 0o644)
+                  for name in ("dist/index.js", "dist/index.d.ts", "README.md", "LICENSE")}
         if shared is not None and public != shared:
-            raise ValueError("npm platforms have different public JS APIs, types or licenses")
+            different = [name for name in public if public[name] != shared[name]]
+            raise ValueError("npm platforms have different public files: " + ", ".join(different))
         shared = public
         base_manifest = dict(manifest)
         manifest["name"] = NPM_NAME + "-" + suffix
