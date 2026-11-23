@@ -17,7 +17,11 @@ from smoke_packages import one, unpack
 
 
 def run(arguments, **kwargs):
-    return package.run(arguments, timeout=180, **kwargs)
+    try:
+        return package.run(arguments, timeout=180, **kwargs)
+    except subprocess.CalledProcessError as error:
+        print((error.stdout or "") + (error.stderr or ""), flush=True)
+        raise
 
 
 def build_apk(work):
@@ -180,7 +184,8 @@ def main():
     report = package.DIST / (metadata["target"] + "-smoke.json")
     package.write_json(report, {"target": metadata["target"], "packages": ["android-aar"],
         "status": "passed", "runtime_api": int(api), "runtime_abi": abi,
-        "source_commit": metadata["bindings_commit"], "c_sdk_tested": sdk is not None})
+        "source_commit": metadata["bindings_commit"], "c_sdk_tested": sdk is not None,
+        "test_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()})
     report.with_name(report.name + ".sha256").write_text(package.digest(report) + "  " + report.name + "\n")
 
 

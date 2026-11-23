@@ -11,7 +11,7 @@ import time
 import package
 
 NAME = "seekdb-android-smoke"
-IMAGE = "redroid/redroid:12.0.0_64only-latest"
+IMAGE = "redroid/redroid@sha256:a6c464bbedcf1dcb67dbf91f329fbb19bee5b50631f0ca6bda6ed7c41b0e64e2"
 SERIAL = "127.0.0.1:5555"
 WORK = package.ROOT / "build/android-runtime"
 
