@@ -1,0 +1,30 @@
+.github/scripts/smoke_android.py
+  s_99bd9318300c1c::t_76cb47785cc07a 96-97
+  s_99bd9318300c1c::t_03371d43d24a95 121-130,161,200
+  s_99bd9318300c1c::t_59e78bb8175c06 87-92,101-102,147,164-199
+.github/workflows/package.yml
+  s_99bd9318300c1c::t_fd622c6e397c1e 245-247,252-254
+  s_99bd9318300c1c::t_03371d43d24a95 248-251
+.github/scripts/package.py
+  s_99bd9318300c1c::t_76cb47785cc07a 259,262
+CMakeLists.txt
+  s_99bd9318300c1c::t_76cb47785cc07a 62-67
+.github/workflows/android-smoke.yml
+  s_99bd9318300c1c::t_ef9d623f147103 16-21,35,38,69,84-90,98-99,102-106,110,112-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c33635cae7d3ab904656153a2fd4d13033fa042a",
+  "prompts": {},
+  "sessions": {
+    "s_99bd9318300c1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c972-d73b-7203-b5c1-870abbb05adf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "wangyunlai <5187215+hnwyllmm@users.noreply.github.com>"
+    }
+  }
+}
