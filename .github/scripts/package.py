@@ -4,8 +4,10 @@
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import gzip
 import hashlib
 import inspect
+import io
 import json
 import os
 from pathlib import Path
@@ -26,6 +28,14 @@ PACKAGING_REF = "8084119a13832873c5ef68732f556d2a924e10ea"
 NDK_VERSION = "27.3.13750724"
 VERSION_COMPONENTS = ("sdk", "python", "node", "java", "android")
 VERSION_ENV = ("PACKAGE_VERSION", *["PACKAGE_" + name.upper() + "_VERSION" for name in VERSION_COMPONENTS])
+NPM_NAME = "@oceanbase/seekdb-node"
+NPM_REGISTRY = "https://registry.npmjs.org"
+NPM_PLATFORMS = {
+    "linux-x86_64": ("linux-x64-gnu", "linux", "x64"),
+    "linux-aarch64": ("linux-arm64-gnu", "linux", "arm64"),
+    "macos-arm64": ("darwin-arm64", "darwin", "arm64"),
+    "windows-x86_64": ("win32-x64", "win32", "x64"),
+}
 TARGETS = [
     dict(id="linux-x86_64", os="linux", arch="x86_64", runner="ubuntu-24.04"),
     dict(id="linux-aarch64", os="linux", arch="aarch64", runner="ubuntu-24.04-arm"),
@@ -451,6 +461,59 @@ def python_wheels():
         wheel.with_name(wheel.name + ".sha256").write_text(digest(wheel) + "  " + wheel.name + "\n")
 
 
+def npm_archive(manifest, files, metadata, platform):
+    files = dict(files)
+    files["package.json"] = ((json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode(), 0o644)
+    name = manifest["name"].removeprefix("@").replace("/", "-") + "-" + manifest["version"]
+    if platform:
+        name += "-" + metadata["target"]
+    name += "-" + metadata["built_at"]
+    if platform:
+        name += "-sdb" + metadata["seekdb_commit"][:12]
+    name += "-bnd" + metadata["bindings_commit"][:12] + ".tgz"
+    destination = DIST / name
+    # The tiny shared main package uses stored gzip blocks to remain identical
+    # across runner zlib versions. Native packages use fast compression.
+    with destination.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0,
+                                                     compresslevel=1 if platform else 0) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w") as stream:
+            for filename, (data, mode) in sorted(files.items()):
+                member = tarfile.TarInfo("package/" + filename)
+                member.size = len(data)
+                member.mode = mode
+                member.uid = member.gid = 0
+                member.uname = member.gname = "root"
+                stream.addfile(member, io.BytesIO(data))
+    return destination
+
+
+def pack_node(staging, metadata):
+    version = metadata["package_versions"]["node"]
+    suffix, system, arch = NPM_PLATFORMS[os.environ["PACKAGE_TARGET"]]
+    manifest = json.loads((staging / "package.json").read_text())
+    manifest.update(name=NPM_NAME + "-" + suffix, version=version, os=[system], cpu=[arch],
+                    repository={"type": "git", "url": "git+https://github.com/oceanbase/seekdb-bindings.git"},
+                    publishConfig={"access": "public", "registry": NPM_REGISTRY})
+    for name in ("private", "scripts", "devDependencies"):
+        manifest.pop(name, None)
+    if system == "linux":
+        manifest["libc"] = ["glibc"]
+    files = {path.relative_to(staging).as_posix(): (path.read_bytes(), path.stat().st_mode & 0o777)
+             for path in sorted(staging.rglob("*")) if path.is_file()}
+    platform = npm_archive(manifest, files, metadata, True)
+    main_manifest = dict(manifest, name=NPM_NAME)
+    for name in ("os", "cpu", "libc"):
+        main_manifest.pop(name, None)
+    main_manifest["optionalDependencies"] = {NPM_NAME + "-" + item[0]: version for item in NPM_PLATFORMS.values()}
+    main_manifest["files"] = ["dist/index.js", "dist/index.d.ts", "README.md", "LICENSE"]
+    # Public text is independent of Windows checkout/compiler newline settings.
+    public = {name: (files[name][0].replace(b"\r\n", b"\n"), 0o644)
+              for name in ("dist/index.d.ts", "README.md", "LICENSE")}
+    public["dist/index.js"] = ((ROOT / "typescript/src/npm-entry.mjs").read_bytes().replace(b"\r\n", b"\n"), 0o644)
+    main = npm_archive(main_manifest, public, metadata, False)
+    metadata["npm_packages"] = {"platform": platform.name, "main": main.name}
+
+
 def node_package(prefix, metadata):
     package = ROOT / "typescript"
     run(["npm", "ci", "--ignore-scripts"], cwd=package)
@@ -472,11 +535,6 @@ def node_package(prefix, metadata):
     run(["node", "scripts/check-package.mjs"], cwd=package)
     run(["node", "--test", "test/binding.test.mjs"], cwd=package)
     manifest = json.loads((package / "package.json").read_text())
-    manifest.update(version=metadata["package_versions"]["node"], os=[platform["platform"]], cpu=[platform["arch"]])
-    for name in ("private", "scripts", "devDependencies"):
-        manifest.pop(name, None)
-    if platform.get("libc"):
-        manifest["libc"] = ["glibc"]
     staging = WORK / "npm"
     staging.mkdir()
     write_json(staging / "package.json", manifest)
@@ -484,10 +542,7 @@ def node_package(prefix, metadata):
         shutil.copytree(package / name, staging / name)
     shutil.copy2(package / "README.md", staging / "README.md")
     shutil.copy2(ROOT / "LICENSE", staging / "LICENSE")
-    result = subprocess.check_output(npm_command("pack", "--ignore-scripts", "--json", "--pack-destination", str(DIST)), cwd=staging, text=True)
-    packed = DIST / json.loads(result)[0]["filename"]
-    packed.rename(DIST / (packed.stem + "-" + metadata["target"] + "-" + metadata["built_at"] +
-                         "-sdb" + metadata["seekdb_commit"][:12] + "-bnd" + metadata["bindings_commit"][:12] + ".tgz"))
+    pack_node(staging, metadata)
 
 
 def java_package(prefix, metadata):

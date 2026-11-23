@@ -1,0 +1,121 @@
+name: Publish Node.js package
+run-name: npm / ${{ inputs.mode }} / bindings runs ${{ inputs.package_run_ids }}
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/publish-npm.yml'
+      - '.github/scripts/publish_registry.py'
+      - '.github/scripts/package.py'
+      - 'typescript/src/npm-entry.mjs'
+      - '.github/scripts/release.py'
+  workflow_dispatch:
+    inputs:
+      package_run_ids:
+        description: Successful Package bindings runs covering all four desktop platforms
+        required: true
+        type: string
+      mode:
+        description: Check packages or publish to npmjs.com
+        type: choice
+        default: check
+        options: [check, publish]
+      dist_tag:
+        description: npm distribution tag (use next for prereleases)
+        type: choice
+        default: latest
+        options: [latest, next]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Validate publisher syntax
+        run: |
+          python -m py_compile .github/scripts/publish_registry.py .github/scripts/release.py
+          node --check typescript/src/npm-entry.mjs
+
+  prepare:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Collect and verify the already packaged npm distributions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_RUN_IDS: ${{ inputs.package_run_ids }}
+        run: python .github/scripts/publish_registry.py prepare-npm
+      - name: Validate npm publication without uploading
+        env:
+          NPM_DIST_TAG: ${{ inputs.dist_tag }}
+        run: python .github/scripts/publish_registry.py check-npm
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-distributions
+          path: build/registry/npm/*
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@oceanbase/seekdb-node
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install an npm CLI with Trusted Publishing support
+        run: npm install --global npm@11.21.3 --ignore-scripts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: npm-distributions
+          path: build/registry/npm
+      - name: Publish platform packages followed by the public package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_DIST_TAG: ${{ inputs.dist_tag }}
+        run: python .github/scripts/publish_registry.py publish-npm

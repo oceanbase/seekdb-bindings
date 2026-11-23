@@ -14,7 +14,7 @@ import tempfile
 from urllib.parse import quote
 import zipfile
 
-from package import ROOT, TARGETS, digest, write_json
+from package import ROOT, TARGETS, NPM_PLATFORMS, digest, write_json
 
 
 def gh(*arguments, **kwargs):
@@ -136,11 +136,26 @@ def verify_bundle(directory, platform, commit):
     payloads = []
     versions = {}
     for component in sorted(components):
-        matches = list(directory.glob(patterns[component]))
-        if len(matches) != 1:
-            raise ValueError(f"Expected one {component} package matching {patterns[component]}")
-        path, = matches
-        payloads.append(path.name)
+        component_patterns = [patterns[component]]
+        if component == "node" and "npm_packages" in metadata:
+            suffix = NPM_PLATFORMS[platform][0]
+            expected = {
+                "platform": f"oceanbase-seekdb-node-{suffix}-{metadata['package_versions']['node']}-{target}-*.tgz",
+                "main": f"oceanbase-seekdb-node-{metadata['package_versions']['node']}-*-bnd{commit[:12]}.tgz",
+            }
+            if set(metadata["npm_packages"]) != set(expected):
+                raise ValueError("Expected npm platform and main packages")
+            component_patterns = []
+            for kind, pattern in expected.items():
+                matches = list(directory.glob(pattern))
+                if len(matches) != 1 or matches[0].name != metadata["npm_packages"][kind]:
+                    raise ValueError("npm package inventory differs from provenance")
+                component_patterns.append(pattern)
+        for pattern in component_patterns:
+            matches = list(directory.glob(pattern))
+            if len(matches) != 1:
+                raise ValueError(f"Expected one {component} package matching {pattern}")
+            payloads.append(matches[0].name)
         key = {"python-cp311": "python", "python-cp312-abi3": "python", "android-aar": "android"}.get(component, component)
         versions[key] = metadata["package_versions"][key]
     expected = set(payloads) | {provenance.name, report_name}
@@ -159,14 +174,13 @@ def release_notes(manifest):
         url = f"https://github.com/{manifest['repository']}/actions/runs/{source['run_id']}"
         lines.append(f"| `{source['target']}` | [{source['run_id']}]({url}) | `{source['seekdb_commit']}` |")
     lines += ["", "Packages:", ""]
-    lines += [f"- `{name}`" for name in sorted(name for source in manifest["platforms"] for name in source["packages"])]
+    lines += [f"- `{name}`" for name in sorted({name for source in manifest["platforms"] for name in source["packages"]})]
     lines += ["", "All packages passed their platform smoke tests. See SHA256SUMS for asset checksums.", ""]
     return "\n".join(lines)
 
 
-def prepare(repository, run_ids, tag, destination):
-    validate_tag(tag)
-    assets = destination / "assets"
+def collect(repository, run_ids, assets):
+    """Collect finished distributions and verify their source and smoke reports."""
     assets.mkdir(parents=True)
     platforms = []
     versions = {}
@@ -202,19 +216,34 @@ def prepare(repository, run_ids, tag, destination):
                         raise ValueError("Packaging runs use different " + name + " package versions")
                     versions[name] = value
                 for path in downloaded.iterdir():
-                    with path.open("rb") as source, (assets / path.name).open("xb") as output:
+                    destination = assets / path.name
+                    if destination.exists():
+                        # Checksum contents were validated above; Windows may use CRLF.
+                        identical = (path.read_text().split() == destination.read_text().split()
+                                     if path.name.endswith(".sha256") else digest(path) == digest(destination))
+                        if not identical:
+                            raise ValueError("Packaging runs contain conflicting files: " + path.name)
+                        continue
+                    with path.open("rb") as source, destination.open("xb") as output:
                         shutil.copyfileobj(source, output)
                 platforms.append({"platform": platform, "target": metadata["target"], "run_id": run_id,
                     "artifact_id": artifact["id"], "seekdb_commit": metadata["seekdb_commit"],
                     "built_at": metadata["built_at"], "components": components, "packages": sorted(payloads)})
     if identity is None:
         raise ValueError("Provide at least one successful packaging run")
-    check_tag(repository, tag, identity[0])
-    manifest = {"schema_version": 1, "repository": repository, "tag": tag, "bindings_commit": identity[0],
-                "engine_version": identity[1], "package_versions": versions,
-                "platforms": sorted(platforms, key=lambda item: item["platform"]),
-                "files": [{"name": path.name, "sha256": digest(path), "size": path.stat().st_size}
-                          for path in sorted(assets.iterdir())]}
+    return {"schema_version": 1, "repository": repository, "bindings_commit": identity[0],
+            "engine_version": identity[1], "package_versions": versions,
+            "platforms": sorted(platforms, key=lambda item: item["platform"]),
+            "files": [{"name": path.name, "sha256": digest(path), "size": path.stat().st_size}
+                      for path in sorted(assets.iterdir())]}
+
+
+def prepare(repository, run_ids, tag, destination):
+    validate_tag(tag)
+    assets = destination / "assets"
+    manifest = collect(repository, run_ids, assets)
+    check_tag(repository, tag, manifest["bindings_commit"])
+    manifest["tag"] = tag
     notes = release_notes(manifest)
     (destination / "release-notes.md").write_text(notes, encoding="utf-8")
     manifest["notes_sha256"] = hashlib.sha256(notes.encode()).hexdigest()
@@ -225,7 +254,7 @@ def prepare(repository, run_ids, tag, destination):
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
             summary.write(notes)
-    print(f"Verified {len(platforms)} platforms and {sum(len(item['packages']) for item in platforms)} packages", flush=True)
+    print(f"Verified {len(manifest['platforms'])} platforms and {sum(len(item['packages']) for item in manifest['platforms'])} packages", flush=True)
     return manifest
 
 
