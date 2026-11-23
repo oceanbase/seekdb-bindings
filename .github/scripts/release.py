@@ -164,9 +164,8 @@ def release_notes(manifest):
     return "\n".join(lines)
 
 
-def prepare(repository, run_ids, tag, destination):
-    validate_tag(tag)
-    assets = destination / "assets"
+def collect(repository, run_ids, assets):
+    """Collect finished distributions and verify their source and smoke reports."""
     assets.mkdir(parents=True)
     platforms = []
     versions = {}
@@ -209,12 +208,19 @@ def prepare(repository, run_ids, tag, destination):
                     "built_at": metadata["built_at"], "components": components, "packages": sorted(payloads)})
     if identity is None:
         raise ValueError("Provide at least one successful packaging run")
-    check_tag(repository, tag, identity[0])
-    manifest = {"schema_version": 1, "repository": repository, "tag": tag, "bindings_commit": identity[0],
-                "engine_version": identity[1], "package_versions": versions,
-                "platforms": sorted(platforms, key=lambda item: item["platform"]),
-                "files": [{"name": path.name, "sha256": digest(path), "size": path.stat().st_size}
-                          for path in sorted(assets.iterdir())]}
+    return {"schema_version": 1, "repository": repository, "bindings_commit": identity[0],
+            "engine_version": identity[1], "package_versions": versions,
+            "platforms": sorted(platforms, key=lambda item: item["platform"]),
+            "files": [{"name": path.name, "sha256": digest(path), "size": path.stat().st_size}
+                      for path in sorted(assets.iterdir())]}
+
+
+def prepare(repository, run_ids, tag, destination):
+    validate_tag(tag)
+    assets = destination / "assets"
+    manifest = collect(repository, run_ids, assets)
+    check_tag(repository, tag, manifest["bindings_commit"])
+    manifest["tag"] = tag
     notes = release_notes(manifest)
     (destination / "release-notes.md").write_text(notes, encoding="utf-8")
     manifest["notes_sha256"] = hashlib.sha256(notes.encode()).hexdigest()
@@ -225,7 +231,7 @@ def prepare(repository, run_ids, tag, destination):
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
             summary.write(notes)
-    print(f"Verified {len(platforms)} platforms and {sum(len(item['packages']) for item in platforms)} packages", flush=True)
+    print(f"Verified {len(manifest['platforms'])} platforms and {sum(len(item['packages']) for item in manifest['platforms'])} packages", flush=True)
     return manifest
 
 
