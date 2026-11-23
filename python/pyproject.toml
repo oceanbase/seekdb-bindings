@@ -68,6 +68,12 @@ archs = ["auto64"]
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 environment = { PIP_CACHE_DIR = "/seekdb-cache/pip" }
+# The top-level CMake wheel target uses the legacy build/ layout.
+before-build = [
+    "yum install -y libaio",
+    "cp /usr/lib64/libaio.so.1 /project/build/",
+    "patchelf --set-rpath '$ORIGIN' /project/build/seekdb",
+]
 repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
