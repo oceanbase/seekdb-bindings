@@ -13,6 +13,7 @@ seekdb-bindings/
 │   ├── src/                    library + CLI sources
 │   └── tests/                  gtest cases
 ├── python/                     nanobind module + cibuildwheel config
+├── licenses/                   third-party license corpus bundled into the wheel
 ├── scripts/                    wheel build, seekdb manylinux build, verify-wheel, etc.
 └── deps/                       vendored mariadb-connector-c, googletest
 ```

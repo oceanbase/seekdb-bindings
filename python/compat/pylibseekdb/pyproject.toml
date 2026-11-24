@@ -21,5 +21,8 @@ Homepage = "https://seekdb.ai"
 Repository = "https://github.com/oceanbase/seekdb-bindings"
 Documentation = "https://docs.seekdb.ai/"
 
+[tool.setuptools]
+license-files = ["LICENSE", "NOTICE"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

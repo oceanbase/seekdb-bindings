@@ -110,6 +110,15 @@ if (SEEKDB_PYTHON_STANDALONE)
     install(FILES "${SEEKDB_LIB_DIR}/libaio.so.1"
             DESTINATION seekdb
             OPTIONAL)
+    # Third-party license bundle staged by scripts/build-seekdb-wheel.sh.
+    set(_seekdb_licenses_dir "${SEEKDB_LIB_DIR}/licenses")
+    if (NOT EXISTS "${_seekdb_licenses_dir}")
+        message(FATAL_ERROR
+            "license bundle not found at ${_seekdb_licenses_dir}.\n"
+            "Run scripts/build-seekdb-wheel.sh, or stage it with:\n"
+            "  python scripts/stage-license-bundle.py --output ${_seekdb_licenses_dir}")
+    endif()
+    install(DIRECTORY "${_seekdb_licenses_dir}/" DESTINATION seekdb/licenses)
     if (WIN32)
         file(GLOB _seekdb_runtime_dlls "${SEEKDB_LIB_DIR}/*.dll")
         install(FILES ${_seekdb_runtime_dlls} DESTINATION seekdb)

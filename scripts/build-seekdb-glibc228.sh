@@ -109,6 +109,10 @@ if [[ -n "$OUT_BIN" ]]; then
   container_args+=(-e OUT_BIN="/out/$(basename "$OUT_BIN")")
 fi
 
+if [[ -n "${SEEKDB_OUT_LICENSES:-}" ]]; then
+  container_args+=(-e OUT_LICENSES="/out/$(basename "$SEEKDB_OUT_LICENSES")")
+fi
+
 if [[ ${#SEEKDB_CMAKE_EXTRA[@]} -gt 0 ]]; then
   container_args+=(-e "SEEKDB_CMAKE_ARGS=${SEEKDB_CMAKE_EXTRA[*]}")
 fi
@@ -163,6 +167,13 @@ if [[ -n "${OUT_BIN:-}" ]]; then
   chmod +x "$OUT_BIN"
   chown "$HOST_UID:$HOST_GID" "$OUT_BIN" 2>/dev/null || true
   bin="$OUT_BIN"
+fi
+
+if [[ -n "${OUT_LICENSES:-}" && -f package/compliance.py ]]; then
+  mkdir -p "$(dirname "$OUT_LICENSES")"
+  python3 package/compliance.py stage --target "$OUT_LICENSES" \
+    --source-commit "$(git rev-parse HEAD 2>/dev/null || echo unknown)" >/dev/null
+  chown -R "$HOST_UID:$HOST_GID" "$OUT_LICENSES" 2>/dev/null || true
 fi
 
 echo "=== seekdb binary: $bin"

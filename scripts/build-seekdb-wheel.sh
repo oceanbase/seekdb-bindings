@@ -48,6 +48,7 @@ SEEKDB_SHA256="${SEEKDB_SHA256:-}"
 SEEKDB_GIT_URL="${SEEKDB_GIT_URL:-https://github.com/oceanbase/seekdb.git}"
 SEEKDB_GIT_REF="${SEEKDB_GIT_REF:-}"
 SEEKDB_REPO="${SEEKDB_REPO:-}"
+SEEKDB_LICENSES="${SEEKDB_LICENSES:-}"
 BUILD_SEEKDB="${BUILD_SEEKDB:-0}"
 BUILD_TYPE="${BUILD_TYPE:-release}"
 WHEEL_VERSION="${WHEEL_VERSION:-}"
@@ -83,6 +84,8 @@ Obtain seekdb binary (pick one):
   --seekdb-git-url URL      seekdb git remote (default: oceanbase/seekdb)
   --seekdb-git-ref REF      Branch, tag, or commit when building from source
   --seekdb-repo PATH        Local seekdb checkout (Linux manylinux build)
+  --seekdb-licenses PATH    seekdb source checkout with package/compliance.py and
+                            licenses/ (default: the local checkout used for the build)
 
 Wheel / cibuildwheel:
   --wheel-version VER       Override wheel version (temporarily patches pyproject.toml)
@@ -105,7 +108,7 @@ Other:
   -h, --help                Show this help
 
 Environment variables: SEEKDB_BIN, SEEKDB_URL, SEEKDB_SHA256, SEEKDB_GIT_URL, SEEKDB_GIT_REF,
-SEEKDB_REPO, BUILD_SEEKDB, WHEEL_VERSION, PLATFORM, ARCH, OUTPUT_DIR, STRIP_SEEKDB,
+SEEKDB_REPO, SEEKDB_LICENSES, BUILD_SEEKDB, WHEEL_VERSION, PLATFORM, ARCH, OUTPUT_DIR, STRIP_SEEKDB,
 DEBUG_DIR, CIBW_BUILD, SKIP_TESTS, BUILD_TYPE, PYTHON, CONTAINER_RUNTIME, USE_VENV, VENV_DIR,
 SEEKDB_CMAKE_ARGS, MACOS_BUILD_JOBS
 EOF
@@ -172,6 +175,7 @@ parse_args() {
       --seekdb-git-url) SEEKDB_GIT_URL="${2:?--seekdb-git-url requires a value}"; shift 2 ;;
       --seekdb-git-ref) SEEKDB_GIT_REF="${2:?--seekdb-git-ref requires a value}"; shift 2 ;;
       --seekdb-repo) SEEKDB_REPO="${2:?--seekdb-repo requires a value}"; shift 2 ;;
+      --seekdb-licenses) SEEKDB_LICENSES="${2:?--seekdb-licenses requires a value}"; shift 2 ;;
       --wheel-version) WHEEL_VERSION="${2:?--wheel-version requires a value}"; shift 2 ;;
       --platform) PLATFORM="${2:?--platform requires a value}"; shift 2 ;;
       --arch) ARCH="${2:?--arch requires a value}"; shift 2 ;;
@@ -219,6 +223,7 @@ build_seekdb_linux() {
     SEEKDB_GIT_URL="$SEEKDB_GIT_URL"
     SEEKDB_GIT_REF="$SEEKDB_GIT_REF"
     SEEKDB_OUT_BIN="$out_bin"
+    SEEKDB_OUT_LICENSES="$BUILD_DIR/licenses-engine"
   )
   if [[ -n "$SEEKDB_REPO" ]]; then
     env_args+=(SEEKDB_REPO="$SEEKDB_REPO")
@@ -261,6 +266,53 @@ build_seekdb_macos() {
   bin="$(find "$src_dir/build_$BUILD_TYPE" -type f -name seekdb -perm -u+x | head -1)"
   [[ -n "$bin" ]] || die "seekdb binary not found after native build"
   echo "$bin"
+}
+
+stage_engine_bundle_from_checkout() {
+  local checkout="$1"
+  local target="$2"
+  [[ -f "$checkout/package/compliance.py" ]] \
+    || die "seekdb checkout has no package/compliance.py: $checkout"
+  rm -rf "$target"
+  "$PYTHON" "$checkout/package/compliance.py" stage \
+    --target "$target" \
+    --source-commit "$(git -C "$checkout" rev-parse HEAD 2>/dev/null || echo unknown)" >/dev/null
+  echo "==> engine license bundle staged from $checkout" >&2
+}
+
+stage_license_bundle() {
+  local engine_checkout="${SEEKDB_LICENSES:-}"
+  local engine_bundle=""
+  local wheel_version
+
+  if [[ -z "$engine_checkout" ]]; then
+    if [[ -n "$SEEKDB_REPO" && -f "$SEEKDB_REPO/package/compliance.py" ]]; then
+      engine_checkout="$SEEKDB_REPO"
+    elif [[ -f "$BUILD_DIR/seekdb-src/package/compliance.py" ]]; then
+      engine_checkout="$BUILD_DIR/seekdb-src"
+    fi
+  fi
+
+  if [[ -n "$engine_checkout" ]]; then
+    engine_bundle="$BUILD_DIR/licenses-engine"
+    stage_engine_bundle_from_checkout "$engine_checkout" "$engine_bundle"
+  elif [[ -f "$BUILD_DIR/licenses-engine/THIRD_PARTY_COMPONENTS.json" ]]; then
+    engine_bundle="$BUILD_DIR/licenses-engine"
+    echo "==> engine license bundle exported by the container build" >&2
+  else
+    echo "warning: no seekdb source checkout with package/compliance.py found;" >&2
+    echo "         the wheel will ship without the engine license bundle." >&2
+    echo "         Pass --seekdb-licenses <seekdb-checkout> to include it." >&2
+  fi
+
+  wheel_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$PYPROJECT" | head -1)"
+  mkdir -p "$BUILD_DIR"
+  "$PYTHON" "$ROOT/scripts/stage-license-bundle.py" \
+    --output "$BUILD_DIR/licenses" \
+    --version "${wheel_version:-unknown}" \
+    --source-commit "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    ${engine_bundle:+--engine "$engine_bundle"}
+  echo "==> license bundle staged at $BUILD_DIR/licenses" >&2
 }
 
 resolve_seekdb_bin() {
@@ -581,6 +633,7 @@ main() {
   fi
   configure_bindings "$prepared_bin"
   build_seekdb_library
+  stage_license_bundle
   run_cibuildwheel "$target_platform"
   if [[ "$target_platform" == "macos" ]]; then
     verify_macos_wheel_dependencies

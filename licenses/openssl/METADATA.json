@@ -1,0 +1,16 @@
+{
+  "name": "OpenSSL",
+  "version": "1.1.1k",
+  "source": "https://github.com/openssl/openssl",
+  "packaged_as": "Shared libraries bundled by auditwheel into the seekdb wheel (libssl.so.1.1, libcrypto.so.1.1)",
+  "license": "Apache-2.0",
+  "modified": "No local patch recorded",
+  "license_files": [
+    "LICENSE.txt"
+  ],
+  "redistribution": "Retain the Apache-2.0 license text and copyright notices.",
+  "evidence": "almalinux openssl-libs 1.1.1k-17.el8_6 in the manylinux_2_28 image; recorded in the wheel's .dist-info/sboms/auditwheel.cdx.json",
+  "shipped_in": [
+    "seekdb wheel"
+  ]
+}

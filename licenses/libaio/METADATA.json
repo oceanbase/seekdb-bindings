@@ -1,0 +1,16 @@
+{
+  "name": "libaio",
+  "version": "0.3.112",
+  "source": "https://pagure.io/libaio",
+  "packaged_as": "Shared library bundled into the seekdb wheel (libaio.so.1)",
+  "license": "LGPL-2.1-only",
+  "modified": "No local patch recorded",
+  "license_files": [
+    "COPYING"
+  ],
+  "redistribution": "Retain the LGPL-2.1 text and copyright notice; the shared library is replaceable by the user.",
+  "evidence": "python/pyproject.toml before-build copies /usr/lib64/libaio.so.1 from the manylinux_2_28 image into the wheel",
+  "shipped_in": [
+    "seekdb wheel"
+  ]
+}

@@ -251,6 +251,12 @@ jobs:
         name: Build Python binding
         run: cmake --build build --target seekdb_python --parallel
 
+      - name: Stage license bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/stage-license-bundle.py --output build/licenses
+
       - name: Verify Python external driver integration
         shell: bash
         run: |

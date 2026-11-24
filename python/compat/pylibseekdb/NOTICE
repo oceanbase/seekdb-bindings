@@ -1,0 +1,10 @@
+pylibseekdb
+Copyright (c) 2026 OceanBase and contributors
+
+This package is a pure-Python compatibility shim for the renamed seekdb
+package. It contains no third-party code of its own and is licensed under
+the Apache License, Version 2.0 (see LICENSE).
+
+Its only runtime dependency is the seekdb wheel, which ships the complete
+third-party component inventory, license texts and redistribution
+requirements under seekdb/licenses/.

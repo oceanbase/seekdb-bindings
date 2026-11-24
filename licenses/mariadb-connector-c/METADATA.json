@@ -1,0 +1,16 @@
+{
+  "name": "MariaDB Connector/C",
+  "version": "3.4.8",
+  "source": "https://github.com/mariadb-corporation/mariadb-connector-c",
+  "packaged_as": "Statically linked into libseekdb.so in the seekdb wheel",
+  "license": "LGPL-2.1-only",
+  "modified": "No local patch recorded",
+  "license_files": [
+    "COPYING.LIB"
+  ],
+  "redistribution": "Retain the LGPL-2.1 text and copyright notice. libseekdb is shipped as a shared library, so the user can replace it with a compatible build; provide the corresponding source of libseekdb on request.",
+  "evidence": "deps/mariadb-connector-c submodule commit 46880b0; CPACK_PACKAGE_VERSION 3.4.8; WITH_SSL=OPENSSL",
+  "shipped_in": [
+    "seekdb wheel"
+  ]
+}

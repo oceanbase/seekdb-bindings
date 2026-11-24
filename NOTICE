@@ -1,0 +1,21 @@
+seekdb-bindings
+Copyright (c) 2026 OceanBase and contributors
+
+This product includes software developed by OceanBase and contributors and is
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components bundled in the seekdb wheel:
+
+  MariaDB Connector/C 3.4.8   LGPL-2.1   licenses/mariadb-connector-c/COPYING.LIB
+  OpenSSL 1.1.1k              Apache-2.0  licenses/openssl/LICENSE.txt
+  nanobind 2.13.0             MIT         licenses/nanobind/LICENSE
+  libaio 0.3.112              LGPL-2.1    licenses/libaio/COPYING
+
+The bundled seekdb engine binary carries its own third-party notices and
+license texts. When the engine bundle is available at build time it is
+installed under licenses/seekdb/, together with the engine's NOTICE and
+component inventory.
+
+The complete component inventory and the redistribution requirements are
+generated at build time as licenses/THIRD_PARTY_COMPONENTS.md,
+licenses/THIRD_PARTY_COMPONENTS.json and licenses/REDISTRIBUTION.md.

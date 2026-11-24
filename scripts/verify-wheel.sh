@@ -36,6 +36,7 @@ verify_one_wheel() (
   echo "=== verifying wheel: $wheel (python: $py) ==="
 
   "$py" - "$wheel" <<'PY'
+import hashlib
 import pathlib
 import sys
 import zipfile
@@ -43,6 +44,31 @@ import zipfile
 wheel = pathlib.Path(sys.argv[1])
 with zipfile.ZipFile(wheel) as archive:
     names = archive.namelist()
+    required_licenses = {
+        "seekdb/licenses/LICENSE",
+        "seekdb/licenses/NOTICE",
+        "seekdb/licenses/THIRD_PARTY_COMPONENTS.md",
+        "seekdb/licenses/THIRD_PARTY_COMPONENTS.json",
+        "seekdb/licenses/REDISTRIBUTION.md",
+        "seekdb/licenses/MANIFEST.sha256",
+    }
+    missing_licenses = sorted(required_licenses.difference(names))
+    if missing_licenses:
+        raise SystemExit(f"wheel is missing license bundle files: {missing_licenses}")
+    manifest = archive.read("seekdb/licenses/MANIFEST.sha256").decode().splitlines()
+    broken = []
+    for line in manifest:
+        digest, _, relative = line.partition("  ")
+        member = "seekdb/licenses/" + relative
+        if member not in names:
+            broken.append(relative)
+            continue
+        if hashlib.sha256(archive.read(member)).hexdigest() != digest:
+            broken.append(relative)
+    if broken:
+        raise SystemExit(f"license bundle checksum failures: {broken[:5]}")
+    if "seekdb/licenses/seekdb/THIRD_PARTY_COMPONENTS.json" not in names:
+        print(f"warning: wheel has no seekdb engine license bundle: {wheel}")
     metadata_name = next(
         (name for name in names if name.endswith(".dist-info/METADATA")),
         None,

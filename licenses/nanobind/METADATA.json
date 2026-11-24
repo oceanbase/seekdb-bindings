@@ -1,0 +1,16 @@
+{
+  "name": "nanobind",
+  "version": "2.13.0",
+  "source": "https://github.com/wjakob/nanobind",
+  "packaged_as": "Statically linked into the seekdb_binding extension",
+  "license": "MIT",
+  "modified": "No local patch recorded",
+  "license_files": [
+    "LICENSE"
+  ],
+  "redistribution": "Retain the copyright and permission notice.",
+  "evidence": "scripts/requirements-wheel-build.txt requires nanobind>=2.0; LICENSE copied from nanobind 2.13.0 dist-info",
+  "shipped_in": [
+    "seekdb wheel"
+  ]
+}
