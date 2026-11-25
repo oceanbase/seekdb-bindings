@@ -107,8 +107,6 @@ def matrix():
         raise ValueError("BINARY_REPOSITORY must be owner/repository")
     run_id = str(int(os.environ["BINARY_RUN_ID"]))
     source = api("repos/%s/actions/runs/%s" % (repository, run_id))
-    if source["status"] != "completed":
-        raise ValueError("Choose a completed Package seekdb workflow run")
     artifacts = []
     page = 1
     while True:
@@ -129,6 +127,13 @@ def matrix():
         targets = [item for item in targets if item["os"] != "android"]
         if not targets:
             raise ValueError(component + " does not target Android")
+    executions = api("repos/%s/actions/runs/%s/jobs?filter=all&per_page=100" % (repository, run_id))
+    if executions["total_count"] > len(executions["jobs"]):
+        raise ValueError("Run %s has more than 100 jobs; choose another run" % run_id)
+    # Partial reruns leave successful platform jobs in earlier attempts.
+    jobs = {}
+    for job in sorted(executions["jobs"], key=lambda item: (item["run_attempt"], item["id"])):
+        jobs[job["name"]] = job
     for item in targets:
         binary = {
             "linux": "linux-%s-glibc%s" % (item["arch"], baseline),
@@ -137,6 +142,9 @@ def matrix():
         item["artifact"] = "binary-" + binary
         if item["artifact"] not in artifacts:
             raise ValueError("Run %s has no unexpired %s; select another run or an individual platform" % (run_id, item["artifact"]))
+        job = jobs.get(item["artifact"])
+        if job is None or (job["status"], job["conclusion"]) != ("completed", "success"):
+            raise ValueError("Run %s has no successful %s job; wait for that platform to finish" % (run_id, item["artifact"]))
     output("matrix", json.dumps({"include": targets}, separators=(",", ":")))
     output("source_commit", source["head_sha"])
     output("packaging_ref", PACKAGING_REF)

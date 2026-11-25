@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       binary_run_id:
-        description: Completed Package seekdb workflow run containing binary artifacts
+        description: Package seekdb run with successful binary jobs and available artifacts for the selected platforms
         required: true
         type: string
       binary_repository:
