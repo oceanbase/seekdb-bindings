@@ -127,8 +127,13 @@ def matrix():
         targets = [item for item in targets if item["os"] != "android"]
         if not targets:
             raise ValueError(component + " does not target Android")
-    jobs = {item["name"]: item for item in api(
-        "repos/%s/actions/runs/%s/jobs?filter=latest&per_page=100" % (repository, run_id))["jobs"]}
+    executions = api("repos/%s/actions/runs/%s/jobs?filter=all&per_page=100" % (repository, run_id))
+    if executions["total_count"] > len(executions["jobs"]):
+        raise ValueError("Run %s has more than 100 jobs; choose another run" % run_id)
+    # Partial reruns leave successful platform jobs in earlier attempts.
+    jobs = {}
+    for job in sorted(executions["jobs"], key=lambda item: (item["run_attempt"], item["id"])):
+        jobs[job["name"]] = job
     for item in targets:
         binary = {
             "linux": "linux-%s-glibc%s" % (item["arch"], baseline),
