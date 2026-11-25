@@ -45,6 +45,34 @@ verify_one_wheel() (
 
   echo "=== verifying wheel: $wheel (python: $py) ==="
 
+  "$py" - "$wheel" <<'PY'
+import hashlib
+import pathlib
+import sys
+import zipfile
+
+wheel = pathlib.Path(sys.argv[1])
+prefix = "pylibseekdb/licenses/bindings/"
+with zipfile.ZipFile(wheel) as archive:
+    names = archive.namelist()
+    required = [prefix + name for name in (
+        "LICENSE", "NOTICE", "THIRD_PARTY_COMPONENTS.json", "REDISTRIBUTION.md", "MANIFEST.sha256")]
+    missing = [name for name in required if name not in names]
+    if missing:
+        raise SystemExit(f"wheel is missing bindings license files: {missing}")
+    manifest = archive.read(prefix + "MANIFEST.sha256").decode().splitlines()
+    broken = []
+    for line in manifest:
+        checksum, _, relative = line.partition("  ")
+        member = prefix + relative
+        if member not in names or hashlib.sha256(archive.read(member)).hexdigest() != checksum:
+            broken.append(relative)
+    if broken:
+        raise SystemExit(f"bindings license manifest mismatch: {broken[:5]}")
+    if "pylibseekdb/licenses/THIRD_PARTY_COMPONENTS.json" not in names:
+        print(f"warning: wheel has no engine license inventory: {wheel}")
+PY
+
   local tmp
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT

@@ -1,0 +1,19 @@
+{
+  "name": "libaio",
+  "version": "0.3.112",
+  "source": "https://pagure.io/libaio",
+  "packaged_as": "Shared library shipped in the SDK and the pylibseekdb wheel (bin/libaio.so.1)",
+  "license": "LGPL-2.1-only",
+  "modified": "No local patch recorded",
+  "license_files": [
+    "COPYING"
+  ],
+  "redistribution": "Retain the LGPL-2.1 text and copyright notice; the shared library is replaceable by the user.",
+  "evidence": "seekdb engine dependency devdeps-libaio-0.3.112",
+  "shipped_in": [
+    "pylibseekdb wheel"
+  ],
+  "version_check": {
+    "engine_component": "devdeps-libaio"
+  }
+}

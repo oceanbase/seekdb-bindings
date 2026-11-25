@@ -345,3 +345,11 @@ Exception raised on driver errors.  Subclass of `RuntimeError`.
 ## License
 
 Apache-2.0 — see [LICENSE](https://github.com/oceanbase/seekdb-bindings/blob/main/LICENSE).
+
+The wheel ships the third-party license bundle under `pylibseekdb/licenses/`:
+the seekdb engine's bundle at the top level and the bindings layer under
+`licenses/bindings/` with its own LICENSE, NOTICE, component inventory
+(`THIRD_PARTY_COMPONENTS.md` / `.json`), redistribution requirements
+(`REDISTRIBUTION.md`), a `MANIFEST.sha256`, and the original license texts of
+every bundled component. Downstream redistributors must keep that directory
+together with the wheel.

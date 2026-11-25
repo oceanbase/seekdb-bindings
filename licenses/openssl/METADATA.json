@@ -1,0 +1,21 @@
+{
+  "name": "OpenSSL",
+  "version": "3.5.9",
+  "source": "https://github.com/openssl/openssl",
+  "packaged_as": "Statically linked into libseekdb.so via mariadb-connector-c",
+  "license": "Apache-2.0",
+  "modified": "No local patch recorded",
+  "license_files": [
+    "LICENSE.txt"
+  ],
+  "redistribution": "Retain the Apache-2.0 license text and copyright notices.",
+  "evidence": "deps/openssl submodule VERSION.dat; statically linked by the binding build",
+  "shipped_in": [
+    "pylibseekdb wheel"
+  ],
+  "version_check": {
+    "file": "deps/openssl/VERSION.dat",
+    "pattern": "MAJOR=(\\d+)\\s+MINOR=(\\d+)\\s+PATCH=(\\d+)",
+    "format": "{0}.{1}.{2}"
+  }
+}

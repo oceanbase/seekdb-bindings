@@ -401,13 +401,7 @@ def sdk(engine, metadata):
             raise ValueError("Engine and binding libraries conflict: " + path.name)
         shutil.copy2(path, destination)
     shutil.copytree(ROOT / "lib/include", prefix / "include")
-    licenses = prefix / "licenses/bindings"
-    licenses.mkdir(parents=True)
-    shutil.copy2(ROOT / "LICENSE", licenses / "LICENSE")
-    shutil.copy2(ROOT / "deps/mariadb-connector-c/COPYING.LIB", licenses / "MariaDB-COPYING.LIB")
-    shutil.copy2(ROOT / "deps/mariadb-connector-c/external/zlib/zlib.h", licenses / "zlib.h")
-    if layout != "windows":
-        shutil.copy2(ROOT / "deps/openssl/LICENSE.txt", licenses / "OpenSSL-LICENSE.txt")
+    run([sys.executable, ROOT / "scripts/stage-license-bundle.py", "--sdk-dir", prefix])
     metadata["target"] = os.environ["PACKAGE_TARGET"] + {
         "linux": "-glibc2.28", "macos": "-min15.0", "windows": "-md", "android": "-api28",
     }[layout]
@@ -418,6 +412,21 @@ def sdk(engine, metadata):
         run([sys.executable, "-c", code + "ctypes.CDLL(sys.argv[2])", native, native / library_name()])
     archive(prefix, "libseekdb", metadata)
     return prefix
+
+
+def verify_license_bundle(root):
+    bindings = root / "pylibseekdb/licenses/bindings"
+    required = ("LICENSE", "NOTICE", "THIRD_PARTY_COMPONENTS.json", "REDISTRIBUTION.md", "MANIFEST.sha256")
+    missing = [name for name in required if not (bindings / name).is_file()]
+    if missing:
+        raise ValueError("wheel is missing bindings license files: " + ", ".join(missing))
+    for line in (bindings / "MANIFEST.sha256").read_text().splitlines():
+        checksum, _, relative = line.partition("  ")
+        path = bindings / relative
+        if not path.is_file() or digest(path) != checksum:
+            raise ValueError("bindings license manifest mismatch: " + relative)
+    if not (root / "pylibseekdb/licenses/THIRD_PARTY_COMPONENTS.json").is_file():
+        print("warning: wheel has no engine license inventory: pylibseekdb/licenses")
 
 
 def python_wheels():
@@ -458,6 +467,7 @@ def python_wheels():
         with zipfile.ZipFile(wheel) as stream:
             stream.extractall(checked)
         symbols.verify_stripped(checked)
+        verify_license_bundle(checked)
         wheel.with_name(wheel.name + ".sha256").write_text(digest(wheel) + "  " + wheel.name + "\n")
 
 
