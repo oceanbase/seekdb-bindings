@@ -401,7 +401,8 @@ def sdk(engine, metadata):
             raise ValueError("Engine and binding libraries conflict: " + path.name)
         shutil.copy2(path, destination)
     shutil.copytree(ROOT / "lib/include", prefix / "include")
-    run([sys.executable, ROOT / "scripts/stage-license-bundle.py", "--sdk-dir", prefix])
+    run([sys.executable, ROOT / "scripts/stage-license-bundle.py", "--sdk-dir", prefix,
+         "--version", metadata["package_versions"]["python"]])
     metadata["target"] = os.environ["PACKAGE_TARGET"] + {
         "linux": "-glibc2.28", "macos": "-min15.0", "windows": "-md", "android": "-api28",
     }[layout]
