@@ -62,7 +62,7 @@ jobs:
           RELEASE_RUN_IDS: ${{ inputs.package_run_ids }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: python .github/scripts/release.py prepare
-      - name: Upload the release plan and checksums
+      - name: Upload the internal release plan and checksums
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-plan
@@ -97,7 +97,7 @@ jobs:
         with:
           name: release-assets
           path: build/release
-      - name: Create or resume the release and verify its uploads
+      - name: Create or resume the release with verified packages
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           RELEASE_MODE: ${{ inputs.mode }}

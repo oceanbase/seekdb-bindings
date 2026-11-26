@@ -164,7 +164,18 @@ def verify_bundle(directory, platform, commit):
     return metadata, versions, sorted(components), payloads
 
 
+def package_names(manifest):
+    return {name for platform in manifest["platforms"] for name in platform["packages"]}
+
+
 def release_notes(manifest):
+    version = re.match(r"v?([0-9]+\.[0-9]+\.[0-9]+)", manifest["engine_version"])
+    tag = f"v{version[1]}" if version else manifest["tag"]
+    label = tag.replace("]", r"\]")
+    return f"[seekdb {label} Release](https://github.com/oceanbase/seekdb/releases/tag/{quote(tag, safe='')})\n"
+
+
+def release_summary(manifest):
     lines = [f"# seekdb bindings {manifest['tag']}", "",
              f"Bindings commit: `{manifest['bindings_commit']}`",
              f"Engine version: `{manifest['engine_version']}`", "", "Package versions:", ""]
@@ -174,8 +185,8 @@ def release_notes(manifest):
         url = f"https://github.com/{manifest['repository']}/actions/runs/{source['run_id']}"
         lines.append(f"| `{source['target']}` | [{source['run_id']}]({url}) | `{source['seekdb_commit']}` |")
     lines += ["", "Packages:", ""]
-    lines += [f"- `{name}`" for name in sorted({name for source in manifest["platforms"] for name in source["packages"]})]
-    lines += ["", "All packages passed their platform smoke tests. See SHA256SUMS for asset checksums.", ""]
+    lines += [f"- `{name}`" for name in sorted(package_names(manifest))]
+    lines += ["", "All packages passed their platform smoke tests. See the release-plan artifact for checksums.", ""]
     return "\n".join(lines)
 
 
@@ -253,8 +264,8 @@ def prepare(repository, run_ids, tag, destination):
     (assets / "SHA256SUMS").write_text("".join(digest(path) + "  " + path.name + "\n" for path in sorted(assets.iterdir())))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-            summary.write(notes)
-    print(f"Verified {len(manifest['platforms'])} platforms and {sum(len(item['packages']) for item in manifest['platforms'])} packages", flush=True)
+            summary.write(release_summary(manifest))
+    print(f"Verified {len(manifest['platforms'])} platforms and {len(package_names(manifest))} packages", flush=True)
     return manifest
 
 
@@ -283,21 +294,24 @@ def load_prepared(repository, destination):
     return manifest, expected
 
 
-def remote_assets(repository, release_id, expected):
+def remote_assets(repository, release_id, expected, verification_files):
     existing = api(f"repos/{repository}/releases/{release_id}/assets?per_page=100")
     partial = []
+    verification_ids = []
     completed = set()
     for asset in existing:
         name = asset["name"]
-        if name not in expected:
+        if name in verification_files:
+            verification_ids.append(asset["id"])
+        elif name not in expected:
             raise ValueError("Release already contains an unexpected asset: " + name)
-        if asset["state"] == "starter":
+        elif asset["state"] == "starter":
             partial.append(asset["id"])
         elif asset["state"] == "uploaded" and asset.get("digest") == "sha256:" + expected[name]:
             completed.add(name)
         else:
             raise ValueError("Release asset conflicts with the prepared file: " + name)
-    return sorted(set(expected) - completed), partial
+    return sorted(set(expected) - completed), partial, verification_ids
 
 
 def find_release(repository, tag):
@@ -315,7 +329,12 @@ def find_release(repository, tag):
 
 
 def publish(repository, mode, destination):
-    manifest, expected = load_prepared(repository, destination)
+    manifest, checksums = load_prepared(repository, destination)
+    packages = package_names(manifest)
+    if not packages or not packages <= checksums.keys():
+        raise ValueError("Prepared packages do not match the release checksums")
+    expected = {name: checksums[name] for name in packages}
+    verification_files = checksums.keys() - packages
     tag = manifest["tag"]
     commit = manifest["bindings_commit"]
     tag_exists = check_tag(repository, tag, commit)
@@ -325,7 +344,7 @@ def publish(repository, mode, destination):
         if target["sha"] != commit:
             raise ValueError("Existing release targets a different bindings commit")
     if release is not None:
-        missing, partial = remote_assets(repository, release["id"], expected)
+        missing, partial, verification_ids = remote_assets(repository, release["id"], expected, verification_files)
         if not release["draft"]:
             if missing or partial or mode == "draft" or release["prerelease"] != (mode == "prerelease"):
                 raise ValueError("Published release differs; existing published assets will not be overwritten")
@@ -336,14 +355,14 @@ def publish(repository, mode, destination):
         gh("release", "create", tag, "--repo", repository, "--target", commit, "--title", "seekdb bindings " + tag,
            "--notes-file", destination / "release-notes.md", "--draft", "--latest=false", "--verify-tag")
         release = find_release(repository, tag)
-        missing, partial = remote_assets(repository, release["id"], expected)
-    # Only unfinished uploads are replaced; completed conflicting assets fail above.
-    for asset_id in partial:
+        missing, partial, verification_ids = remote_assets(repository, release["id"], expected, verification_files)
+    # Remove incomplete package uploads and verification files from older drafts.
+    for asset_id in partial + verification_ids:
         api(f"repos/{repository}/releases/assets/{asset_id}", method="DELETE")
     if missing:
         gh("release", "upload", tag, *[destination / "assets" / name for name in missing], "--repo", repository)
-    remaining, partial = remote_assets(repository, release["id"], expected)
-    if remaining or partial:
+    remaining, partial, verification_ids = remote_assets(repository, release["id"], expected, verification_files)
+    if remaining or partial or verification_ids:
         raise ValueError("Release upload is incomplete; leave the release as a draft and retry")
     ensure_tag(repository, tag, commit)
     gh("release", "edit", tag, "--repo", repository, "--target", commit,
