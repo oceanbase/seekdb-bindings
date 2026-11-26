@@ -1,0 +1,21 @@
+{
+  "name": "MariaDB Connector/C",
+  "version": "3.4.8",
+  "source": "https://github.com/mariadb-corporation/mariadb-connector-c",
+  "packaged_as": "Statically linked into libseekdb.so in the pylibseekdb wheel",
+  "license": "LGPL-2.1-only",
+  "modified": "No local patch recorded",
+  "license_files": [
+    "COPYING.LIB"
+  ],
+  "redistribution": "Retain the LGPL-2.1 text and the copyright notice. Connector/C is statically linked into libseekdb.so, so LGPL-2.1 section 6 applies: a distributor must accompany libseekdb with the complete corresponding source of Connector/C (or a written offer for it) and with the materials needed to relink libseekdb with a modified Connector/C, such as the object files or an equivalent build recipe, or otherwise satisfy section 6. Letting the user replace the shipped libseekdb.so with a compatible build is permitted, but does not by itself meet the relink requirement.",
+  "evidence": "deps/mariadb-connector-c submodule; CPACK_PACKAGE_VERSION; WITH_SSL=OPENSSL",
+  "shipped_in": [
+    "pylibseekdb wheel"
+  ],
+  "version_check": {
+    "file": "deps/mariadb-connector-c/CMakeLists.txt",
+    "pattern": "CPACK_PACKAGE_VERSION_MAJOR\\s+(\\d+)[\\s\\S]*?CPACK_PACKAGE_VERSION_MINOR\\s+(\\d+)[\\s\\S]*?CPACK_PACKAGE_VERSION_PATCH\\s+(\\d+)",
+    "format": "{0}.{1}.{2}"
+  }
+}

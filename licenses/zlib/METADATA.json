@@ -1,0 +1,33 @@
+{
+  "name": "zlib",
+  "version": "1.3.1",
+  "source": "https://zlib.net/",
+  "packaged_as": "Vendored in mariadb-connector-c and statically linked into libseekdb.so",
+  "license": "Zlib",
+  "modified": "No local patch recorded",
+  "license_files": [
+    "LICENSE"
+  ],
+  "redistribution": "Retain the notice, do not misrepresent origin, and mark altered source versions.",
+  "evidence": "deps/mariadb-connector-c/external/zlib/zlib.h ZLIB_VERSION for the builds that compile the vendored copy (Linux, Windows, Android); macOS selects the system zlib through WITH_EXTERNAL_ZLIB, see system_library",
+  "shipped_in": [
+    "pylibseekdb wheel"
+  ],
+  "version_check": {
+    "file": "deps/mariadb-connector-c/external/zlib/zlib.h",
+    "pattern": "#define\\s+ZLIB_VERSION\\s+\"([^\"]+)\"",
+    "format": "{0}"
+  },
+  "system_library": {
+    "layouts": [
+      "macos"
+    ],
+    "packaged_as": "System zlib provided by macOS (libz.1.dylib); libseekdb links it dynamically and the wheel does not bundle it",
+    "version_from": {
+      "env": "SDKROOT",
+      "header": "usr/include/zlib.h",
+      "pattern": "#define\\s+ZLIB_VERSION\\s+\"([^\"]+)\"",
+      "format": "{0}"
+    }
+  }
+}

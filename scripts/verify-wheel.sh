@@ -49,6 +49,27 @@ verify_one_wheel() (
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
 
+  # The bindings license bundle must be complete: every inventory license
+  # text and required file listed in a non-empty manifest with matching
+  # digests (scripts/stage-license-bundle.py --verify).
+  "$py" - "$wheel" "$tmp" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+wheel, tmp = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+prefix = "pylibseekdb/licenses/bindings/"
+with zipfile.ZipFile(wheel) as archive:
+    members = [name for name in archive.namelist() if name.startswith(prefix) and not name.endswith("/")]
+    if not members:
+        raise SystemExit(f"wheel has no bindings license bundle: {wheel}")
+    for name in members:
+        archive.extract(name, tmp)
+    if "pylibseekdb/licenses/THIRD_PARTY_COMPONENTS.json" not in archive.namelist():
+        print(f"warning: wheel has no engine license inventory: {wheel}")
+PY
+  "$py" "$REPO_ROOT/scripts/stage-license-bundle.py" --verify "$tmp/pylibseekdb/licenses/bindings"
+
   "$py" -m venv "$tmp/venv"
   # shellcheck disable=SC1091
   source "$tmp/venv/bin/activate"

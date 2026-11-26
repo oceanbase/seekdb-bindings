@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import gzip
 import hashlib
+import importlib.util
 import inspect
 import io
 import json
@@ -409,13 +410,9 @@ def sdk(engine, metadata):
             raise ValueError("Engine and binding libraries conflict: " + path.name)
         shutil.copy2(path, destination)
     shutil.copytree(ROOT / "lib/include", prefix / "include")
-    licenses = prefix / "licenses/bindings"
-    licenses.mkdir(parents=True)
-    shutil.copy2(ROOT / "LICENSE", licenses / "LICENSE")
-    shutil.copy2(ROOT / "deps/mariadb-connector-c/COPYING.LIB", licenses / "MariaDB-COPYING.LIB")
-    shutil.copy2(ROOT / "deps/mariadb-connector-c/external/zlib/zlib.h", licenses / "zlib.h")
-    if layout != "windows":
-        shutil.copy2(ROOT / "deps/openssl/LICENSE.txt", licenses / "OpenSSL-LICENSE.txt")
+    run([sys.executable, ROOT / "scripts/stage-license-bundle.py", "--sdk-dir", prefix,
+         "--version", metadata["package_versions"]["python"],
+         "--layout", layout, "--tls-provider", metadata["tls_provider"]])
     metadata["target"] = os.environ["PACKAGE_TARGET"] + {
         "linux": "-glibc2.28", "macos": "-min15.0", "windows": "-md", "android": "-api28",
     }[layout]
@@ -426,6 +423,21 @@ def sdk(engine, metadata):
         run([sys.executable, "-c", code + "ctypes.CDLL(sys.argv[2])", native, native / library_name()])
     archive(prefix, "libseekdb", metadata)
     return prefix
+
+
+def license_bundle_problems(bindings):
+    spec = importlib.util.spec_from_file_location("stage_license_bundle", ROOT / "scripts/stage-license-bundle.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.verify_bundle(bindings)
+
+
+def verify_license_bundle(root):
+    problems = license_bundle_problems(root / "pylibseekdb/licenses/bindings")
+    if problems:
+        raise ValueError("bindings license bundle: " + "; ".join(problems))
+    if not (root / "pylibseekdb/licenses/THIRD_PARTY_COMPONENTS.json").is_file():
+        print("warning: wheel has no engine license inventory: pylibseekdb/licenses")
 
 
 def python_wheels():
@@ -466,6 +478,7 @@ def python_wheels():
         with zipfile.ZipFile(wheel) as stream:
             stream.extractall(checked)
         symbols.verify_stripped(checked)
+        verify_license_bundle(checked)
         wheel.with_name(wheel.name + ".sha256").write_text(digest(wheel) + "  " + wheel.name + "\n")
 
 

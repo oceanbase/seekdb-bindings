@@ -17,6 +17,7 @@ seekdb-bindings/
 ├── rust/                       Rust lifecycle binding, embedded native runtime and SQL examples
 ├── java/                       Java lifecycle API and JNI bridge
 ├── android/                    Android packaging and examples
+├── licenses/                   third-party license corpus bundled into the SDK and wheels
 ├── scripts/                    wheel build, seekdb manylinux build, verify-wheel, etc.
 └── deps/                       vendored mariadb-connector-c, googletest
 ```
