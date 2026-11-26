@@ -17,5 +17,8 @@
     "file": "deps/openssl/VERSION.dat",
     "pattern": "MAJOR=(\\d+)\\s+MINOR=(\\d+)\\s+PATCH=(\\d+)",
     "format": "{0}.{1}.{2}"
-  }
+  },
+  "tls_providers": [
+    "openssl"
+  ]
 }

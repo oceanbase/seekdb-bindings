@@ -6,12 +6,15 @@ engine's license bundle under ``licenses/``.  This script validates the
 bindings component corpus in ``licenses/`` and renders the bindings layer next
 to it: the project LICENSE and NOTICE, the component inventory, the
 redistribution requirements, a checksum manifest, and the original license
-texts.
+texts.  Without ``--sdk-dir`` it renders the bindings layer alone, which is
+how a wheel built without the SDK gets its license materials.  ``--verify``
+checks a rendered bindings directory against its own manifest and inventory.
 """
 
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -70,7 +73,34 @@ def python_package_version(name):
         return None
 
 
+def build_requirement_version(name):
+    """Return the exact ``name==x.y.z`` pin in python/pyproject.toml, if any."""
+    path = ROOT / "python" / "pyproject.toml"
+    if not path.is_file():
+        return None
+    section = re.search(r"^\[build-system\](.*?)(?=^\[|\Z)", path.read_text(encoding="utf-8"),
+                        re.MULTILINE | re.DOTALL)
+    if not section:
+        return None
+    match = re.search(r'"%s==([^"\s]+)"' % re.escape(name), section.group(1))
+    return match.group(1) if match else None
+
+
+def sdk_header_version(spec):
+    """Return the version recorded in a platform SDK header, if the SDK is present."""
+    root = os.environ.get(spec.get("env", ""))
+    if not root:
+        return None
+    path = Path(root) / spec["header"]
+    if not path.is_file():
+        return None
+    match = re.search(spec["pattern"], path.read_text(encoding="utf-8", errors="replace"))
+    return spec["format"].format(*match.groups()) if match else None
+
+
 def engine_inventory(sdk_dir):
+    if sdk_dir is None:
+        return None
     path = Path(sdk_dir) / "licenses" / "THIRD_PARTY_COMPONENTS.json"
     if not path.is_file():
         return None
@@ -82,7 +112,7 @@ def engine_inventory(sdk_dir):
 
 def engine_component_version(sdk_dir, name):
     inventory = engine_inventory(sdk_dir)
-    if not inventory:
+    if not inventory or not name:
         return None
     for component in inventory.get("components", []):
         if component.get("name", "").lower() == name.lower():
@@ -90,25 +120,54 @@ def engine_component_version(sdk_dir, name):
     return None
 
 
-def resolve_version(component, sdk_dir):
+def system_library(component, layout):
+    """Return the system-library descriptor when the layout provides the component itself."""
+    spec = component.get("system_library")
+    if spec and layout and layout in spec.get("layouts", ()):
+        return spec
+    return None
+
+
+def resolve_version(component, sdk_dir, layout=None):
     """Return (version, notes) after applying version_from and version_check."""
     version = component["version"]
     notes = []
-    source = component.get("version_from")
-    if source and "python_package" in source:
-        resolved = python_package_version(source["python_package"])
-        if resolved:
-            version = resolved
-        else:
+    system = system_library(component, layout)
+    sources = component.get("version_from", [])
+    if isinstance(sources, dict):
+        sources = [sources]
+    for source in sources:
+        if "build_requirement" in source:
+            resolved = build_requirement_version(source["build_requirement"])
+            if resolved:
+                version = resolved
+                break
+            notes.append("%s has no exact %s== build requirement; using %s" % (
+                component["name"], source["build_requirement"], version))
+        elif "python_package" in source:
+            resolved = python_package_version(source["python_package"])
+            if resolved:
+                version = resolved
+                break
             notes.append("%s version not resolvable at build time; using %s" % (
                 component["name"], version))
+    if system:
+        # The platform provides this library, so the dependency source that the
+        # vendored description and version_check refer to is not compiled.
+        resolved = sdk_header_version(system.get("version_from", {}))
+        if resolved:
+            version = resolved
+        notes.append("%s is provided by %s and is not bundled; version recorded as %s" % (
+            component["name"], layout, version or "unspecified"))
+        return version, notes
     check = component.get("version_check")
     if check:
         if "engine_component" in check:
             actual = engine_component_version(sdk_dir, check["engine_component"])
             if actual is None:
-                notes.append("engine inventory has no %s entry; %s version not cross-checked" % (
-                    check["engine_component"], component["name"]))
+                notes.append("%s; %s version not cross-checked" % (
+                    "no engine inventory is available" if engine_inventory(sdk_dir) is None
+                    else "engine inventory has no %s entry" % check["engine_component"], component["name"]))
             elif actual != version:
                 raise ValueError("%s version %s does not match the engine component %s (%s)" % (
                     component["name"], version, check["engine_component"], actual))
@@ -141,6 +200,8 @@ def license_cell(component):
 def artifact_version(sdk_dir, override):
     if override:
         return override
+    if sdk_dir is None:
+        raise ValueError("--version is required when --sdk-dir is not given")
     path = Path(sdk_dir) / "BUILD-INFO.json"
     if path.is_file():
         try:
@@ -227,16 +288,26 @@ def render_redistribution(components):
     return "\n".join(lines)
 
 
-def render_readme(engine_inventory_present):
+def render_readme(engine_inventory_present, engine_layer=True):
+    if engine_layer:
+        layers = [
+            "- `licenses/` (this directory): the seekdb engine's license bundle,",
+            "  generated by the seekdb source tree. It contains the engine's LICENSE,",
+            "  NOTICE, third-party component inventory, redistribution requirements and",
+            "  the original license texts of every engine component.",
+        ]
+    else:
+        layers = [
+            "- `licenses/` (this directory): the package was built without the seekdb",
+            "  SDK, so the engine's license bundle is not here; a package built from the",
+            "  SDK carries it in this directory.",
+        ]
     lines = [
         "# Third-party license bundle",
         "",
         "This directory has two layers:",
         "",
-        "- `licenses/` (this directory): the seekdb engine's license bundle,",
-        "  generated by the seekdb source tree. It contains the engine's LICENSE,",
-        "  NOTICE, third-party component inventory, redistribution requirements and",
-        "  the original license texts of every engine component.",
+        *layers,
         "- `licenses/bindings/`: the components added by seekdb-bindings, with the",
         "  project LICENSE, NOTICE, inventory, redistribution requirements and",
         "  license texts.",
@@ -248,12 +319,19 @@ def render_readme(engine_inventory_present):
             "`bindings/THIRD_PARTY_COMPONENTS.md` (bindings).",
             "",
         ])
-    else:
+    elif engine_layer:
         lines.extend([
             "The engine bundle in this build does not contain a component inventory",
             "(`THIRD_PARTY_COMPONENTS.md`). The engine's inventory is added by the",
             "seekdb source tree; `bindings/THIRD_PARTY_COMPONENTS.md` covers the",
             "bindings layer only.",
+            "",
+        ])
+    else:
+        lines.extend([
+            "`bindings/THIRD_PARTY_COMPONENTS.md` covers the bindings layer; the",
+            "engine's components are listed in the inventory of the SDK the engine",
+            "was packaged with.",
             "",
         ])
     return "\n".join(lines)
@@ -274,11 +352,14 @@ def write_manifest(target):
     (target / "MANIFEST.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def stage(sdk_dir, output=None, version=None):
-    sdk_dir = Path(sdk_dir)
+def stage(sdk_dir, output=None, version=None, layout=None, tls_provider=None):
+    if sdk_dir is not None:
+        sdk_dir = Path(sdk_dir)
+        if not (sdk_dir / "BUILD-INFO.json").is_file() and not (sdk_dir / "licenses").is_dir():
+            raise ValueError("%s does not look like an SDK prefix" % sdk_dir)
+    elif not output:
+        raise ValueError("--output is required when --sdk-dir is not given")
     output = Path(output) if output else sdk_dir / "licenses"
-    if not (sdk_dir / "BUILD-INFO.json").is_file() and not (sdk_dir / "licenses").is_dir():
-        raise ValueError("%s does not look like an SDK prefix" % sdk_dir)
     bindings = output / "bindings"
     if bindings.exists():
         shutil.rmtree(bindings)
@@ -287,7 +368,16 @@ def stage(sdk_dir, output=None, version=None):
     components = []
     notes = []
     for component in load_components():
-        resolved, messages = resolve_version(component, sdk_dir)
+        providers = component.get("tls_providers")
+        if providers and tls_provider and tls_provider not in providers:
+            notes.append("%s is not linked with tls_provider=%s; omitted from the inventory" % (
+                component["name"], tls_provider))
+            continue
+        system = system_library(component, layout)
+        if system:
+            component["packaged_as"] = system["packaged_as"]
+            component["modified"] = "Platform system library; not built or modified by this project"
+        resolved, messages = resolve_version(component, sdk_dir, layout)
         component["version"] = resolved
         components.append(component)
         notes.extend(messages)
@@ -320,7 +410,10 @@ def stage(sdk_dir, output=None, version=None):
 
     readme = output / "README.md"
     if not readme.exists():
-        readme.write_text(render_readme(engine_inventory(sdk_dir) is not None), encoding="utf-8")
+        engine_layer = ((output / "LICENSE").is_file() or (output / "THIRD_PARTY_COMPONENTS.json").is_file()
+                        or engine_inventory(sdk_dir) is not None)
+        readme.write_text(render_readme(engine_inventory(sdk_dir) is not None, engine_layer),
+                          encoding="utf-8")
 
     print("staged bindings license bundle in %s (%d components, pylibseekdb %s)" % (
         bindings, len(components), version))
@@ -329,15 +422,80 @@ def stage(sdk_dir, output=None, version=None):
     return bindings
 
 
+def verify_bundle(bindings):
+    """Return the problems found in a rendered bindings directory.
+
+    Every inventory license file and every required file must be listed in a
+    non-empty manifest with a matching digest, nothing else may be present, and
+    a version derived from an exact build requirement must still match the pin.
+    """
+    bindings = Path(bindings)
+    required = ("LICENSE", "NOTICE", "THIRD_PARTY_COMPONENTS.json", "REDISTRIBUTION.md", "MANIFEST.sha256")
+    missing = [name for name in required if not (bindings / name).is_file()]
+    if missing:
+        return ["missing bindings license files: " + ", ".join(missing)]
+    problems = []
+    entries = {}
+    for line in (bindings / "MANIFEST.sha256").read_text(encoding="utf-8").splitlines():
+        checksum, separator, relative = line.partition("  ")
+        if not separator or not relative.strip():
+            problems.append("malformed manifest line: %r" % line)
+            continue
+        entries[relative] = checksum
+    if not entries:
+        problems.append("bindings license manifest is empty")
+    inventory = json.loads((bindings / "THIRD_PARTY_COMPONENTS.json").read_text(encoding="utf-8"))
+    expected = set(required) - {"MANIFEST.sha256"}
+    for component in inventory.get("components", []):
+        for relative in component.get("license_files", []):
+            expected.add("%s/%s" % (component["directory"], relative))
+        sources = component.get("version_from", [])
+        for source in (sources if isinstance(sources, list) else [sources]):
+            if isinstance(source, dict) and "build_requirement" in source:
+                pinned = build_requirement_version(source["build_requirement"])
+                if pinned and pinned != component.get("version"):
+                    problems.append("%s version %s differs from the %s==%s build requirement" % (
+                        component["name"], component.get("version"), source["build_requirement"], pinned))
+    for relative in sorted(expected):
+        if not (bindings / relative).is_file():
+            problems.append("missing " + relative)
+        elif relative not in entries:
+            problems.append("not listed in the manifest: " + relative)
+    present = {path.relative_to(bindings).as_posix() for path in bindings.rglob("*")
+               if path.is_file()} - {"MANIFEST.sha256"}
+    for relative in sorted(present - set(entries)):
+        problems.append("not listed in the manifest: " + relative)
+    for relative in sorted(present & set(entries)):
+        if hashlib.sha256((bindings / relative).read_bytes()).hexdigest() != entries[relative]:
+            problems.append("manifest digest mismatch: " + relative)
+    return sorted(set(problems))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sdk-dir", type=Path, required=True,
+    parser.add_argument("--sdk-dir", type=Path, default=None,
                         help="SDK prefix that contains the engine licenses/ directory")
     parser.add_argument("--output", type=Path, default=None,
                         help="output directory (default: <sdk-dir>/licenses)")
-    parser.add_argument("--version", default=None)
+    parser.add_argument("--version", default=None,
+                        help="pylibseekdb version recorded in the inventory (required without --sdk-dir)")
+    parser.add_argument("--layout", default=None,
+                        help="packaging layout (linux, macos, windows, android); selects system-library records")
+    parser.add_argument("--tls-provider", default=None,
+                        help="TLS provider of the build (openssl or schannel); omits the records it excludes")
+    parser.add_argument("--verify", type=Path, default=None, metavar="DIR",
+                        help="check a rendered bindings/ directory and exit non-zero on problems")
     arguments = parser.parse_args()
-    stage(arguments.sdk_dir, arguments.output, arguments.version)
+    if arguments.verify:
+        problems = verify_bundle(arguments.verify)
+        for problem in problems:
+            print("error: " + problem)
+        if problems:
+            raise SystemExit(1)
+        print("bindings license bundle OK: %s" % arguments.verify)
+        return
+    stage(arguments.sdk_dir, arguments.output, arguments.version,
+          arguments.layout, arguments.tls_provider)
 
 
 if __name__ == "__main__":

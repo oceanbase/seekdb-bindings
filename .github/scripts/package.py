@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import gzip
 import hashlib
+import importlib.util
 import inspect
 import io
 import json
@@ -402,7 +403,8 @@ def sdk(engine, metadata):
         shutil.copy2(path, destination)
     shutil.copytree(ROOT / "lib/include", prefix / "include")
     run([sys.executable, ROOT / "scripts/stage-license-bundle.py", "--sdk-dir", prefix,
-         "--version", metadata["package_versions"]["python"]])
+         "--version", metadata["package_versions"]["python"],
+         "--layout", layout, "--tls-provider", metadata["tls_provider"]])
     metadata["target"] = os.environ["PACKAGE_TARGET"] + {
         "linux": "-glibc2.28", "macos": "-min15.0", "windows": "-md", "android": "-api28",
     }[layout]
@@ -415,17 +417,17 @@ def sdk(engine, metadata):
     return prefix
 
 
+def license_bundle_problems(bindings):
+    spec = importlib.util.spec_from_file_location("stage_license_bundle", ROOT / "scripts/stage-license-bundle.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.verify_bundle(bindings)
+
+
 def verify_license_bundle(root):
-    bindings = root / "pylibseekdb/licenses/bindings"
-    required = ("LICENSE", "NOTICE", "THIRD_PARTY_COMPONENTS.json", "REDISTRIBUTION.md", "MANIFEST.sha256")
-    missing = [name for name in required if not (bindings / name).is_file()]
-    if missing:
-        raise ValueError("wheel is missing bindings license files: " + ", ".join(missing))
-    for line in (bindings / "MANIFEST.sha256").read_text().splitlines():
-        checksum, _, relative = line.partition("  ")
-        path = bindings / relative
-        if not path.is_file() or digest(path) != checksum:
-            raise ValueError("bindings license manifest mismatch: " + relative)
+    problems = license_bundle_problems(root / "pylibseekdb/licenses/bindings")
+    if problems:
+        raise ValueError("bindings license bundle: " + "; ".join(problems))
     if not (root / "pylibseekdb/licenses/THIRD_PARTY_COMPONENTS.json").is_file():
         print("warning: wheel has no engine license inventory: pylibseekdb/licenses")
 

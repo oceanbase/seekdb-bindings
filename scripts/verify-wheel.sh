@@ -45,37 +45,30 @@ verify_one_wheel() (
 
   echo "=== verifying wheel: $wheel (python: $py) ==="
 
-  "$py" - "$wheel" <<'PY'
-import hashlib
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  # The bindings license bundle must be complete: every inventory license
+  # text and required file listed in a non-empty manifest with matching
+  # digests (scripts/stage-license-bundle.py --verify).
+  "$py" - "$wheel" "$tmp" <<'PY'
 import pathlib
 import sys
 import zipfile
 
-wheel = pathlib.Path(sys.argv[1])
+wheel, tmp = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 prefix = "pylibseekdb/licenses/bindings/"
 with zipfile.ZipFile(wheel) as archive:
-    names = archive.namelist()
-    required = [prefix + name for name in (
-        "LICENSE", "NOTICE", "THIRD_PARTY_COMPONENTS.json", "REDISTRIBUTION.md", "MANIFEST.sha256")]
-    missing = [name for name in required if name not in names]
-    if missing:
-        raise SystemExit(f"wheel is missing bindings license files: {missing}")
-    manifest = archive.read(prefix + "MANIFEST.sha256").decode().splitlines()
-    broken = []
-    for line in manifest:
-        checksum, _, relative = line.partition("  ")
-        member = prefix + relative
-        if member not in names or hashlib.sha256(archive.read(member)).hexdigest() != checksum:
-            broken.append(relative)
-    if broken:
-        raise SystemExit(f"bindings license manifest mismatch: {broken[:5]}")
-    if "pylibseekdb/licenses/THIRD_PARTY_COMPONENTS.json" not in names:
+    members = [name for name in archive.namelist() if name.startswith(prefix) and not name.endswith("/")]
+    if not members:
+        raise SystemExit(f"wheel has no bindings license bundle: {wheel}")
+    for name in members:
+        archive.extract(name, tmp)
+    if "pylibseekdb/licenses/THIRD_PARTY_COMPONENTS.json" not in archive.namelist():
         print(f"warning: wheel has no engine license inventory: {wheel}")
 PY
-
-  local tmp
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  "$py" "$REPO_ROOT/scripts/stage-license-bundle.py" --verify "$tmp/pylibseekdb/licenses/bindings"
 
   "$py" -m venv "$tmp/venv"
   # shellcheck disable=SC1091

@@ -3,17 +3,22 @@
   "version": "2.13.0",
   "source": "https://github.com/wjakob/nanobind",
   "packaged_as": "Statically linked into the pylibseekdb extension",
-  "license": "MIT",
+  "license": "BSD-3-Clause",
   "modified": "No local patch recorded",
   "license_files": [
     "LICENSE"
   ],
-  "redistribution": "Retain the copyright and permission notice.",
-  "evidence": "scripts/requirements-wheel-build.txt and python/pyproject.toml build requirements",
+  "redistribution": "Retain the copyright notice, the three conditions and the disclaimer in source and binary redistributions; do not use the names of the authors to endorse derived products.",
+  "evidence": "python/pyproject.toml build requirement nanobind==2.13.0; scripts/requirements-wheel-build.txt; statically linked by the extension build",
   "shipped_in": [
     "pylibseekdb wheel"
   ],
-  "version_from": {
-    "python_package": "nanobind"
-  }
+  "version_from": [
+    {
+      "build_requirement": "nanobind"
+    },
+    {
+      "python_package": "nanobind"
+    }
+  ]
 }

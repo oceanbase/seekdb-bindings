@@ -8,7 +8,7 @@
   "license_files": [
     "COPYING.LIB"
   ],
-  "redistribution": "Retain the LGPL-2.1 text and copyright notice. libseekdb is shipped as a shared library, so the user can replace it with a compatible build; provide the corresponding source of libseekdb on request.",
+  "redistribution": "Retain the LGPL-2.1 text and the copyright notice. Connector/C is statically linked into libseekdb.so, so LGPL-2.1 section 6 applies: a distributor must accompany libseekdb with the complete corresponding source of Connector/C (or a written offer for it) and with the materials needed to relink libseekdb with a modified Connector/C, such as the object files or an equivalent build recipe, or otherwise satisfy section 6. Letting the user replace the shipped libseekdb.so with a compatible build is permitted, but does not by itself meet the relink requirement.",
   "evidence": "deps/mariadb-connector-c submodule; CPACK_PACKAGE_VERSION; WITH_SSL=OPENSSL",
   "shipped_in": [
     "pylibseekdb wheel"

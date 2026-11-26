@@ -137,6 +137,10 @@ if (SEEKDB_PYTHON_STANDALONE)
             file(GLOB _seekdb_runtime_dlls "${SEEKDB_LIB_DIR}/*.dll")
             install(FILES ${_seekdb_runtime_dlls} DESTINATION pylibseekdb)
         endif()
+        # Without the SDK there is no engine bundle to install from; render the
+        # bindings layer so the wheel still ships its own license materials.
+        # install(CODE) takes exactly one code argument; statements are separated by \n.
+        install(CODE "execute_process(COMMAND \"${Python_EXECUTABLE}\" \"${CMAKE_CURRENT_SOURCE_DIR}/../scripts/stage-license-bundle.py\" --output \"\${CMAKE_INSTALL_PREFIX}/pylibseekdb/licenses\" --version \"${SKBUILD_PROJECT_VERSION}\" RESULT_VARIABLE _seekdb_licenses_rc)\nif(NOT _seekdb_licenses_rc EQUAL 0)\n  message(FATAL_ERROR \"staging the bindings license bundle failed: \${_seekdb_licenses_rc}\")\nendif()")
     endif()
 endif()
 
